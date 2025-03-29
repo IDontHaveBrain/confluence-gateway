@@ -8,38 +8,42 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "atlassian-python-api>=4.0.0",
+    "fastapi>=0.115.12",
     "litellm>=1.65.0",
     "pydantic>=2.11.1",
+    "python-dotenv>=1.1.0",
+    "requests>=2.32.3",
+    "sentence-transformers>=4.0.1",
 ]
 
 [dependency-groups]
 dev = [
     "mypy>=1.15.0",
     "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
     "ruff>=0.11.2",
-    "typing-extensions>=4.13.0",
 ]
 
 [tool.ruff]
-line-length = 100
-select = [
+lint.select = [
     "E",  # pycodestyle errors
     "F",  # pyflakes
     "I",  # isort
     "UP",   # pyupgrade
 ]
-ignore = [
+lint.ignore = [
     "E501",  # line too long
 ]
-fixable = ["E", "F", "I", "UP"]
-format = true
+lint.fixable = ["E", "F", "I", "UP"]
 target-version = "py39"
 src = [
     "confluence_gateway",
     "tests",
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402", "F811"]
 
 [tool.mypy]
