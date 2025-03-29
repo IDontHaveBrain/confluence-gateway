@@ -1,6 +1,8 @@
-# Confluence Gateway
+# Confluence Gateway <a name="english"></a>
 
 [![Project Status: WIP – Initial development is in progress.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
+
+[English](#english) | [한국어](#한국어)
 <!-- TODO: Add other badges like Build Status, Coverage, License, PyPI version when applicable -->
 <!-- [![Build Status](...)](...) -->
 <!-- [![Coverage Status](...)](...) -->
@@ -26,3 +28,27 @@ This project is designed for teams and developers looking to unlock deeper insig
 ## Project Status
 
 This project is currently in the **early stages of development (Alpha)**.
+
+---
+
+# Confluence Gateway <a name="한국어"></a>
+
+**RAG 및 LLM을 활용한 향상된 Confluence 검색 및 지식 검색**
+
+Confluence Gateway는 Confluence 지식 베이스와 최신 AI 기능 간의 격차를 해소하는 것을 목표로 합니다. Confluence 문서를 기반으로 향상된 검색 기능, RAG(Retrieval-Augmented Generation) 통합, LLM(Large Language Model) 기반 답변을 제공합니다.
+
+## 개요
+
+많은 팀이 Confluence를 중앙 지식 저장소로 사용합니다. 그러나 표준 검색만으로는 *정확한* 정보를 빠르게 찾는 것이 어려울 수 있습니다. Confluence Gateway는 다음을 통해 이러한 경험을 향상시킵니다:
+
+1.  **인덱싱:** Confluence 페이지 처리 및 임베딩.
+2.  **검색 (Retrieval):** 사용자 쿼리를 기반으로 가장 관련성 높은 문서 청크를 찾기 위해 시맨틱 검색(RAG) 사용.
+3.  **생성 (Generation):** 검색된 문서의 정보를 종합하고 직접적이고 맥락에 맞는 답변을 제공하기 위해 LLM 활용.
+4.  **직접 API 접근:** Confluence API를 통한 표준 키워드 검색 제공.
+5.  **MCP 서버:** 특정 MCP 관련 기능 제공 (세부 사항 추후 결정).
+
+이 프로젝트는 Confluence 인스턴스 내에서 더 깊은 통찰력을 얻고 정보 접근성을 개선하려는 팀과 개발자를 위해 설계되었습니다.
+
+## 프로젝트 상태
+
+이 프로젝트는 현재 **초기 개발 단계(알파)**입니다.
