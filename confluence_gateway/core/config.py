@@ -1,5 +1,6 @@
 import os
-from typing import Any
+import platform
+from typing import Any, Optional
 
 from pydantic import BaseModel, HttpUrl
 
@@ -37,33 +38,75 @@ class SearchConfig(BaseModel):
 
 
 def load_from_env(prefix: str, case_sensitive: bool = False) -> dict[str, Any]:
-    """Load configuration values from environment variables with the given prefix."""
-    env_vars = {}
-    for key, value in os.environ.items():
-        env_key = key if case_sensitive else key.upper()
-        prefix_upper = prefix if case_sensitive else prefix.upper()
+    """
+    Load configuration values from environment variables with the given prefix.
 
-        if env_key.startswith(prefix_upper):
-            config_key = (
-                key[len(prefix) :] if case_sensitive else key[len(prefix) :].lower()
-            )
-            env_vars[config_key] = value
+    Args:
+        prefix: Prefix to match in environment variable names
+        case_sensitive: Whether to match the prefix case-sensitively
+                        (Note: On Windows, environment variables are case-insensitive
+                        by default, so this parameter has no effect on Windows)
+
+    Returns:
+        Dictionary mapping configuration keys to their values
+    """
+    env_vars = {}
+
+    # Check if we're on Windows, where environment variables are case-insensitive
+    is_windows = platform.system().lower() == "windows"
+
+    # Skip case-sensitive matching on Windows as it's not supported by the OS
+    effective_case_sensitive = case_sensitive and not is_windows
+
+    for key, value in os.environ.items():
+        if effective_case_sensitive:
+            # Case-sensitive matching (non-Windows only)
+            if key.startswith(prefix):
+                config_key = key[len(prefix) :]
+                env_vars[config_key] = value
+        else:
+            # Case-insensitive matching
+            if key.upper().startswith(prefix.upper()):
+                config_key = key[len(prefix) :].lower()
+                env_vars[config_key] = value
+
     return env_vars
 
 
-# Load configuration values from environment variables.
-# Required environment variables: CONFLUENCE_URL, CONFLUENCE_USERNAME, CONFLUENCE_API_TOKEN
-# Optional environment variables: CONFLUENCE_TIMEOUT, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT, SEARCH_DEFAULT_EXPAND
-confluence_env = load_from_env("CONFLUENCE_")
-search_env = load_from_env("SEARCH_")
+def load_search_config_from_env() -> SearchConfig:
+    """Load search configuration from environment variables."""
+    search_env = load_from_env("SEARCH_")
 
-# Convert string values to appropriate types for search config
-if "default_limit" in search_env:
-    search_env["default_limit"] = int(search_env["default_limit"])
-if "max_limit" in search_env:
-    search_env["max_limit"] = int(search_env["max_limit"])
-if "default_expand" in search_env and isinstance(search_env["default_expand"], str):
-    search_env["default_expand"] = search_env["default_expand"].split(",")
+    # Convert string values to appropriate types
+    if "default_limit" in search_env:
+        search_env["default_limit"] = int(search_env["default_limit"])
+    if "max_limit" in search_env:
+        search_env["max_limit"] = int(search_env["max_limit"])
+    if "default_expand" in search_env and isinstance(search_env["default_expand"], str):
+        search_env["default_expand"] = search_env["default_expand"].split(",")
 
-confluence_config = ConfluenceConfig(**confluence_env)
-search_config = SearchConfig(**search_env)
+    return SearchConfig(**search_env)
+
+
+def load_confluence_config_from_env() -> Optional[ConfluenceConfig]:
+    """
+    Load Confluence configuration from environment variables.
+    Returns None if required variables are not set.
+    """
+    confluence_env = load_from_env("CONFLUENCE_")
+
+    # Check for required fields
+    required_fields = ["url", "username", "api_token"]
+    if not all(field in confluence_env for field in required_fields):
+        return None
+
+    # Convert timeout to int if present
+    if "timeout" in confluence_env and isinstance(confluence_env["timeout"], str):
+        confluence_env["timeout"] = int(confluence_env["timeout"])
+
+    return ConfluenceConfig(**confluence_env)
+
+
+# Global config instances - will be None if required env vars aren't set
+confluence_config = load_confluence_config_from_env()
+search_config = load_search_config_from_env()
