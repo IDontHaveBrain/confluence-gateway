@@ -6,8 +6,6 @@ from confluence_gateway.core.config import search_config
 
 
 class BaseSearchRequest(BaseModel):
-    """Base model for search requests with common parameters."""
-
     limit: Optional[int] = None
     start: Optional[int] = None
     expand: Optional[list[str]] = None
@@ -29,8 +27,6 @@ class BaseSearchRequest(BaseModel):
 
 
 class TextSearchRequest(BaseSearchRequest):
-    """Model for text-based search requests."""
-
     query: str
     space_key: Optional[str] = None
     content_type: Optional[str] = None
@@ -69,8 +65,6 @@ class TextSearchRequest(BaseSearchRequest):
 
 
 class CQLSearchRequest(BaseSearchRequest):
-    """Model for CQL-based search requests."""
-
     cql: str
 
     @field_validator("cql")
@@ -97,8 +91,6 @@ class CQLSearchRequest(BaseSearchRequest):
 
 
 class AdvancedSearchRequest(BaseSearchRequest):
-    """Model for advanced text-based search requests."""
-
     query: str
     space_key: Optional[str] = None
     content_type: Optional[str] = None

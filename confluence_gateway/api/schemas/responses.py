@@ -5,29 +5,19 @@ from pydantic import BaseModel, Field
 
 
 class PaginationLinks(BaseModel):
-    """Links for paginated results."""
-
-    next: Optional[str] = Field(None, description="URL for the next page of results")
-    previous: Optional[str] = Field(
-        None, description="URL for the previous page of results"
-    )
+    next: Optional[str] = Field(None)
+    previous: Optional[str] = Field(None)
 
 
 class SearchResultItem(BaseModel):
-    """Individual item in search results."""
-
-    id: str = Field(..., description="Unique identifier of the content")
-    title: str = Field(..., description="Title of the content")
-    type: str = Field(
-        ..., description="Type of content (page, blogpost, attachment, comment)"
-    )
-    space_key: str = Field(..., description="Key of the space containing the content")
-    space_name: str = Field(..., description="Name of the space containing the content")
-    url: str = Field(..., description="URL to view the content")
-    excerpt: Optional[str] = Field(
-        None, description="Text excerpt with highlighted matches"
-    )
-    last_modified: datetime = Field(..., description="Last modification timestamp")
+    id: str = Field(...)
+    title: str = Field(...)
+    type: str = Field(...)
+    space_key: str = Field(...)
+    space_name: str = Field(...)
+    url: str = Field(...)
+    excerpt: Optional[str] = Field(None)
+    last_modified: datetime = Field(...)
 
     model_config = {
         "json_schema_extra": {
@@ -48,21 +38,15 @@ class SearchResultItem(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Response model for search requests."""
-
-    results: list[SearchResultItem] = Field(
-        default_factory=list, description="List of search result items"
-    )
-    total: int = Field(..., description="Total number of results available")
-    start: int = Field(..., description="Starting index of results")
-    limit: int = Field(..., description="Maximum number of results returned")
-    took_ms: float = Field(
-        ..., description="Time taken to execute the search in milliseconds"
-    )
-    page_count: int = Field(..., description="Total number of pages available")
-    current_page: int = Field(..., description="Current page number")
-    has_more: bool = Field(..., description="Whether there are more results available")
-    links: Optional[PaginationLinks] = Field(None, description="Pagination links")
+    results: list[SearchResultItem] = Field(default_factory=list)
+    total: int = Field(...)
+    start: int = Field(...)
+    limit: int = Field(...)
+    took_ms: float = Field(...)
+    page_count: int = Field(...)
+    current_page: int = Field(...)
+    has_more: bool = Field(...)
+    links: Optional[PaginationLinks] = Field(None)
 
     model_config = {
         "json_schema_extra": {
@@ -98,14 +82,10 @@ class SearchResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Standard error response model."""
-
-    status: str = Field("error", description="Status of the response")
-    code: int = Field(..., description="HTTP status code")
-    message: str = Field(..., description="Error message")
-    details: Optional[dict[str, Any]] = Field(
-        None, description="Additional error details"
-    )
+    status: str = Field("error")
+    code: int = Field(...)
+    message: str = Field(...)
+    details: Optional[dict[str, Any]] = Field(None)
 
     model_config = {
         "json_schema_extra": {

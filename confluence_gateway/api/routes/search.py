@@ -1,10 +1,11 @@
+from datetime import datetime
 from functools import wraps
 from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from confluence_gateway.api.app import get_search_service
+from confluence_gateway.api.dependencies import get_search_service
 from confluence_gateway.api.schemas.requests import (
     AdvancedSearchRequest,
     CQLSearchRequest,
@@ -27,8 +28,6 @@ router = APIRouter()
 
 
 def handle_search_exceptions(func):
-    """Decorator to handle common exceptions in search endpoints."""
-
     @wraps(func)
     async def wrapper(*args, **kwargs):
         try:
@@ -75,8 +74,6 @@ def handle_search_exceptions(func):
 def _build_search_response(
     search_result, search_service, request: Optional[Request] = None
 ) -> SearchResponse:
-    """Convert a search_result to SearchResponse with pagination metadata."""
-    # More efficiently build search items with list comprehension
     search_items = [
         SearchResultItem(
             id=item.id,
@@ -93,40 +90,33 @@ def _build_search_response(
             url=search_service.client.extract_content_fields(item).get("url")
             or f"{search_service.client.base_url}/wiki/spaces/{search_service.client.extract_content_fields(item).get('space_key', '')}/pages/{item.id}",
             excerpt=getattr(item, "excerpt", None),
-            last_modified=item.updated_at or item.created_at,
+            last_modified=item.updated_at or item.created_at or datetime.now(),
         )
         for item in search_result.results.results
     ]
+    limit = getattr(search_result.results, "limit", 1) or 1
+    start = getattr(search_result.results, "start", 0) or 0
+    total = getattr(search_result.statistics, "total_results", 0) or 0
 
-    # Calculate pagination metadata
-    limit = search_result.results.limit or 1  # Avoid division by zero
-    start = search_result.results.start or 0
-    total = search_result.statistics.total_results
-
-    current_page = (start // limit) + 1
+    current_page = (start // limit) + 1 if limit > 0 else 1
     page_count = (total + limit - 1) // limit if limit > 0 else 0
     has_more = current_page < page_count
 
-    # Build pagination links if we have request data
     links = None
     if request:
         base_url = str(request.url).split("?")[0]
 
-        # Get current query params
         params = {}
         for key, value in request.query_params.items():
             params[key] = value
 
-        # Build links
         links = PaginationLinks()
 
-        # Next page link
         if has_more:
             next_params = params.copy()
             next_params["start"] = str(start + limit)
             links.next = f"{base_url}?{urlencode(next_params)}"
 
-        # Previous page link
         if start > 0:
             prev_params = params.copy()
             prev_params["start"] = str(max(0, start - limit))
@@ -137,7 +127,7 @@ def _build_search_response(
         total=total,
         start=start,
         limit=limit,
-        took_ms=search_result.statistics.execution_time_ms,
+        took_ms=getattr(search_result.statistics, "execution_time_ms", 0) or 0,
         page_count=page_count,
         current_page=current_page,
         has_more=has_more,
@@ -172,11 +162,6 @@ async def search_content(
     ),
     search_service: SearchService = Depends(get_search_service),
 ):
-    """
-    Search Confluence content using text query.
-
-    Returns paginated search results with links to next/previous pages when available.
-    """
     search_result = search_service.search_by_text(
         text=query,
         content_type=content_type,
@@ -206,11 +191,6 @@ async def advanced_search(
     search_request: AdvancedSearchRequest,
     search_service: SearchService = Depends(get_search_service),
 ):
-    """
-    Advanced search for Confluence content with additional filtering and sorting options.
-
-    Allows more complex search queries with relevance filtering and custom sorting.
-    """
     search_result = search_service.search_by_text(
         text=search_request.query,
         content_type=search_request.content_type,
@@ -246,12 +226,6 @@ async def cql_search(
     search_request: CQLSearchRequest,
     search_service: SearchService = Depends(get_search_service),
 ):
-    """
-    Search Confluence content using CQL (Confluence Query Language).
-
-    Provides direct access to Confluence's powerful CQL search capabilities
-    for advanced users who need precise control over their search queries.
-    """
     search_result = search_service.search_by_cql(
         cql=search_request.cql,
         limit=search_request.limit,
