@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 @pytest.fixture
 def mock_confluence_env(monkeypatch):
-    """Set up mock Confluence environment variables for testing."""
     env_vars = {
         "CONFLUENCE_URL": "https://test-confluence.atlassian.net",
         "CONFLUENCE_USERNAME": "test-user@example.com",
@@ -23,7 +22,6 @@ def mock_confluence_env(monkeypatch):
 
 @pytest.fixture
 def mock_search_env(monkeypatch):
-    """Set up mock Search environment variables for testing."""
     env_vars = {
         "SEARCH_DEFAULT_LIMIT": "25",
         "SEARCH_MAX_LIMIT": "200",
@@ -36,20 +34,17 @@ def mock_search_env(monkeypatch):
 
 class TestConfluenceConfig:
     def test_valid_config(self):
-        """Test creation of ConfluenceConfig with valid parameters."""
         config = ConfluenceConfig(
             url="https://example.atlassian.net",
             username="test@example.com",
             api_token="test-token",
         )
-        # Compare string representations since HttpUrl has extra trailing slash
         assert str(config.url) == "https://example.atlassian.net/"
         assert config.username == "test@example.com"
         assert config.api_token == "test-token"
         assert config.timeout == 10  # Default value
 
     def test_missing_required_fields(self):
-        """Test validation of required fields in ConfluenceConfig."""
         with pytest.raises(ValidationError):
             ConfluenceConfig(username="test@example.com", api_token="test-token")
 
@@ -64,7 +59,6 @@ class TestConfluenceConfig:
             )
 
     def test_invalid_url(self):
-        """Test validation of URL format in ConfluenceConfig."""
         with pytest.raises(ValidationError):
             ConfluenceConfig(
                 url="invalid-url",  # Not a valid URL format
@@ -73,7 +67,6 @@ class TestConfluenceConfig:
             )
 
     def test_custom_timeout(self):
-        """Test setting a custom timeout in ConfluenceConfig."""
         config = ConfluenceConfig(
             url="https://example.atlassian.net",
             username="test@example.com",
@@ -85,14 +78,12 @@ class TestConfluenceConfig:
 
 class TestSearchConfig:
     def test_default_values(self):
-        """Test default values in SearchConfig."""
         config = SearchConfig()
         assert config.default_limit == 20
         assert config.max_limit == 100
         assert config.default_expand == ["body.view", "space"]
 
     def test_custom_values(self):
-        """Test setting custom values in SearchConfig."""
         config = SearchConfig(
             default_limit=10,
             max_limit=50,
@@ -105,7 +96,6 @@ class TestSearchConfig:
 
 class TestLoadFromEnv:
     def test_load_from_env_with_prefix(self, monkeypatch):
-        """Test loading environment variables with a specific prefix."""
         monkeypatch.setenv("TEST_URL", "https://example.atlassian.net")
         monkeypatch.setenv("TEST_USERNAME", "test@example.com")
         monkeypatch.setenv("TEST_API_TOKEN", "test-token")
@@ -119,7 +109,6 @@ class TestLoadFromEnv:
         }
 
     def test_load_from_env_case_sensitive(self, monkeypatch):
-        """Test loading environment variables with case sensitivity."""
         import platform
 
         monkeypatch.setenv("Test_Url", "https://example.atlassian.net")
@@ -150,7 +139,6 @@ class TestLoadFromEnv:
             }
 
     def test_empty_prefix(self, monkeypatch):
-        """Test loading all environment variables with an empty prefix."""
         monkeypatch.setenv("TEST_VAR", "test-value")
         monkeypatch.setenv("ANOTHER_VAR", "another-value")
 
@@ -159,7 +147,6 @@ class TestLoadFromEnv:
         assert "another_var" in env_vars
 
     def test_config_from_environment(self, mock_confluence_env, mock_search_env):
-        """Test loading configurations from environment variables."""
         from confluence_gateway.core.config import (
             load_confluence_config_from_env,
             load_search_config_from_env,
