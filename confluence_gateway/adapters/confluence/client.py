@@ -13,7 +13,11 @@ from confluence_gateway.adapters.confluence.models import (
     ContentType,
     SearchResult,
 )
-from confluence_gateway.core.config import confluence_config, search_config
+from confluence_gateway.core.config import (
+    ConfluenceConfig,
+    confluence_config,
+    search_config,
+)
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
     ConfluenceAuthenticationError,
@@ -25,16 +29,7 @@ T = TypeVar("T")
 
 
 def with_backoff(max_retries=5, initial_delay=1):
-    """
-    Decorator to handle rate limiting with exponential backoff.
-
-    Args:
-        max_retries: Maximum number of retries
-        initial_delay: Initial delay in seconds
-
-    Returns:
-        Decorated function
-    """
+    """Decorator to handle rate limiting with exponential backoff."""
 
     def decorator(func):
         @wraps(func)
@@ -46,24 +41,19 @@ def with_backoff(max_retries=5, initial_delay=1):
                 try:
                     return func(*args, **kwargs)
                 except ConfluenceAPIError as e:
-                    # If the error is not due to rate limiting, re-raise
                     if getattr(e, "status_code", None) != 429:
                         raise
 
-                    # If we've hit max retries, re-raise
                     if retries == max_retries:
                         raise
 
-                    # Exponential backoff with jitter
                     jitter = random.uniform(0, 0.3) * delay
                     sleep_time = delay + jitter
                     time.sleep(sleep_time)
 
-                    # Increment retries and delay
                     retries += 1
                     delay *= 2
 
-            # This should not be reached due to the max_retries check above
             return func(*args, **kwargs)
 
         return wrapper
@@ -74,18 +64,22 @@ def with_backoff(max_retries=5, initial_delay=1):
 class ConfluenceClient:
     """Client for interacting with Confluence API."""
 
-    API_VERSION = "rest/api"
+    # Possible API versions/paths to try (in order of preference)
+    API_PATHS = ["wiki/rest/api", "rest/api"]
 
-    def __init__(self, config=None):
-        """
-        Initialize the Confluence client.
+    config: ConfluenceConfig
+    _working_api_path: Optional[str] = None
 
-        Args:
-            config: Configuration object. If None, uses default from environment.
-        """
-        self.config = config or confluence_config
+    def __init__(self, config: Optional[ConfluenceConfig] = None):
+        """Initialize the Confluence client."""
+        config_to_use = config or confluence_config
+        if not config_to_use:
+            raise ValueError("Confluence configuration is missing")
+        self.config = config_to_use
         self.base_url = str(self.config.url).rstrip("/")
-        self.api_url = f"{self.base_url}/{self.API_VERSION}"
+
+        # Will be set once we determine the working API path
+        self._working_api_path = None
 
         # Initialize both the atlassian-python-api client and our custom session
         self.atlassian_api = Confluence(
@@ -97,12 +91,7 @@ class ConfluenceClient:
         self.session = self._create_session()
 
     def _create_session(self) -> requests.Session:
-        """
-        Create and configure an HTTP session for Confluence API calls.
-
-        Returns:
-            Configured requests.Session object
-        """
+        """Create and configure an HTTP session for Confluence API calls."""
         # For custom API calls that aren't covered by atlassian-python-api
         session = requests.Session()
         session.auth = HTTPBasicAuth(self.config.username, self.config.api_token)
@@ -110,12 +99,7 @@ class ConfluenceClient:
         return session
 
     def _get_auth_headers(self) -> dict[str, str]:
-        """
-        Get authentication headers for Confluence API calls.
-
-        Returns:
-            Dictionary of headers
-        """
+        """Get authentication headers for Confluence API calls."""
         return {"Accept": "application/json", "Content-Type": "application/json"}
 
     def _make_request(
@@ -128,51 +112,65 @@ class ConfluenceClient:
         api_version: Optional[str] = None,
         use_transformer: bool = True,
     ) -> Union[dict[str, Any], T, None]:
-        """
-        Make a request to the Confluence API with error handling.
+        """Make a request to the Confluence API with error handling."""
+        if self._working_api_path and api_version is None:
+            api_version = self._working_api_path
+        elif api_version is not None:
+            pass
+        else:
+            last_exception = None
 
-        Args:
-            method: HTTP method (get, post, etc.)
-            endpoint: API endpoint (will be appended to api_url)
-            params: Query parameters
-            data: Request body data
-            model_class: Optional class to instantiate with the response data
-            api_version: API version to use, defaults to self.API_VERSION
-            use_transformer: Whether to use model-specific transformer if available
+            for api_path in self.API_PATHS:
+                try:
+                    url = f"{self.base_url}/{api_path}/{endpoint.lstrip('/')}"
+                    response = getattr(self.session, method.lower())(
+                        url, params=params, json=data, timeout=self.config.timeout
+                    )
 
-        Returns:
-            Response data as dict, as specified model instance, or None if no content
+                    if response.status_code == 401:
+                        raise ConfluenceAuthenticationError(
+                            "Authentication failed. Check username and API token."
+                        )
 
-        Raises:
-            ConfluenceConnectionError: If connection fails
-            ConfluenceAuthenticationError: If authentication fails
-            ConfluenceAPIError: If API returns an error
-        """
-        if api_version is None:
-            api_version = self.API_VERSION
+                    if response.status_code != 404:
+                        response.raise_for_status()
+                        self._working_api_path = api_path
+                        break
+                except requests.exceptions.RequestException as e:
+                    if not (
+                        isinstance(e, requests.exceptions.HTTPError)
+                        and hasattr(e, "response")
+                        and e.response.status_code == 404
+                    ):
+                        raise
+                    last_exception = e
+            else:
+                if last_exception:
+                    if isinstance(last_exception, requests.exceptions.HTTPError):
+                        error_message = str(last_exception)
+                        try:
+                            error_data = last_exception.response.json()
+                            if "message" in error_data:
+                                error_message = error_data["message"]
+                        except (ValueError, AttributeError):
+                            pass
+                        raise ConfluenceAPIError(
+                            status_code=last_exception.response.status_code,
+                            error_message=error_message,
+                        ) from last_exception
+                    raise ConfluenceConnectionError(cause=last_exception)
 
-        url = f"{self.base_url}/{api_version}/{endpoint.lstrip('/')}"
-
-        try:
-            response = getattr(self.session, method.lower())(
-                url, params=params, json=data, timeout=self.config.timeout
-            )
-
-            if response.status_code == 401:
-                raise ConfluenceAuthenticationError(
-                    "Authentication failed. Check username and API token."
+                raise ConfluenceAPIError(
+                    status_code=404, error_message="Failed to find working API endpoint"
                 )
 
-            response.raise_for_status()
-
-            # Handle 204 No Content responses
+        try:
             if response.status_code == 204:
                 return None
 
             response_data = response.json()
 
             if model_class:
-                # Use specific transformer methods if available and requested
                 if use_transformer:
                     transformer_method = None
                     if model_class == ConfluenceSpace:
@@ -185,7 +183,6 @@ class ConfluenceClient:
                     if transformer_method:
                         return transformer_method(response_data)
 
-                # Fall back to direct model instantiation
                 return model_class(**response_data)
 
             return response_data
@@ -198,7 +195,6 @@ class ConfluenceClient:
             ):
                 error_message = str(e)
                 try:
-                    # Try to extract more detailed error message from response
                     error_data = e.response.json()
                     if "message" in error_data:
                         error_message = error_data["message"]
@@ -211,23 +207,15 @@ class ConfluenceClient:
             raise ConfluenceConnectionError(cause=e)
 
     def test_connection(self) -> bool:
-        """
-        Test the connection to Confluence API.
-
-        Returns:
-            True if connection successful, raises exception otherwise
-
-        Raises:
-            ConfluenceConnectionError: If connection fails
-            ConfluenceAuthenticationError: If authentication fails
-            ConfluenceAPIError: If API returns an error
-        """
+        """Test the connection to Confluence API."""
         try:
-            # Use a lightweight operation to test connection
-            self.atlassian_api.get_all_spaces(limit=1)
+            spaces = self.atlassian_api.get_all_spaces(limit=1)
+            if not isinstance(spaces, dict) or "results" not in spaces:
+                raise ConfluenceAPIError(
+                    error_message="Unexpected response format from Confluence API"
+                )
             return True
         except Exception as e:
-            # Translate exceptions to our custom exception types
             if "401" in str(e):
                 raise ConfluenceAuthenticationError(
                     "Authentication failed. Check username and API token."
@@ -237,31 +225,14 @@ class ConfluenceClient:
             raise ConfluenceAPIError(error_message=str(e)) from e
 
     def get_space(self, space_key: str) -> ConfluenceSpace:
-        """
-        Get details about a specific Confluence space.
-
-        Args:
-            space_key: The key of the space to retrieve
-
-        Returns:
-            ConfluenceSpace object
-
-        Raises:
-            ConfluenceConnectionError: If connection fails
-            ConfluenceAuthenticationError: If authentication fails
-            ConfluenceAPIError: If API returns an error
-        """
+        """Get details about a specific Confluence space."""
         try:
-            # Use atlassian-python-api for getting space details
-            # The get_space method already handles all the logic we need
             space_data = self.atlassian_api.get_space(
                 space_key, expand="description.plain,metadata.labels"
             )
 
-            # Transform the response to our model format
             return self._parse_space(space_data)
         except Exception as e:
-            # Translate exceptions to our custom exception types
             if "401" in str(e):
                 raise ConfluenceAuthenticationError(
                     "Authentication failed. Check username and API token."
@@ -277,35 +248,16 @@ class ConfluenceClient:
     def get_page(
         self, page_id: str, expand: Optional[list[str]] = None
     ) -> ConfluencePage:
-        """
-        Get details about a specific Confluence page or other content.
-
-        Args:
-            page_id: The ID of the page to retrieve
-            expand: List of fields to expand in the response
-
-        Returns:
-            ConfluencePage object
-
-        Raises:
-            ConfluenceConnectionError: If connection fails
-            ConfluenceAuthenticationError: If authentication fails
-            ConfluenceAPIError: If API returns an error
-        """
-        # Default expand fields if none provided
+        """Get details about a specific Confluence page or other content."""
         expand_str = "body.view,body.storage,space,version,metadata,children.page,children.attachment,history,ancestors"
         if expand:
             expand_str = ",".join(expand)
 
         try:
-            # Use atlassian-python-api to get page details
-            # The get_page_by_id method fetches full page content with all requested expansions
             page_data = self.atlassian_api.get_page_by_id(page_id, expand=expand_str)
 
-            # Transform the response to our model format
             return self._parse_page(page_data)
         except Exception as e:
-            # Translate exceptions to our custom exception types
             if "401" in str(e):
                 raise ConfluenceAuthenticationError(
                     "Authentication failed. Check username and API token."
@@ -319,55 +271,33 @@ class ConfluenceClient:
             raise ConfluenceAPIError(error_message=str(e)) from e
 
     def _escape_cql(self, value: str) -> str:
-        """
-        Escape special characters in a string for CQL.
-
-        Args:
-            value: The string to escape
-
-        Returns:
-            Escaped string
-        """
+        """Escape special characters in a string for CQL."""
         # Replace double quotes with escaped double quotes
         return value.replace('"', '\\"')
 
     def _parse_space(self, data: dict[str, Any]) -> ConfluenceSpace:
-        """
-        Transform Confluence API space response into a ConfluenceSpace object.
+        """Transform Confluence API space response into a ConfluenceSpace object."""
+        if "id" in data and not isinstance(data["id"], str):
+            data["id"] = str(data["id"])
 
-        Args:
-            data: Raw API response data
+        if "name" in data and "title" not in data:
+            data["title"] = data["name"]
 
-        Returns:
-            ConfluenceSpace object
-        """
-        # Handle description structure transformation
         if "description" in data and isinstance(data["description"], dict):
             if "plain" in data["description"] and isinstance(
                 data["description"]["plain"], dict
             ):
                 plain_desc = data["description"]["plain"]
                 if "value" in plain_desc:
-                    # Store the plain text value directly for easier access
                     data["description_text"] = plain_desc["value"]
 
         return ConfluenceSpace(**data)
 
     def _parse_page(self, data: dict[str, Any]) -> ConfluencePage:
-        """
-        Transform Confluence API content response into a ConfluencePage object.
-
-        Args:
-            data: Raw API response data
-
-        Returns:
-            ConfluencePage object
-        """
-        # Handle body structure
+        """Transform Confluence API content response into a ConfluencePage object."""
         if "body" in data and isinstance(data["body"], dict):
             body_data = data["body"]
 
-            # Extract text content for easier access
             if "view" in body_data and isinstance(body_data["view"], dict):
                 data["html_content"] = body_data["view"].get("value", "")
 
@@ -390,27 +320,26 @@ class ConfluenceClient:
         return ConfluencePage(**data)
 
     def _parse_search_result(self, data: dict[str, Any]) -> SearchResult:
-        """
-        Transform Confluence API search response into a SearchResult object.
-
-        Args:
-            data: Raw API response data
-
-        Returns:
-            SearchResult object
-        """
-        # Map size to total_size
+        """Transform Confluence API search response into a SearchResult object."""
         if "size" in data and "total_size" not in data:
             data["total_size"] = data["size"]
-
-        # Transform result items
         transformed_results = []
         if "results" in data and isinstance(data["results"], list):
             for item in data["results"]:
                 if isinstance(item, dict):
-                    # Process each result item as a page
-                    page = self._parse_page(item)
-                    transformed_results.append(page)
+                    try:
+                        if "content" in item and isinstance(item["content"], dict):
+                            page_data = item["content"].copy()
+                            for key, value in item.items():
+                                if key != "content" and key not in page_data:
+                                    page_data[key] = value
+                            page = self._parse_page(page_data)
+                        else:
+                            page = self._parse_page(item)
+
+                        transformed_results.append(page)
+                    except Exception:
+                        pass
                 elif isinstance(item, ConfluencePage):
                     transformed_results.append(item)
 
@@ -419,15 +348,7 @@ class ConfluenceClient:
         return SearchResult(**data)
 
     def extract_content_fields(self, content: ConfluencePage) -> dict[str, Any]:
-        """
-        Extract relevant fields from content based on content type.
-
-        Args:
-            content: ConfluencePage object
-
-        Returns:
-            Dictionary with extracted fields
-        """
+        """Extract relevant fields from content based on content type."""
         result = {
             "id": content.id,
             "title": content.title,
@@ -516,18 +437,7 @@ class ConfluenceClient:
         space_key: Optional[str] = None,
         include_archived: bool = False,
     ) -> str:
-        """
-        Build CQL query for searching Confluence content.
-
-        Args:
-            query: Text to search for
-            content_type: Filter by content type (page, blogpost, etc.)
-            space_key: Filter by space key
-            include_archived: Include archived content
-
-        Returns:
-            CQL query string
-        """
+        """Build CQL query for searching Confluence content."""
         # Use the atlassian-python-api's CQL builder functionality if available
         if hasattr(self.atlassian_api, "cql_builder"):
             try:
@@ -543,10 +453,6 @@ class ConfluenceClient:
                 # Add space filter
                 if space_key:
                     cql.space(space_key)
-
-                # Add archived filter
-                if not include_archived:
-                    cql.status_not("archived")
 
                 return str(cql)
             except (AttributeError, TypeError):
@@ -567,15 +473,8 @@ class ConfluenceClient:
             space_key_escaped = self._escape_cql(space_key)
             cql_parts.append(f'space = "{space_key_escaped}"')
 
-        # Add archived filter if include_archived is False
-        if not include_archived:
-            cql_parts.append('status != "archived"')
-
         # Combine CQL parts with AND operator
         return " AND ".join(cql_parts)
-
-    # The previous custom pagination methods have been removed as we now use
-    # the built-in pagination capabilities of atlassian-python-api
 
     @with_backoff()
     def search_by_cql(
@@ -586,27 +485,9 @@ class ConfluenceClient:
         expand: Optional[list[str]] = None,
         get_all_results: bool = False,
         max_results: Optional[int] = None,
+        include_archived: bool = False,
     ) -> SearchResult:
-        """
-        Search Confluence content using CQL (Confluence Query Language).
-
-        Args:
-            cql: CQL query string
-            limit: Maximum number of results per page (default: from config)
-            start: Starting position (default: 0)
-            expand: Fields to expand in the response (default: from config)
-            get_all_results: Whether to fetch all pages of results (default: False)
-            max_results: Maximum total results to fetch when get_all_results is True
-
-        Returns:
-            SearchResult object containing the search results
-
-        Raises:
-            ConfluenceConnectionError: If connection fails
-            ConfluenceAuthenticationError: If authentication fails
-            ConfluenceAPIError: If API returns an error
-            SearchParameterError: If invalid search parameters are provided
-        """
+        """Search Confluence content using CQL (Confluence Query Language)."""
         # Minimal validation
         if not cql:
             raise SearchParameterError("CQL query cannot be empty")
@@ -630,7 +511,7 @@ class ConfluenceClient:
                     limit=actual_limit,
                     start=start or 0,
                     expand=expand_param,
-                    include_archived_spaces=True,  # We'll get everything and let the CQL filter handle archives
+                    include_archived_spaces=include_archived,  # Use the proper parameter for archived content
                 )
 
                 # Truncate results if max_results is specified
@@ -645,6 +526,7 @@ class ConfluenceClient:
                     limit=actual_limit,
                     start=start or 0,
                     expand=expand_param,
+                    include_archived_spaces=include_archived,
                 )
 
                 # Transform the response to our model format
@@ -672,29 +554,7 @@ class ConfluenceClient:
         get_all_results: bool = False,
         max_results: Optional[int] = None,
     ) -> SearchResult:
-        """
-        Search Confluence content using a text query.
-
-        Args:
-            query: Text to search for
-            content_type: Filter by content type (page, blogpost, etc.)
-            space_key: Filter by space key
-            include_archived: Include archived content (default: False)
-            limit: Maximum number of results per page (default: from config)
-            start: Starting position (default: 0)
-            expand: Fields to expand in the response (default: from config)
-            get_all_results: Whether to fetch all pages of results (default: False)
-            max_results: Maximum total results to fetch when get_all_results is True
-
-        Returns:
-            SearchResult object containing the search results
-
-        Raises:
-            ConfluenceConnectionError: If connection fails
-            ConfluenceAuthenticationError: If authentication fails
-            ConfluenceAPIError: If API returns an error
-            SearchParameterError: If invalid search parameters are provided
-        """
+        """Search Confluence content using a text query."""
         # Minimal validation
         if not query:
             raise SearchParameterError("Query cannot be empty")
@@ -718,14 +578,14 @@ class ConfluenceClient:
 
                 # Create basic text search CQL
                 cql_query = f'text ~ "{self._escape_cql(query)}"'
-                if not include_archived:
-                    cql_query += ' AND status != "archived"'
 
+                # Use include_archived_spaces parameter instead of CQL status filter
                 results = self.atlassian_api.cql(
                     cql_query,
                     start=start or 0,
                     limit=actual_limit,
                     expand=expand_param,
+                    include_archived_spaces=include_archived,
                 )
                 return self._parse_search_result(results)
             else:
@@ -742,6 +602,7 @@ class ConfluenceClient:
                     expand=expand,
                     get_all_results=get_all_results,
                     max_results=max_results,
+                    include_archived=include_archived,
                 )
         except Exception as e:
             # Translate exceptions to our custom exception types

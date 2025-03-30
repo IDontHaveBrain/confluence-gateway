@@ -8,7 +8,7 @@ class ConfluenceGatewayError(Exception):
 
 
 class ConfluenceConnectionError(ConfluenceGatewayError):
-    """Exception raised when there are network or connection issues with Confluence API."""
+    """Connection issues with Confluence API."""
 
     def __init__(
         self,
@@ -20,14 +20,14 @@ class ConfluenceConnectionError(ConfluenceGatewayError):
 
 
 class ConfluenceAuthenticationError(ConfluenceGatewayError):
-    """Exception raised when authentication with Confluence API fails."""
+    """Authentication failure with Confluence API."""
 
     def __init__(self, message: str = "Authentication failed with Confluence API"):
         super().__init__(message)
 
 
 class ConfluenceAPIError(ConfluenceGatewayError):
-    """Exception raised when Confluence API returns an error response."""
+    """Confluence API returned an error response."""
 
     def __init__(
         self, status_code: Optional[int] = None, error_message: Optional[str] = None
@@ -43,7 +43,7 @@ class ConfluenceAPIError(ConfluenceGatewayError):
 
 
 class SearchParameterError(ConfluenceGatewayError):
-    """Exception raised when invalid search parameters are provided."""
+    """Invalid search parameters provided."""
 
     def __init__(self, message: str = "Invalid search parameters"):
         super().__init__(message)

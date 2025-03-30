@@ -6,15 +6,7 @@ from pydantic import BaseModel, HttpUrl
 
 
 class ConfluenceConfig(BaseModel):
-    """
-    Configuration for Confluence API.
-
-    Attributes:
-        url: Base URL for Confluence instance (e.g., 'https://your-domain.atlassian.net')
-        username: Confluence username or email
-        api_token: API token for authentication
-        timeout: Connection timeout in seconds
-    """
+    """Configuration for Confluence API."""
 
     url: HttpUrl
     username: str
@@ -23,14 +15,7 @@ class ConfluenceConfig(BaseModel):
 
 
 class SearchConfig(BaseModel):
-    """
-    Configuration for search functionality.
-
-    Attributes:
-        default_limit: Default number of results per page
-        max_limit: Maximum allowed results per page
-        default_expand: Default fields to expand in API response
-    """
+    """Configuration for search functionality."""
 
     default_limit: int = 20
     max_limit: int = 100
@@ -38,18 +23,7 @@ class SearchConfig(BaseModel):
 
 
 def load_from_env(prefix: str, case_sensitive: bool = False) -> dict[str, Any]:
-    """
-    Load configuration values from environment variables with the given prefix.
-
-    Args:
-        prefix: Prefix to match in environment variable names
-        case_sensitive: Whether to match the prefix case-sensitively
-                        (Note: On Windows, environment variables are case-insensitive
-                        by default, so this parameter has no effect on Windows)
-
-    Returns:
-        Dictionary mapping configuration keys to their values
-    """
+    """Load configuration values from environment variables with the given prefix."""
     env_vars = {}
 
     # Check if we're on Windows, where environment variables are case-insensitive
@@ -89,10 +63,7 @@ def load_search_config_from_env() -> SearchConfig:
 
 
 def load_confluence_config_from_env() -> Optional[ConfluenceConfig]:
-    """
-    Load Confluence configuration from environment variables.
-    Returns None if required variables are not set.
-    """
+    """Load Confluence configuration from environment variables."""
     confluence_env = load_from_env("CONFLUENCE_")
 
     # Check for required fields
