@@ -21,6 +21,7 @@ repos:
     rev: v1.15.0
     hooks:
       - id: mypy
+        args: ["--install-types", "--non-interactive"]
         additional_dependencies:
           - pydantic>=2.11.1
 #          - typing-extensions>=4.13.0

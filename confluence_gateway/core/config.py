@@ -1,7 +1,7 @@
 import os
 from typing import Any
 
-from pydantic import BaseModel, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, HttpUrl
 
 
 class ConfluenceConfig(BaseModel):
@@ -34,19 +34,6 @@ class SearchConfig(BaseModel):
     default_limit: int = 20
     max_limit: int = 100
     default_expand: list[str] = ["body.view", "space"]
-
-    @field_validator("default_limit")
-    @classmethod
-    def default_limit_must_be_positive(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("default_limit must be positive")
-        return v
-
-    @model_validator(mode="after")
-    def validate_limits(self) -> "SearchConfig":
-        if self.max_limit < self.default_limit:
-            raise ValueError("max_limit must be greater than or equal to default_limit")
-        return self
 
 
 def load_from_env(prefix: str, case_sensitive: bool = False) -> dict[str, Any]:
