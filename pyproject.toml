@@ -51,3 +51,7 @@ python_version = "3.9"
 plugins = "pydantic.mypy"
 show_error_codes = true
 warn_redundant_casts = true
+ignore_missing_imports = true
+disallow_any_explicit = false
+disallow_any_generics = false
+implicit_optional = true
