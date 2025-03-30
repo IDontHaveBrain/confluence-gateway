@@ -29,11 +29,9 @@ class ConfluenceObject(BaseModel):
     }
 
     def __init__(self, **data):
-        # Convert numeric ID to string if present
         if "id" in data and not isinstance(data["id"], str):
             data["id"] = str(data["id"])
 
-        # Map Confluence API field names to our model field names
         if "created" in data and data["created"] and "created_at" not in data:
             data["created_at"] = data["created"]
 
@@ -50,13 +48,14 @@ class ConfluenceSpace(ConfluenceObject):
     type: Optional[SpaceType] = None
 
     def __init__(self, **data):
-        # Handle name/title ambiguity in Confluence API
         if "name" in data and "title" not in data:
             data["title"] = data["name"]
 
-        # Note: We're preserving the original description structure
-        # to maintain compatibility with expected test results
-        # The Confluence API may return complex nested structures for descriptions
+        if "type" in data and isinstance(data["type"], str):
+            try:
+                data["type"] = SpaceType(data["type"])
+            except ValueError:
+                pass
 
         super().__init__(**data)
 
@@ -88,22 +87,22 @@ class ConfluencePage(ConfluenceObject):
     status: Optional[str] = None
 
     def __init__(self, **data):
-        # Extract the content type if provided
         if "type" in data and "content_type" not in data:
             data["content_type"] = data["type"]
 
-        # Handle body structure
+        if "content_type" in data and isinstance(data["content_type"], str):
+            try:
+                data["content_type"] = ContentType(data["content_type"])
+            except ValueError:
+                pass
+
         if "body" in data and isinstance(data["body"], dict):
             data["body"] = BodyContent(**data["body"])
 
-        # Handle version structure
         if "version" in data and isinstance(data["version"], dict):
             data["version"] = Version(**data["version"])
 
-        # Handle space reference
         if "space" in data and isinstance(data["space"], dict):
-            # Don't convert to ConfluenceSpace yet to avoid circular import issues
-            # We'll convert later when needed
             pass
 
         super().__init__(**data)
@@ -140,11 +139,16 @@ class SearchResult(BaseModel):
     }
 
     def __init__(self, **data):
-        # Map API field names to our model field names
-        if "size" in data and "total_size" not in data:
+        # Always prioritize totalSize (actual total matches) regardless of other fields
+        if "totalSize" in data:
+            data["total_size"] = data["totalSize"]
+        # Fallback to total field if totalSize is not present
+        elif "total" in data:
+            data["total_size"] = data["total"]
+        # Last resort: use size field only if no better count is available
+        elif "size" in data and "total_size" not in data:
             data["total_size"] = data["size"]
 
-        # Transform result items
         if "results" in data and isinstance(data["results"], list):
             transformed_results = []
             for item in data["results"]:

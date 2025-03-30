@@ -2,14 +2,10 @@ from typing import Optional
 
 
 class ConfluenceGatewayError(Exception):
-    """Base exception class for all Confluence Gateway errors."""
-
     pass
 
 
 class ConfluenceConnectionError(ConfluenceGatewayError):
-    """Connection issues with Confluence API."""
-
     def __init__(
         self,
         message: str = "Failed to connect to Confluence API",
@@ -20,15 +16,11 @@ class ConfluenceConnectionError(ConfluenceGatewayError):
 
 
 class ConfluenceAuthenticationError(ConfluenceGatewayError):
-    """Authentication failure with Confluence API."""
-
     def __init__(self, message: str = "Authentication failed with Confluence API"):
         super().__init__(message)
 
 
 class ConfluenceAPIError(ConfluenceGatewayError):
-    """Confluence API returned an error response."""
-
     def __init__(
         self, status_code: Optional[int] = None, error_message: Optional[str] = None
     ):
@@ -43,7 +35,5 @@ class ConfluenceAPIError(ConfluenceGatewayError):
 
 
 class SearchParameterError(ConfluenceGatewayError):
-    """Invalid search parameters provided."""
-
     def __init__(self, message: str = "Invalid search parameters"):
         super().__init__(message)

@@ -6,8 +6,6 @@ from pydantic import BaseModel, HttpUrl
 
 
 class ConfluenceConfig(BaseModel):
-    """Configuration for Confluence API."""
-
     url: HttpUrl
     username: str
     api_token: str
@@ -15,31 +13,23 @@ class ConfluenceConfig(BaseModel):
 
 
 class SearchConfig(BaseModel):
-    """Configuration for search functionality."""
-
     default_limit: int = 20
     max_limit: int = 100
     default_expand: list[str] = ["body.view", "space"]
 
 
 def load_from_env(prefix: str, case_sensitive: bool = False) -> dict[str, Any]:
-    """Load configuration values from environment variables with the given prefix."""
     env_vars = {}
 
-    # Check if we're on Windows, where environment variables are case-insensitive
     is_windows = platform.system().lower() == "windows"
-
-    # Skip case-sensitive matching on Windows as it's not supported by the OS
     effective_case_sensitive = case_sensitive and not is_windows
 
     for key, value in os.environ.items():
         if effective_case_sensitive:
-            # Case-sensitive matching (non-Windows only)
             if key.startswith(prefix):
                 config_key = key[len(prefix) :]
                 env_vars[config_key] = value
         else:
-            # Case-insensitive matching
             if key.upper().startswith(prefix.upper()):
                 config_key = key[len(prefix) :].lower()
                 env_vars[config_key] = value
@@ -48,7 +38,6 @@ def load_from_env(prefix: str, case_sensitive: bool = False) -> dict[str, Any]:
 
 
 def load_search_config_from_env() -> SearchConfig:
-    """Load search configuration from environment variables."""
     search_env = load_from_env("SEARCH_")
 
     # Convert string values to appropriate types
@@ -63,10 +52,7 @@ def load_search_config_from_env() -> SearchConfig:
 
 
 def load_confluence_config_from_env() -> Optional[ConfluenceConfig]:
-    """Load Confluence configuration from environment variables."""
     confluence_env = load_from_env("CONFLUENCE_")
-
-    # Check for required fields
     required_fields = ["url", "username", "api_token"]
     if not all(field in confluence_env for field in required_fields):
         return None
