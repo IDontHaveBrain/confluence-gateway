@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -161,6 +161,7 @@ class TestSearchByCQL:
         assert call_args["cql"] == 'space = "TEST" AND text ~ "query"'
 
         assert isinstance(result, EnhancedSearchResult)
+        assert result.query is not None
         assert "CQL:" in result.query
         assert len(result.results.results) == 3
 
@@ -205,8 +206,8 @@ class TestResultSorting:
 
     def test_sort_by_date(self, search_service):
         now = datetime.now()
-        yesterday = datetime(now.year, now.month, now.day - 1)
-        tomorrow = datetime(now.year, now.month, now.day + 1)
+        yesterday = now - timedelta(days=1)
+        tomorrow = now + timedelta(days=1)
 
         pages = [
             ConfluencePage(id="1", title="Page 1", updated_at=now),

@@ -54,6 +54,7 @@ def load_search_config_from_env() -> SearchConfig:
 def load_confluence_config_from_env() -> Optional[ConfluenceConfig]:
     confluence_env = load_from_env("CONFLUENCE_")
     required_fields = ["url", "username", "api_token"]
+
     if not all(field in confluence_env for field in required_fields):
         return None
 
@@ -64,6 +65,6 @@ def load_confluence_config_from_env() -> Optional[ConfluenceConfig]:
     return ConfluenceConfig(**confluence_env)
 
 
-# Global config instances - will be None if required env vars aren't set
+# Global config instances
 confluence_config = load_confluence_config_from_env()
 search_config = load_search_config_from_env()

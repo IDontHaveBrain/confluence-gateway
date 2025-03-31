@@ -24,4 +24,3 @@ repos:
         args: ["--install-types", "--non-interactive"]
         additional_dependencies:
           - pydantic>=2.11.1
-#          - typing-extensions>=4.13.0
