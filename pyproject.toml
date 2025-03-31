@@ -45,12 +45,13 @@ src = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E402", "F811"]
+"tests/*" = ["E402", "F811", "F401", "F403", "F405"]
 
 [tool.mypy]
 python_version = "3.9"
 plugins = "pydantic.mypy"
 show_error_codes = true
+show_error_context = true
 warn_redundant_casts = true
 warn_return_any = false
 warn_unused_ignores = true
@@ -68,7 +69,7 @@ follow_imports = "skip"
 
 [[tool.mypy.overrides]]
 module = "tests.*"
-check_untyped_defs = false
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "confluence_gateway.adapters.*"

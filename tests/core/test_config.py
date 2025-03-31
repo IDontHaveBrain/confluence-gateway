@@ -115,7 +115,6 @@ class TestLoadFromEnv:
         monkeypatch.setenv("test_Username", "test@example.com")
         monkeypatch.setenv("TEST_API_TOKEN", "test-token")
 
-        # Case-insensitive (default)
         env_vars = load_from_env("TEST_")
         assert env_vars == {
             "url": "https://example.atlassian.net",
@@ -123,17 +122,13 @@ class TestLoadFromEnv:
             "api_token": "test-token",
         }
 
-        # Case-sensitive test depends on platform
         is_windows = platform.system().lower() == "windows"
         env_vars = load_from_env("Test_", case_sensitive=True)
 
         if is_windows:
-            # On Windows, environment variables are case-insensitive
-            # So we'll check that we get some results, possibly all of them
             assert "url" in env_vars
             assert env_vars["url"] == "https://example.atlassian.net"
         else:
-            # On Unix/Linux, we expect exact case matching
             assert env_vars == {
                 "Url": "https://example.atlassian.net",
             }
@@ -152,17 +147,26 @@ class TestLoadFromEnv:
             load_search_config_from_env,
         )
 
-        # Load configs using the proper loading functions
         confluence_config = load_confluence_config_from_env()
         search_config = load_search_config_from_env()
 
-        # Verify Confluence config
+        assert confluence_config is not None, (
+            "confluence_config should not be None with all required env vars set"
+        )
+
         assert str(confluence_config.url) == "https://test-confluence.atlassian.net/"
         assert confluence_config.username == "test-user@example.com"
         assert confluence_config.api_token == "test-api-token-123"
         assert confluence_config.timeout == 15
 
-        # Verify Search config
         assert search_config.default_limit == 25
         assert search_config.max_limit == 200
         assert search_config.default_expand == ["body.storage", "version", "space"]
+
+    def test_missing_confluence_env_vars(self, monkeypatch):
+        for var in ["CONFLUENCE_URL", "CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]:
+            monkeypatch.delenv(var, raising=False)
+
+        from confluence_gateway.core.config import load_confluence_config_from_env
+
+        assert load_confluence_config_from_env() is None
