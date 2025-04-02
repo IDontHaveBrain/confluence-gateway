@@ -8,12 +8,14 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "atlassian-python-api>=4.0.0",
+    "atlassian-python-api>=4.0.3",
+    "chromadb>=0.6.3",
     "fastapi>=0.115.12",
     "httpx>=0.28.1",
-    "litellm>=1.65.0",
+    "litellm>=1.65.1",
     "pydantic>=2.11.1",
     "python-dotenv>=1.1.0",
+    "qdrant-client>=1.13.3",
     "requests>=2.32.3",
     "sentence-transformers>=4.0.1",
 ]
