@@ -18,7 +18,7 @@ class SearchConfig(BaseModel):
     default_expand: list[str] = ["body.view", "space"]
 
 
-VectorDBType = Literal["chroma", "qdrant", "pgvector", "none"]
+VectorDBType = Literal["chroma", "qdrant", "none"]
 
 
 class VectorDBConfig(BaseModel):
@@ -63,12 +63,6 @@ class VectorDBConfig(BaseModel):
         default=False, description="Prefer gRPC over HTTP for Qdrant."
     )
 
-    # pgvector specific
-    pgvector_connection_string: Optional[str] = Field(
-        default=None,
-        description="PostgreSQL connection string. Required if type is 'pgvector'.",
-    )
-
     @model_validator(mode="after")
     def check_conditional_requirements(self) -> "VectorDBConfig":
         if self.type != "none":
@@ -81,12 +75,6 @@ class VectorDBConfig(BaseModel):
             if self.qdrant_url is None:
                 raise ValueError(
                     "QDRANT_URL must be set if VECTOR_DB_TYPE is 'qdrant'."
-                )
-
-        if self.type == "pgvector":
-            if self.pgvector_connection_string is None:
-                raise ValueError(
-                    "PGVECTOR_CONNECTION_STRING must be set if VECTOR_DB_TYPE is 'pgvector'."
                 )
 
         return self
@@ -175,9 +163,6 @@ def load_vector_db_config_from_env() -> Optional[VectorDBConfig]:
 
     prefer_grpc_str = os.getenv("QDRANT_PREFER_GRPC", "false").lower()
     raw_config["qdrant_prefer_grpc"] = prefer_grpc_str in ["true", "1", "t", "yes", "y"]
-
-    # pgvector specific
-    raw_config["pgvector_connection_string"] = os.getenv("PGVECTOR_CONNECTION_STRING")
 
     # Filter out None values so Pydantic defaults apply correctly
     filtered_config = {k: v for k, v in raw_config.items() if v is not None}

@@ -15,6 +15,7 @@ dependencies = [
     "litellm>=1.65.1",
     "pydantic>=2.11.1",
     "python-dotenv>=1.1.0",
+    "qdrant-client>=1.13.3",
     "requests>=2.32.3",
     "sentence-transformers>=4.0.1",
 ]
