@@ -24,3 +24,8 @@ repos:
         args: ["--install-types", "--non-interactive"]
         additional_dependencies:
           - pydantic>=2.11.1
+          - fastapi>=0.115.12
+          - httpx>=0.28.1
+          - types-requests>=2.32.0
+          - chromadb>=0.6.3
+          - qdrant-client>=1.13.3
