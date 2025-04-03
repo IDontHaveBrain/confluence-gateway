@@ -1,9 +1,9 @@
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import chromadb
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
-from chromadb.api.types import Include
+from chromadb.api.types import IncludeEnum, Metadatas
 
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import (
@@ -80,7 +80,10 @@ class ChromaDBAdapter(VectorDBAdapter):
 
         # Perform upsert
         self.collection.upsert(
-            ids=ids, embeddings=embeddings, metadatas=metadatas, documents=texts
+            ids=ids,
+            embeddings=embeddings,
+            metadatas=cast(Optional[Metadatas], metadatas),
+            documents=texts,
         )
 
     def search(
@@ -116,7 +119,11 @@ class ChromaDBAdapter(VectorDBAdapter):
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=where,
-            include=[Include.METADATAS, Include.DISTANCES, Include.DOCUMENTS],
+            include=[
+                IncludeEnum.metadatas,
+                IncludeEnum.distances,
+                IncludeEnum.documents,
+            ],
         )
 
         # Transform results to VectorSearchResultItem format
@@ -124,6 +131,10 @@ class ChromaDBAdapter(VectorDBAdapter):
 
         # ChromaDB returns results in a dict with lists
         if results["ids"] and results["ids"][0]:
+            # Ensure distances are available since we requested them
+            assert results["distances"] is not None, (
+                "Distances missing from query results despite being requested"
+            )
             for i in range(len(results["ids"][0])):
                 # Convert distance to similarity score (1 - distance for L2 distance)
                 # For cosine distance, this is already a similarity score
