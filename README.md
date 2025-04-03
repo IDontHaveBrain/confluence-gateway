@@ -29,6 +29,50 @@ This project is designed for teams and developers looking to unlock deeper insig
 
 This project is currently in the **early stages of development (Alpha)**.
 
+## Configuration
+
+The application can be configured using a JSON file or environment variables.
+
+**Priority:**
+
+1. **User Configuration File:** Settings defined in `~/.confluence_gateway_config.json`.
+2. **Environment Variables:** Variables prefixed with `CONFLUENCE_`, `SEARCH_`, `VECTOR_DB_`, etc.
+3. **Default Values:** Built-in defaults within the application.
+
+**Configuration File (`~/.confluence_gateway_config.json`):**
+
+Create a JSON file in your home directory with the following structure (only include sections and keys you want to override):
+
+```json
+{
+  "confluence": {
+    "url": "https://your-confluence-instance.atlassian.net",
+    "username": "your_email@example.com",
+    "api_token": "YOUR_CONFLUENCE_API_TOKEN",
+    "timeout": 15
+  },
+  "search": {
+    "default_limit": 25,
+    "max_limit": 150,
+    "default_expand": ["body.view", "version"]
+  },
+  "vector_db": {
+    "type": "qdrant",
+    "collection_name": "confluence_prod",
+    "embedding_dimension": 768,
+    "qdrant_url": "http://localhost:6333",
+    "qdrant_api_key": "OPTIONAL_QDRANT_KEY",
+    "qdrant_prefer_grpc": false
+
+    // For ChromaDB, use:
+    // "type": "chroma",
+    // "chroma_persist_path": "/path/to/chroma/data",
+    // "chroma_host": "localhost",
+    // "chroma_port": 8000
+  }
+}
+```
+
 ---
 
 # Confluence Gateway <a name="한국어"></a>
