@@ -1,17 +1,18 @@
 import pytest
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.api.app import app
-from confluence_gateway.core.config import load_confluence_config_from_env
+from confluence_gateway.core.config import load_configurations
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
-real_config_available = load_confluence_config_from_env() is not None
+_confluence_config, _, _ = load_configurations()
+real_config_available = _confluence_config is not None
 
 
 @pytest.fixture
 def confluence_client():
-    config = load_confluence_config_from_env()
+    config, _, _ = load_configurations()
     if not config:
         pytest.skip(
             "Confluence configuration not available - skipping integration tests"

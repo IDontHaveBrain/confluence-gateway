@@ -10,26 +10,30 @@ from confluence_gateway.adapters.confluence.models import (
     ContentType,
     SearchResult,
 )
-from confluence_gateway.core.config import load_confluence_config_from_env
+from confluence_gateway.core.config import load_configurations
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
     SearchParameterError,
 )
 
-# Check for required environment variables at module level
-REAL_CREDENTIALS_AVAILABLE = load_confluence_config_from_env() is not None
+# Check if Confluence config could be loaded
+_confluence_config, _, _ = load_configurations()
+REAL_CREDENTIALS_AVAILABLE = _confluence_config is not None
 
 # Skip all tests if no real credentials available
 pytestmark = pytest.mark.skipif(
     not REAL_CREDENTIALS_AVAILABLE,
-    reason="Confluence API credentials not set in environment variables",
+    reason="Confluence configuration not found in environment or config file",
 )
 
 
 @pytest.fixture
 def confluence_config():
-    """Get Confluence configuration from environment."""
-    return load_confluence_config_from_env()
+    """Get Confluence configuration using the new loading mechanism."""
+    conf_config, _, _ = load_configurations()
+    if not conf_config:
+        pytest.skip("Skipping test - Confluence configuration not available")
+    return conf_config
 
 
 @pytest.fixture

@@ -2,14 +2,11 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+from confluence_gateway.core.config import load_configurations
 
-real_config_available = False
-try:
-    from confluence_gateway.core.config import load_confluence_config_from_env
-
-    real_config_available = load_confluence_config_from_env() is not None
-except ImportError:
-    pass
+# Check if Confluence config could be loaded
+_confluence_config, _, _ = load_configurations()
+real_config_available = _confluence_config is not None
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.confluence.models import (
@@ -305,13 +302,11 @@ class TestResultEnhancement:
 
 @pytest.fixture
 def real_client(request):
-    from confluence_gateway.core.config import load_confluence_config_from_env
-
-    config = load_confluence_config_from_env()
+    config, _, _ = load_configurations()
 
     if not config:
         pytest.skip(
-            "Skipping integration tests - required environment variables for Confluence API are not set"
+            "Skipping integration tests - Confluence configuration not found in environment or config file"
         )
 
     from confluence_gateway.adapters.confluence.client import ConfluenceClient
