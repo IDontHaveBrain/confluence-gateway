@@ -71,18 +71,22 @@ def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         limit = kwargs.get("limit")
-        start = kwargs.get("start", 0)
+        original_start = kwargs.get("start")
 
-        actual_limit = limit or search_config.default_limit
-        actual_start = start or 0
+        # Validate limit if explicitly provided (including zero)
+        if limit is not None:
+            if limit <= 0 or limit > search_config.max_limit:
+                raise SearchParameterError(
+                    f"Limit must be between 1 and {search_config.max_limit}"
+                )
+            actual_limit = limit
+        else:
+            # Apply default only if limit is None
+            actual_limit = search_config.default_limit
 
-        if actual_limit <= 0 or actual_limit > search_config.max_limit:
-            raise SearchParameterError(
-                f"Limit must be between 1 and {search_config.max_limit}"
-            )
-
-        if actual_start < 0:
+        if original_start is not None and original_start < 0:
             raise SearchParameterError("Start position cannot be negative")
+        actual_start = original_start if original_start is not None else 0
 
         kwargs["limit"] = actual_limit
         kwargs["start"] = actual_start
