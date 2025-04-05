@@ -21,8 +21,6 @@ class SearchConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """Configuration for the Embedding Provider."""
-
     provider: Literal["sentence-transformers", "litellm", "none"] = Field(
         default="none",
         description="The type of embedding provider to use ('sentence-transformers', 'litellm', or 'none').",
@@ -68,7 +66,6 @@ class EmbeddingConfig(BaseModel):
                 )
 
         if self.provider == "litellm":
-            # Specific check for Ollama models requiring an API base
             if self.model_name and self.model_name.startswith("ollama/"):
                 if not self.litellm_api_base:
                     raise ValueError(
@@ -77,7 +74,6 @@ class EmbeddingConfig(BaseModel):
 
         if self.provider == "sentence-transformers":
             if self.litellm_api_key or self.litellm_api_base:
-                # Using print for visibility during startup, could use logging too
                 print(
                     "Warning: LITELLM_API_KEY and LITELLM_API_BASE are ignored when EMBEDDING_PROVIDER is 'sentence-transformers'."
                 )
@@ -94,12 +90,10 @@ VectorDBType = Literal["chroma", "qdrant", "none"]
 
 
 def get_user_config_path() -> Path:
-    """Returns the path to the user-specific configuration file."""
     return Path.home() / ".confluence_gateway_config.json"
 
 
 def _load_config_from_file(path: Path) -> dict[str, Any]:
-    """Loads configuration from a JSON file, returning an empty dict if not found or invalid."""
     config_data = {}
     if path.exists() and path.is_file():
         try:
@@ -123,8 +117,6 @@ def _load_config_from_file(path: Path) -> dict[str, Any]:
 
 
 class VectorDBConfig(BaseModel):
-    """Configuration for the Vector Database adapter."""
-
     type: VectorDBType = Field(
         default="none", description="The type of vector database to use."
     )
@@ -145,7 +137,6 @@ class VectorDBConfig(BaseModel):
         description="Overlap between consecutive text chunks during indexing.",
     )
 
-    # ChromaDB specific
     chroma_persist_path: Optional[str] = Field(
         default=None,
         description="Path for ChromaDB persistent storage. Client mode takes precedence if host/port are set.",
@@ -157,7 +148,6 @@ class VectorDBConfig(BaseModel):
         default=None, description="Port for ChromaDB client/server mode."
     )
 
-    # Qdrant specific
     qdrant_url: Optional[HttpUrl] = Field(
         default=None,
         description="URL for the Qdrant instance. Required if type is 'qdrant'.",
@@ -211,7 +201,6 @@ def _load_raw_env_vars(prefix: str, case_sensitive: bool = False) -> dict[str, A
 def _load_raw_search_env() -> dict[str, Any]:
     search_env = _load_raw_env_vars("SEARCH_")
 
-    # Convert string values to appropriate types
     if "default_limit" in search_env and isinstance(search_env["default_limit"], str):
         try:
             search_env["default_limit"] = int(search_env["default_limit"])
@@ -235,7 +224,6 @@ def _load_raw_search_env() -> dict[str, Any]:
 def _load_raw_confluence_env() -> dict[str, Any]:
     confluence_env = _load_raw_env_vars("CONFLUENCE_")
 
-    # Convert timeout to int if present
     if "timeout" in confluence_env and isinstance(confluence_env["timeout"], str):
         try:
             confluence_env["timeout"] = int(confluence_env["timeout"])
@@ -247,10 +235,8 @@ def _load_raw_confluence_env() -> dict[str, Any]:
 
 
 def _load_raw_vector_db_env() -> dict[str, Any]:
-    """Loads raw Vector Database configuration from environment variables."""
     raw_config: dict[str, Any] = {}
 
-    # Common
     vector_db_type_str = os.getenv("VECTOR_DB_TYPE", "").lower()
     if vector_db_type_str:
         if vector_db_type_str not in get_args(VectorDBType):
@@ -260,18 +246,15 @@ def _load_raw_vector_db_env() -> dict[str, Any]:
         else:
             raw_config["type"] = vector_db_type_str
 
-    # Load other env vars only if they exist
     if dim_str := os.getenv("VECTOR_DB_EMBEDDING_DIMENSION"):
         try:
             raw_config["embedding_dimension"] = int(dim_str)
         except ValueError:
-            # Keep as string, Pydantic will handle validation
             raw_config["embedding_dimension"] = dim_str
 
     if col_name := os.getenv("VECTOR_DB_COLLECTION_NAME"):
         raw_config["collection_name"] = col_name
 
-    # ChromaDB specific
     if path := os.getenv("CHROMA_PERSIST_PATH"):
         raw_config["chroma_persist_path"] = path
     if host := os.getenv("CHROMA_HOST"):
@@ -280,25 +263,20 @@ def _load_raw_vector_db_env() -> dict[str, Any]:
         try:
             raw_config["chroma_port"] = int(port_str)
         except ValueError:
-            # Keep as string for validation
             raw_config["chroma_port"] = port_str
 
-    # Chunking configuration
     if chunk_size_str := os.getenv("VECTOR_DB_CHUNK_SIZE"):
         try:
             raw_config["chunk_size"] = int(chunk_size_str)
         except ValueError:
-            # Keep as string for validation
             raw_config["chunk_size"] = chunk_size_str
 
     if chunk_overlap_str := os.getenv("VECTOR_DB_CHUNK_OVERLAP"):
         try:
             raw_config["chunk_overlap"] = int(chunk_overlap_str)
         except ValueError:
-            # Keep as string for validation
             raw_config["chunk_overlap"] = chunk_overlap_str
 
-    # Qdrant specific
     if url := os.getenv("QDRANT_URL"):
         raw_config["qdrant_url"] = url
     if key := os.getenv("QDRANT_API_KEY"):
@@ -307,7 +285,6 @@ def _load_raw_vector_db_env() -> dict[str, Any]:
         try:
             raw_config["qdrant_grpc_port"] = int(grpc_port_str)
         except ValueError:
-            # Keep as string for validation
             raw_config["qdrant_grpc_port"] = grpc_port_str
 
     if prefer_grpc_str := os.getenv("QDRANT_PREFER_GRPC"):
@@ -323,10 +300,8 @@ def _load_raw_vector_db_env() -> dict[str, Any]:
 
 
 def _load_raw_embedding_env() -> dict[str, Any]:
-    """Loads raw Embedding configuration from environment variables."""
     raw_config: dict[str, Any] = {}
 
-    # Provider type
     provider_str = os.getenv("EMBEDDING_PROVIDER", "").lower()
     if provider_str:
         valid_providers = get_args(Literal["sentence-transformers", "litellm", "none"])
@@ -337,29 +312,23 @@ def _load_raw_embedding_env() -> dict[str, Any]:
         else:
             raw_config["provider"] = provider_str
 
-    # Model name
     if model_name := os.getenv("EMBEDDING_MODEL_NAME"):
         raw_config["model_name"] = model_name
 
-    # Dimension
     if dim_str := os.getenv("EMBEDDING_DIMENSION"):
         try:
             raw_config["dimension"] = int(dim_str)
         except ValueError:
-            # Keep as string for Pydantic validation
             raw_config["dimension"] = dim_str
 
-    # LiteLLM specific
     if api_key := os.getenv("LITELLM_API_KEY"):
         raw_config["litellm_api_key"] = api_key
     if api_base := os.getenv("LITELLM_API_BASE"):
         raw_config["litellm_api_base"] = api_base
 
-    # SentenceTransformer specific
     device_str = os.getenv("EMBEDDING_DEVICE", "").lower()
     if device_str:
         valid_devices = get_args(Optional[Literal["cpu", "cuda"]])
-        # Filter out NoneType from valid_devices if present
         valid_devices_str = [d for d in valid_devices if isinstance(d, str)]
         if device_str not in valid_devices_str:
             print(
@@ -377,27 +346,19 @@ def load_configurations() -> tuple[
     Optional[VectorDBConfig],
     Optional[EmbeddingConfig],
 ]:
-    """
-    Loads configuration from the user config file and environment variables,
-    with the file taking precedence.
-    """
     user_config_path = get_user_config_path()
     file_config = _load_config_from_file(user_config_path)
 
-    # Load raw environment variables
     env_confluence_raw = _load_raw_confluence_env()
     env_search_raw = _load_raw_search_env()
     env_vector_db_raw = _load_raw_vector_db_env()
     env_embedding_raw = _load_raw_embedding_env()
 
-    # Get config sections from file (defaulting to empty dict if section missing)
     file_confluence = file_config.get("confluence", {})
     file_search = file_config.get("search", {})
     file_vector_db = file_config.get("vector_db", {})
     file_embedding = file_config.get("embedding", {})
 
-    # --- Merge configurations (File overrides Environment) ---
-    # Start with environment config, then update with file config
     final_confluence_config = env_confluence_raw.copy()
     final_confluence_config.update(file_confluence)
 
@@ -410,9 +371,6 @@ def load_configurations() -> tuple[
     final_embedding_config = env_embedding_raw.copy()
     final_embedding_config.update(file_embedding)
 
-    # --- Instantiate Pydantic Models ---
-
-    # Confluence Config
     loaded_confluence_config: Optional[ConfluenceConfig] = None
     required_confluence_fields = ["url", "username", "api_token"]
     if all(field in final_confluence_config for field in required_confluence_fields):
@@ -426,26 +384,21 @@ def load_configurations() -> tuple[
             "Info: Essential Confluence configuration (url, username, api_token) not found. Confluence client disabled."
         )
 
-    # Search Config (Always load, uses defaults)
     try:
         loaded_search_config = SearchConfig(**final_search_config)
     except ValidationError as e:
         print(f"Error: Invalid Search configuration: {e}. Using defaults.")
-        loaded_search_config = SearchConfig()  # Fallback to defaults
+        loaded_search_config = SearchConfig()
 
-    # Embedding Config
     loaded_embedding_config: Optional[EmbeddingConfig] = None
-    # Only attempt to load if 'provider' is specified and not 'none', or if other keys exist
     if (
         final_embedding_config.get("provider", "none") != "none"
         or len(final_embedding_config) > 1
     ):
-        # Ensure 'provider' defaults to 'none' if completely missing after merge
         if "provider" not in final_embedding_config:
             final_embedding_config["provider"] = "none"
 
         try:
-            # Filter out None values before validation
             filtered_emb_config = {
                 k: v for k, v in final_embedding_config.items() if v is not None
             }
@@ -466,9 +419,7 @@ def load_configurations() -> tuple[
     else:
         print("Info: No Embedding configuration found. Embedding features disabled.")
 
-    # --- Populate VectorDB dimension from EmbeddingConfig if available ---
     if loaded_embedding_config and loaded_embedding_config.dimension is not None:
-        # Only update if not already set by a more specific VectorDB env/file setting
         if "embedding_dimension" not in final_vector_db_config:
             final_vector_db_config["embedding_dimension"] = (
                 loaded_embedding_config.dimension
@@ -485,19 +436,15 @@ def load_configurations() -> tuple[
                 f"differs from EMBEDDING_DIMENSION ({loaded_embedding_config.dimension}). Using the VectorDB specific value."
             )
 
-    # Vector DB Config
     loaded_vector_db_config: Optional[VectorDBConfig] = None
-    # Only attempt to load if 'type' is specified and not 'none', or if other keys exist
     if (
         final_vector_db_config.get("type", "none") != "none"
         or len(final_vector_db_config) > 1
     ):
-        # Ensure 'type' defaults to 'none' if completely missing after merge
         if "type" not in final_vector_db_config:
             final_vector_db_config["type"] = "none"
 
         try:
-            # Filter out None values before validation
             filtered_vdb_config = {
                 k: v for k, v in final_vector_db_config.items() if v is not None
             }
@@ -526,7 +473,6 @@ def load_configurations() -> tuple[
     )
 
 
-# Global config instances
 confluence_config, search_config, vector_db_config, embedding_config = (
     load_configurations()
 )

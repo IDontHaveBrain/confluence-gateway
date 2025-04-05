@@ -4,18 +4,6 @@ from pydantic import BaseModel, Field
 
 
 class Document(BaseModel):
-    """
-    Represents a document chunk with its embedding and metadata.
-
-    Standard metadata keys:
-    - confluence_page_id: ID of the Confluence page
-    - confluence_space_key: Key of the Confluence space
-    - document_url: URL to the document
-    - last_modified_date: When the document was last modified
-    - chunk_sequence_number: Position of this chunk in the original document
-    - title: Document title
-    """
-
     id: str = Field(description="Unique identifier for the document chunk")
     text: str = Field(description="The actual text content of the chunk")
     embedding: list[float] = Field(description="The vector embedding of the text")
@@ -26,11 +14,6 @@ class Document(BaseModel):
 
 
 class VectorSearchResultItem(BaseModel):
-    """
-    Represents a search result from the vector database, including similarity score
-    and the retrieved document's metadata.
-    """
-
     id: str = Field(description="ID of the retrieved document chunk")
     score: float = Field(description="Similarity score (higher is typically better)")
     metadata: dict[str, Any] = Field(

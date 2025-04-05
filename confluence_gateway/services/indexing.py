@@ -6,9 +6,6 @@ from confluence_gateway.adapters.vector_db import (
     Document,
     VectorDBAdapter,
 )
-
-# Import get_vector_db_adapter locally in __init__ to break cycle
-# from confluence_gateway.adapters.vector_db.factory import get_vector_db_adapter
 from confluence_gateway.core.config import vector_db_config
 from confluence_gateway.services.embedding import EmbeddingError, EmbeddingService
 
@@ -16,17 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 class IndexingService:
-    """
-    Service responsible for fetching content, processing it (chunking, embedding),
-    and storing it in the configured vector database.
-    """
-
     def __init__(
         self,
         confluence_client: ConfluenceClient,
         embedding_service: Optional[EmbeddingService] = None,
     ):
-        # Import locally to break potential import cycles
         from confluence_gateway.adapters.vector_db.factory import get_vector_db_adapter
 
         self.confluence_client = confluence_client
@@ -56,7 +47,6 @@ class IndexingService:
             )
 
     def _simulate_chunking(self, text: str, chunk_size: int = 200) -> list[str]:
-        """Placeholder for actual text chunking logic."""
         if not text:
             return []
         return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
@@ -67,14 +57,6 @@ class IndexingService:
         text_content: str,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """
-        Simulates indexing content into the vector database.
-
-        Args:
-            content_id: Unique ID of the content (e.g., Confluence page ID).
-            text_content: The textual content to be indexed.
-            metadata: Additional metadata associated with the content.
-        """
         if not self.vector_db_adapter:
             logger.warning(
                 f"Vector DB Adapter not available. Skipping indexing for content ID: {content_id}"
@@ -106,7 +88,6 @@ class IndexingService:
         base_metadata = metadata or {}
         base_metadata["original_content_id"] = content_id
 
-        # 1. Simulate Chunking
         chunks = self._simulate_chunking(text_content)
         if not chunks:
             logger.warning(f"No chunks generated for content ID: {content_id}")
@@ -114,10 +95,8 @@ class IndexingService:
 
         logger.debug(f"Generated {len(chunks)} chunks for content ID: {content_id}")
 
-        # Prepare for batch embedding
         chunk_texts = [chunk for chunk in chunks]
 
-        # 2. Generate Embeddings
         try:
             logger.info(
                 f"Generating embeddings for {len(chunk_texts)} chunks for content ID: {content_id}..."
@@ -125,7 +104,6 @@ class IndexingService:
             embeddings = self.embedding_service.embed_texts(chunk_texts)
             logger.info(f"Successfully generated {len(embeddings)} embeddings.")
 
-            # Add a check for mismatched counts
             if len(embeddings) != len(chunk_texts):
                 logger.error(
                     f"Mismatch between number of chunks ({len(chunk_texts)}) and generated embeddings ({len(embeddings)}) for content ID: {content_id}. Skipping upsert."
@@ -145,7 +123,6 @@ class IndexingService:
             )
             return
 
-        # 3. Create Document objects
         documents_to_upsert: list[Document] = []
         for i, (chunk_text, embedding) in enumerate(zip(chunk_texts, embeddings)):
             if embedding is None or not embedding:
@@ -172,9 +149,7 @@ class IndexingService:
             )
             return
 
-        # 4. Upsert Documents using the adapter
         try:
-            # Ensure vector_db_config is not None for mypy
             assert self.vector_db_config is not None
             logger.info(
                 f"Upserting {len(documents_to_upsert)} documents with real embeddings for content ID: {content_id} using {self.vector_db_config.type} adapter."

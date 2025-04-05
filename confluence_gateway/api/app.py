@@ -1,4 +1,6 @@
 import datetime
+import importlib.metadata
+import logging
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,10 +14,26 @@ from confluence_gateway.core.exceptions import (
     ConfluenceConnectionError,
 )
 
+logger = logging.getLogger(__name__)
+
+
+def _get_app_version() -> str:
+    try:
+        return importlib.metadata.version("confluence-gateway")
+    except importlib.metadata.PackageNotFoundError:
+        logger.warning(
+            "Package 'confluence-gateway' not found in installed packages. "
+            "Using fallback version. Consider installing the package with 'pip install -e .'."
+        )
+        return "0.0.0-dev"
+
+
+APP_VERSION = _get_app_version()
+
 app = FastAPI(
     title="Confluence Gateway",
     description="API for searching and retrieving Confluence content",
-    version="0.1.0",
+    version=APP_VERSION,
 )
 
 app.add_middleware(
@@ -31,12 +49,11 @@ app.add_middleware(
 def health_check(client: ConfluenceClient = Depends(get_confluence_client)):
     health_info = {
         "status": "ok",
-        "version": app.version,
+        "version": APP_VERSION,
         "timestamp": datetime.datetime.now().isoformat(),
     }
 
     try:
-        # Test connection to Confluence
         client.test_connection()
         health_info["confluence_connection"] = "ok"
     except ConfluenceConnectionError as e:

@@ -6,7 +6,6 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar, Union
 
-# LlamaIndex imports
 from llama_index.core import Settings, VectorStoreIndex
 from llama_index.core.schema import MetadataMode, NodeWithScore
 from llama_index.core.vector_stores import ExactMatchFilter, MetadataFilters
@@ -69,8 +68,6 @@ class EnhancedSearchResult(BaseModel):
 
 
 class SemanticSearchError(ConfluenceGatewayError):
-    """Custom exception for semantic search errors."""
-
     pass
 
 
@@ -109,28 +106,19 @@ class SearchService:
         self.indexing_service = indexing_service
         self.vector_index: Optional[VectorStoreIndex] = None
 
-        # Initialize VectorStoreIndex if indexing service and its store are available
-        if (
-            self.indexing_service
-            # and self.indexing_service.vector_store
-            and Settings.embed_model  # Check if embed_model was set globally
-        ):
+        if self.indexing_service and Settings.embed_model:
             try:
                 logger.info(
                     "Initializing VectorStoreIndex from configured vector store..."
                 )
-                # LlamaIndex uses the globally set Settings.embed_model automatically here
-                # self.vector_index = VectorStoreIndex.from_vector_store(
-                #     vector_store=self.indexing_service.vector_store,
-                # )
+                # TODO: Re-enable VectorStoreIndex initialization when vector_store is available
                 logger.info(
-                    "VectorStoreIndex initialized successfully for semantic search."
+                    "VectorStoreIndex initialization skipped (requires vector_store)."
                 )
             except Exception as e:
                 logger.error(
                     f"Failed to initialize VectorStoreIndex: {e}", exc_info=True
                 )
-                # Keep self.vector_index as None
         else:
             logger.warning(
                 "Vector store or embedding model not available from IndexingService. "
@@ -313,8 +301,6 @@ class SearchService:
     ) -> SearchResult:
         filtered_results = list(results.results)
 
-        # TODO: Implement custom relevance scoring using text analysis
-
         if top_n is not None and top_n > 0 and len(filtered_results) > top_n:
             filtered_results = filtered_results[:top_n]
 
@@ -400,17 +386,12 @@ class SearchService:
     def _translate_llama_filters(
         self, filters: Optional[dict[str, Any]]
     ) -> Optional[MetadataFilters]:
-        """
-        Translates a simple key-value filter dictionary to LlamaIndex MetadataFilters.
-        Currently supports exact match only.
-        """
         if not filters:
             return None
 
         llama_filters = []
         for key, value in filters.items():
-            if value is not None:  # Only add filters for non-None values
-                # Basic exact match filter
+            if value is not None:
                 llama_filters.append(ExactMatchFilter(key=key, value=value))
             else:
                 logger.debug(f"Skipping filter for key '{key}' because value is None.")
@@ -418,7 +399,6 @@ class SearchService:
         if not llama_filters:
             return None
 
-        # Combine multiple filters with AND logic by default
         return MetadataFilters(filters=llama_filters)
 
     def search_semantic(
@@ -427,22 +407,6 @@ class SearchService:
         top_k: int = 10,
         filters: Optional[dict[str, Any]] = None,
     ) -> list[VectorSearchResultItem]:
-        """
-        Performs semantic search using the configured vector store.
-
-        Args:
-            query: The natural language query string.
-            top_k: The maximum number of results to return.
-            filters: A dictionary of metadata keys and values for exact match filtering.
-
-        Returns:
-            A list of VectorSearchResultItem objects.
-
-        Raises:
-            SemanticSearchError: If semantic search is not configured or fails.
-            SearchParameterError: If input parameters are invalid.
-        """
-        # 1. Input Validation
         if not self.vector_index:
             logger.error(
                 "Semantic search attempted but VectorStoreIndex is not available."
@@ -455,20 +419,17 @@ class SearchService:
         if top_k <= 0:
             raise SearchParameterError("top_k must be a positive integer.")
 
-        # Optional: Sanitize query if needed (depends on embedding model sensitivity)
         sanitized_query = query.strip()
         logger.info(
             f"Performing semantic search for query: '{sanitized_query}', top_k={top_k}, filters={filters}"
         )
 
-        # 2. Translate Filters
         try:
             llama_filters = self._translate_llama_filters(filters)
         except Exception as e:
             logger.error(f"Failed to translate filters: {e}", exc_info=True)
             raise SearchParameterError(f"Invalid filters provided: {e}")
 
-        # 3. Perform Retrieval
         try:
             retriever = self.vector_index.as_retriever(
                 similarity_top_k=top_k,
@@ -485,18 +446,16 @@ class SearchService:
             logger.error(f"LlamaIndex retrieval failed: {e}", exc_info=True)
             raise SemanticSearchError(f"Semantic search retrieval failed: {e}")
 
-        # 4. Map Results
         results: list[VectorSearchResultItem] = []
         for node_with_score in retrieved_nodes:
             node = node_with_score.node
             metadata = node.metadata or {}
-            # Ensure text is retrieved (LlamaIndex usually includes it)
             text_content = node.get_content(metadata_mode=MetadataMode.NONE)
 
             results.append(
                 VectorSearchResultItem(
-                    id=node.node_id or f"missing_id_{len(results)}",  # Use node_id
-                    score=node_with_score.score or 0.0,  # Use score from NodeWithScore
+                    id=node.node_id or f"missing_id_{len(results)}",
+                    score=node_with_score.score or 0.0,
                     metadata=metadata,
                     text=text_content,
                 )

@@ -72,7 +72,6 @@ class CQLSearchRequest(BaseSearchRequest):
         if not v or not v.strip():
             raise ValueError("CQL query cannot be empty")
 
-        # Check for basic CQL syntax indicators
         if not any(
             keyword in v.lower()
             for keyword in ["=", "~", "!=", ">=", "<=", "and", "or", "not"]
