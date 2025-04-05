@@ -1,10 +1,12 @@
 import functools
+import logging
 import re
 import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar, Union
 
+from llama_index.core import VectorStoreIndex
 from pydantic import BaseModel, Field
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
@@ -13,12 +15,23 @@ from confluence_gateway.adapters.confluence.models import (
     ContentType,
     SearchResult,
 )
+from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
+from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
 from confluence_gateway.core.config import search_config
-from confluence_gateway.core.exceptions import SearchParameterError
+from confluence_gateway.core.exceptions import (
+    SearchParameterError,
+    SemanticSearchError,
+)
+from confluence_gateway.services.embedding import EmbeddingError, EmbeddingService
+from confluence_gateway.services.indexing import IndexingService
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
-SearchResult_T = Union[SearchResult, "EnhancedSearchResult"]
+SearchResult_T = Union[
+    SearchResult, "EnhancedSearchResult", list[VectorSearchResultItem]
+]
 
 
 class SortDirection(str, Enum):
@@ -80,8 +93,37 @@ def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
 
 
 class SearchService:
-    def __init__(self, client: ConfluenceClient):
+    def __init__(
+        self,
+        client: ConfluenceClient,
+        indexing_service: Optional[IndexingService] = None,
+        embedding_service: Optional[EmbeddingService] = None,
+        vector_db_adapter: Optional[VectorDBAdapter] = None,
+    ):
         self.client = client
+        self.indexing_service = indexing_service
+        self.embedding_service = embedding_service
+        self.vector_db_adapter = vector_db_adapter
+        self.vector_index: Optional[VectorStoreIndex] = None
+
+        if self.indexing_service:
+            logger.info("SearchService initialized with IndexingService.")
+        else:
+            logger.warning("SearchService initialized WITHOUT IndexingService.")
+
+        if self.embedding_service:
+            logger.info("SearchService initialized with EmbeddingService.")
+        else:
+            logger.warning(
+                "SearchService initialized WITHOUT EmbeddingService. Semantic search might be disabled."
+            )
+
+        if self.vector_db_adapter:
+            logger.info("SearchService initialized with VectorDBAdapter.")
+        else:
+            logger.warning(
+                "SearchService initialized WITHOUT VectorDBAdapter. Semantic search might be disabled."
+            )
 
     def _prepare_sort_criteria(
         self,
@@ -259,8 +301,6 @@ class SearchService:
     ) -> SearchResult:
         filtered_results = list(results.results)
 
-        # TODO: Implement custom relevance scoring using text analysis
-
         if top_n is not None and top_n > 0 and len(filtered_results) > top_n:
             filtered_results = filtered_results[:top_n]
 
@@ -342,6 +382,88 @@ class SearchService:
             limit=results.limit,
             results=items_to_sort,
         )
+
+    def search_semantic(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters: Optional[dict[str, Any]] = None,
+    ) -> tuple[list[VectorSearchResultItem], float]:
+        if not self.embedding_service:
+            logger.error(
+                "Semantic search attempted but EmbeddingService is not available."
+            )
+            raise SemanticSearchError(
+                "Semantic search is not configured: EmbeddingService is missing."
+            )
+        if not self.vector_db_adapter:
+            logger.error(
+                "Semantic search attempted but VectorDBAdapter is not available."
+            )
+            raise SemanticSearchError(
+                "Semantic search is not configured: VectorDBAdapter is missing."
+            )
+
+        if not query or query.isspace():
+            raise SearchParameterError("Semantic search query cannot be empty.")
+        if top_k <= 0:
+            raise SearchParameterError("top_k must be a positive integer.")
+
+        sanitized_query = query.strip()
+        logger.info(
+            f"Performing semantic search for query: '{sanitized_query}', top_k={top_k}, filters={filters}"
+        )
+
+        start_time = time.time()
+
+        try:
+            logger.debug(f"Generating embedding for query: '{sanitized_query}'")
+            query_embedding = self.embedding_service.embed_text(sanitized_query)
+            if not query_embedding:
+                # This might happen if the provider returns an empty list for some reason
+                logger.error(
+                    f"Embedding service returned an empty embedding for query: '{sanitized_query}'"
+                )
+                raise SemanticSearchError("Failed to generate a valid query embedding.")
+            logger.debug("Query embedding generated successfully.")
+
+        except EmbeddingError as e:
+            logger.error(
+                f"Embedding failed for query '{sanitized_query}': {e}", exc_info=True
+            )
+            raise SemanticSearchError(
+                f"Failed to generate embedding for the query: {e}"
+            ) from e
+        except Exception as e:
+            logger.error(f"Unexpected error during query embedding: {e}", exc_info=True)
+            raise SemanticSearchError(
+                f"An unexpected error occurred during query embedding: {e}"
+            ) from e
+
+        try:
+            logger.debug(
+                f"Searching vector database with top_k={top_k} and filters={filters}"
+            )
+            results: list[VectorSearchResultItem] = self.vector_db_adapter.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                filters=filters,
+            )
+            logger.debug(f"Vector database search returned {len(results)} results.")
+
+        except Exception as e:
+            # Catching generic Exception as adapter specifics might vary
+            logger.error(f"Vector database search failed: {e}", exc_info=True)
+            raise SemanticSearchError(
+                f"Semantic search failed during vector database query: {e}"
+            ) from e
+
+        took_ms = (time.time() - start_time) * 1000
+        logger.info(
+            f"Semantic search completed in {took_ms:.2f} ms, found {len(results)} results."
+        )
+
+        return results, took_ms
 
     @validate_search_params
     def search_by_cql(

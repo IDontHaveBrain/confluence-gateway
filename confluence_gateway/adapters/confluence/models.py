@@ -139,13 +139,10 @@ class SearchResult(BaseModel):
     }
 
     def __init__(self, **data):
-        # Always prioritize totalSize (actual total matches) regardless of other fields
         if "totalSize" in data:
             data["total_size"] = data["totalSize"]
-        # Fallback to total field if totalSize is not present
         elif "total" in data:
             data["total_size"] = data["total"]
-        # Last resort: use size field only if no better count is available
         elif "size" in data and "total_size" not in data:
             data["total_size"] = data["size"]
 

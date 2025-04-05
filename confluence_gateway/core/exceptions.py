@@ -37,3 +37,9 @@ class ConfluenceAPIError(ConfluenceGatewayError):
 class SearchParameterError(ConfluenceGatewayError):
     def __init__(self, message: str = "Invalid search parameters"):
         super().__init__(message)
+
+
+class SemanticSearchError(ConfluenceGatewayError):
+    """Error specific to semantic search operations."""
+
+    pass

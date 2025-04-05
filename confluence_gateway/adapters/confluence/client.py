@@ -153,8 +153,6 @@ class ConfluenceClient:
                     status_code=404, error_message="Failed to find working API endpoint"
                 )
 
-        # If we haven't made a request yet (because we used a known API path),
-        # make the request now
         if response is None:
             url = f"{self.base_url}/{api_version}/{endpoint.lstrip('/')}"
             try:
@@ -321,11 +319,9 @@ class ConfluenceClient:
             if "plain" in body_data and isinstance(body_data["plain"], dict):
                 data["plain_content"] = body_data["plain"].get("value", "")
 
-        # Handle version information
         if "version" in data and isinstance(data["version"], dict):
             data["version_number"] = data["version"].get("number", 0)
 
-        # Handle space reference
         if "space" in data and isinstance(data["space"], dict):
             space_data = data["space"]
             data["space_key"] = space_data.get("key", "")
@@ -334,13 +330,10 @@ class ConfluenceClient:
         return ConfluencePage(**data)
 
     def _parse_search_result(self, data: dict[str, Any]) -> SearchResult:
-        # First priority is to use totalSize which is the actual total matches count
         if "totalSize" in data:
             data["total_size"] = data["totalSize"]
-        # Fallback to total field if present
         elif "total" in data:
             data["total_size"] = data["total"]
-        # Last resort fallback to size field (number of results in this response)
         elif "size" in data and "total_size" not in data:
             data["total_size"] = data["size"]
         transformed_results = []
@@ -376,7 +369,6 @@ class ConfluenceClient:
             "updated_at": content.updated_at,
         }
 
-        # Add space information if available
         space = getattr(content, "space", None)
         if space:
             if isinstance(space, dict):
@@ -389,10 +381,8 @@ class ConfluenceClient:
             result["space_key"] = getattr(content, "space_key", "")
             result["space_name"] = getattr(content, "space_name", "")
 
-        # Add type-specific fields
         content_type = content.content_type
         if content_type in (ContentType.PAGE, ContentType.BLOGPOST):
-            # For pages and blog posts
             result["html_content"] = getattr(content, "html_content", None)
             result["plain_content"] = getattr(content, "plain_content", None)
 
@@ -400,44 +390,37 @@ class ConfluenceClient:
             if version:
                 result["version"] = int(getattr(version, "number", version))
 
-            # Use atlassian-python-api's URL construction via get_page_url if available
             if hasattr(self.atlassian_api, "get_page_url") and content.id:
                 try:
                     result["url"] = self.atlassian_api.get_page_url(
                         result.get("space_key"), content.id
                     )
                 except Exception:
-                    # Fall back to our URL construction if the API method fails
                     if result.get("space_key"):
                         result["url"] = (
                             f"{self.base_url}/wiki/spaces/{result['space_key']}/pages/{content.id}"
                         )
 
         elif content_type == ContentType.ATTACHMENT:
-            # For attachments
             result["file_name"] = content.title
             extensions = getattr(content, "extensions", {})
             if extensions:
                 result["file_size"] = extensions.get("fileSize")
                 result["media_type"] = extensions.get("mediaType")
 
-            # Use atlassian-python-api's URL construction for attachments if available
             if hasattr(self.atlassian_api, "get_attachment_url") and content.id:
                 try:
-                    # According to docs, we need both content_id and filename
                     filename = result.get("file_name", content.title)
                     result["download_url"] = self.atlassian_api.get_attachment_url(
                         content.id, filename=filename
                     )
                 except Exception:
-                    # Fall back to our URL construction if the API method fails
                     if result.get("space_key"):
                         result["download_url"] = (
                             f"{self.base_url}/wiki/download/attachments/{content.id}"
                         )
 
         elif content_type == ContentType.COMMENT:
-            # For comments
             result["plain_content"] = getattr(content, "plain_content", None)
             container = getattr(content, "container", None)
             if container:
@@ -459,38 +442,30 @@ class ConfluenceClient:
         if hasattr(self.atlassian_api, "cql_builder"):
             try:
                 cql = self.atlassian_api.cql_builder()
-                # Add text search
                 cql.text_contains(query)
 
-                # Add content type filter
                 if content_type:
                     content_type_str = getattr(content_type, "value", content_type)
                     cql.content_type(content_type_str)
 
-                # Add space filter
                 if space_key:
                     cql.space(space_key)
 
                 return str(cql)
             except (AttributeError, TypeError):
-                # Fall back to manual CQL building if cql_builder isn't available or doesn't work
                 pass
 
-        # Manual CQL building as fallback
         query_escaped = self._escape_cql(query)
         cql_parts = [f'text ~ "{query_escaped}"']
 
-        # Add content type filter
         if content_type:
             content_type_str = getattr(content_type, "value", content_type)
             cql_parts.append(f'type = "{content_type_str}"')
 
-        # Add space filter
         if space_key:
             space_key_escaped = self._escape_cql(space_key)
             cql_parts.append(f'space = "{space_key_escaped}"')
 
-        # Combine CQL parts with AND operator
         return " AND ".join(cql_parts)
 
     @with_backoff()
@@ -507,10 +482,8 @@ class ConfluenceClient:
         if not cql:
             raise SearchParameterError("CQL query cannot be empty")
 
-        # Set actual limit value to use
         actual_limit = limit or search_config.default_limit
 
-        # Prepare expand parameter
         expand_param = None
         if expand:
             expand_param = ",".join(expand)
@@ -518,24 +491,20 @@ class ConfluenceClient:
             expand_param = ",".join(search_config.default_expand)
 
         try:
-            # atlassian-python-api's cql method can handle pagination internally when we need all results
             if get_all_results:
-                # If max_results is specified, we'll fetch all and truncate later
                 all_results = self.atlassian_api.cql(
                     cql,
                     limit=actual_limit,
                     start=start or 0,
                     expand=expand_param,
-                    include_archived_spaces=include_archived,  # Use the proper parameter for archived content
+                    include_archived_spaces=include_archived,
                 )
 
-                # Truncate results if max_results is specified
                 if max_results and len(all_results.get("results", [])) > max_results:
                     all_results["results"] = all_results["results"][:max_results]
 
                 return self._parse_search_result(all_results)
             else:
-                # Simple case: use atlassian-python-api for CQL search
                 results = self.atlassian_api.cql(
                     cql,
                     limit=actual_limit,
@@ -544,10 +513,8 @@ class ConfluenceClient:
                     include_archived_spaces=include_archived,
                 )
 
-                # Transform the response to our model format
                 return self._parse_search_result(results)
         except Exception as e:
-            # Translate exceptions to our custom exception types
             if "401" in str(e):
                 raise ConfluenceAuthenticationError(
                     "Authentication failed. Check username and API token."
@@ -572,15 +539,13 @@ class ConfluenceClient:
         if not query:
             raise SearchParameterError("Query cannot be empty")
 
-        # Convert string content_type to enum if needed
         if content_type and isinstance(content_type, str):
             try:
                 content_type = ContentType(content_type.lower())
             except ValueError:
-                pass  # Use as is, API will handle invalid values
+                pass
 
         try:
-            # For pure text searches without other filters, we can use a simple CQL query
             if not content_type and not space_key and not get_all_results:
                 actual_limit = limit or search_config.default_limit
                 expand_param = None
@@ -589,10 +554,8 @@ class ConfluenceClient:
                 elif search_config.default_expand:
                     expand_param = ",".join(search_config.default_expand)
 
-                # Create basic text search CQL
                 cql_query = f'text ~ "{self._escape_cql(query)}"'
 
-                # Use include_archived_spaces parameter instead of CQL status filter
                 results = self.atlassian_api.cql(
                     cql_query,
                     start=start or 0,
@@ -602,12 +565,10 @@ class ConfluenceClient:
                 )
                 return self._parse_search_result(results)
             else:
-                # Build CQL query for more complex searches
                 cql_query = self._build_search_cql(
                     query, content_type, space_key, include_archived
                 )
 
-                # Use the search_by_cql method which now uses atlassian-python-api
                 return self.search_by_cql(
                     cql=cql_query,
                     limit=limit,
@@ -618,7 +579,6 @@ class ConfluenceClient:
                     include_archived=include_archived,
                 )
         except Exception as e:
-            # Translate exceptions to our custom exception types
             if "401" in str(e):
                 raise ConfluenceAuthenticationError(
                     "Authentication failed. Check username and API token."

@@ -144,7 +144,7 @@ class TestLoadConfigurations:
             Path(get_user_config_path()).unlink()
 
         # Load configurations
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Verify configurations loaded from environment
         assert confluence_config is not None
@@ -202,7 +202,7 @@ class TestLoadConfigurations:
         )
 
         # Load configurations
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Verify configurations loaded from file
         assert confluence_config is not None
@@ -247,7 +247,7 @@ class TestLoadConfigurations:
         )
 
         # Load configurations
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Verify file values take precedence
         assert confluence_config is not None
@@ -292,7 +292,7 @@ class TestLoadConfigurations:
         )
 
         # Load configurations
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Verify merged configuration
         assert confluence_config is not None
@@ -325,7 +325,7 @@ class TestLoadConfigurations:
             f.write("This is not valid JSON")
 
         # Load configurations - should fall back to env vars
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Verify fallback to environment
         assert confluence_config is not None
@@ -345,7 +345,7 @@ class TestLoadConfigurations:
             f.write(json.dumps(["item1", "item2"]))
 
         # Load configurations - should fall back to env vars
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Verify fallback to environment
         assert confluence_config is not None
@@ -364,7 +364,7 @@ class TestLoadConfigurations:
         mock_user_config_file({"confluence": {"timeout": 30}})
 
         # Load configurations
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Verify confluence_config is None due to missing required fields
         assert confluence_config is None
@@ -383,7 +383,7 @@ class TestLoadConfigurations:
         )
 
         # Load configurations
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # Vector DB config should be None due to validation errors
         assert vector_db_config is None
@@ -409,7 +409,7 @@ class TestLoadConfigurations:
         )
 
         # Load configurations
-        confluence_config, search_config, vector_db_config = load_configurations()
+        confluence_config, search_config, vector_db_config, _ = load_configurations()
 
         # VectorDBConfig should be None as type defaults to 'none'
         assert vector_db_config is None
