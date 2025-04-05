@@ -29,3 +29,7 @@ repos:
           - types-requests>=2.32.0
           - chromadb>=0.6.3
           - qdrant-client>=1.13.3
+          - llama-index-core>=0.12.28
+          - sentence-transformers>=4.0.2
+          - litellm>=1.65.3
+          - atlassian-python-api>=4.0.3

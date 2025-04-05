@@ -6,13 +6,14 @@ authors = [
     {name = "nj.jo",email = "jonamjun.dev@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "atlassian-python-api>=4.0.3",
     "chromadb>=0.6.3",
     "fastapi>=0.115.12",
     "httpx>=0.28.1",
     "litellm>=1.65.3",
+    "llama-index-core>=0.12.28",
     "pydantic>=2.11.2",
     "python-dotenv>=1.1.0",
     "qdrant-client>=1.13.3",
@@ -50,7 +51,7 @@ src = [
 "tests/*" = ["E402", "F811", "F401", "F403", "F405"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 plugins = "pydantic.mypy"
 show_error_codes = true
 show_error_context = true

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any, Optional, cast
 
 import chromadb
@@ -81,7 +82,7 @@ class ChromaDBAdapter(VectorDBAdapter):
         # Perform upsert
         self.collection.upsert(
             ids=ids,
-            embeddings=embeddings,
+            embeddings=cast(list[Sequence[float]], embeddings),
             metadatas=cast(Optional[Metadatas], metadatas),
             documents=texts,
         )
@@ -116,7 +117,7 @@ class ChromaDBAdapter(VectorDBAdapter):
 
         # Perform search
         results = self.collection.query(
-            query_embeddings=[query_embedding],
+            query_embeddings=cast(list[Sequence[float]], [query_embedding]),
             n_results=top_k,
             where=where,
             include=[
