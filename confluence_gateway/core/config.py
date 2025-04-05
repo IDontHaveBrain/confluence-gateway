@@ -2,7 +2,7 @@ import json
 import os
 import platform
 from pathlib import Path
-from typing import Any, Literal, Optional, get_args
+from typing import Any, Literal, Optional, Union, get_args
 
 from pydantic import BaseModel, Field, HttpUrl, ValidationError, model_validator
 
@@ -148,9 +148,9 @@ class VectorDBConfig(BaseModel):
         default=None, description="Port for ChromaDB client/server mode."
     )
 
-    qdrant_url: Optional[HttpUrl] = Field(
+    qdrant_url: Optional[Union[HttpUrl, Literal[":memory:"]]] = Field(
         default=None,
-        description="URL for the Qdrant instance. Required if type is 'qdrant'.",
+        description="URL for the Qdrant instance. Required if type is 'qdrant'. Can be ':memory:' for in-memory testing.",
     )
     qdrant_api_key: Optional[str] = Field(
         default=None, description="API key for Qdrant authentication."
@@ -390,25 +390,36 @@ def load_configurations() -> tuple[
         print(f"Error: Invalid Search configuration: {e}. Using defaults.")
         loaded_search_config = SearchConfig()
 
+    # --- Instantiate EmbeddingConfig FIRST ---
     loaded_embedding_config: Optional[EmbeddingConfig] = None
-    if (
-        final_embedding_config.get("provider", "none") != "none"
-        or len(final_embedding_config) > 1
-    ):
+    # Check if there's *any* embedding config provided or if provider is explicitly set (even to 'none')
+    if final_embedding_config:  # Check if the dict is not empty
         if "provider" not in final_embedding_config:
+            # If provider is missing but other keys exist, default it to none.
             final_embedding_config["provider"] = "none"
+            print("Info: Embedding provider type missing, defaulting to 'none'.")
 
         try:
+            # Filter out None values before validation
             filtered_emb_config = {
                 k: v for k, v in final_embedding_config.items() if v is not None
             }
+            # Ensure provider is present even if it was None originally and got filtered
+            if (
+                "provider" not in filtered_emb_config
+                and "provider" in final_embedding_config
+            ):
+                filtered_emb_config["provider"] = final_embedding_config["provider"]
+
             config_instance = EmbeddingConfig(**filtered_emb_config)
+            # Only assign if it's actually enabled
             if config_instance.provider != "none":
                 loaded_embedding_config = config_instance
                 print(
                     f"Info: Embedding Provider configured: Type='{config_instance.provider}', Model='{config_instance.model_name}', Dimension='{config_instance.dimension}'"
                 )
             else:
+                # Type is 'none', even if other keys were present
                 print("Info: Embedding provider is disabled (provider='none').")
 
         except (ValidationError, ValueError) as e:
@@ -417,10 +428,16 @@ def load_configurations() -> tuple[
                 "Warning: Embedding configuration failed. Embedding features may be disabled."
             )
     else:
+        # final_embedding_config dictionary was empty
         print("Info: No Embedding configuration found. Embedding features disabled.")
 
+    # --- Prepare and Instantiate VectorDBConfig ---
+
+    # *BEFORE* instantiating VectorDBConfig, try to set the dimension if needed and not already set
     if loaded_embedding_config and loaded_embedding_config.dimension is not None:
-        if "embedding_dimension" not in final_vector_db_config:
+        # Check if VDB type requires a dimension and if it's missing in the raw VDB config
+        vdb_type = final_vector_db_config.get("type", "none")
+        if vdb_type != "none" and "embedding_dimension" not in final_vector_db_config:
             final_vector_db_config["embedding_dimension"] = (
                 loaded_embedding_config.dimension
             )
@@ -428,33 +445,46 @@ def load_configurations() -> tuple[
                 f"Info: Setting VectorDB embedding_dimension from EmbeddingConfig: {loaded_embedding_config.dimension}"
             )
         elif (
-            final_vector_db_config.get("embedding_dimension")
+            vdb_type != "none"
+            and "embedding_dimension"
+            in final_vector_db_config  # Check key exists before comparing
+            and final_vector_db_config.get("embedding_dimension")
             != loaded_embedding_config.dimension
         ):
+            # This warning logic was already present, keep it
             print(
                 f"Warning: VECTOR_DB_EMBEDDING_DIMENSION ({final_vector_db_config.get('embedding_dimension')}) "
                 f"differs from EMBEDDING_DIMENSION ({loaded_embedding_config.dimension}). Using the VectorDB specific value."
             )
 
     loaded_vector_db_config: Optional[VectorDBConfig] = None
-    if (
-        final_vector_db_config.get("type", "none") != "none"
-        or len(final_vector_db_config) > 1
-    ):
+    # Check if there's *any* vector DB config provided or if type is explicitly set (even to 'none')
+    if final_vector_db_config:  # Check if the dict is not empty
         if "type" not in final_vector_db_config:
+            # If type is missing but other keys exist, default it to none.
             final_vector_db_config["type"] = "none"
+            print("Info: Vector DB type missing, defaulting to 'none'.")
 
         try:
+            # Filter out None values *before* validation
             filtered_vdb_config = {
                 k: v for k, v in final_vector_db_config.items() if v is not None
             }
+            # Ensure type is present even if it was None originally and got filtered
+            if "type" not in filtered_vdb_config and "type" in final_vector_db_config:
+                filtered_vdb_config["type"] = final_vector_db_config["type"]
+
+            # Now instantiate with potentially pre-filled dimension
             config_instance = VectorDBConfig(**filtered_vdb_config)
+
+            # Only assign if it's actually enabled
             if config_instance.type != "none":
                 loaded_vector_db_config = config_instance
                 print(
                     f"Info: Vector DB configured: Type='{config_instance.type}', Collection='{config_instance.collection_name}'"
                 )
             else:
+                # Type is 'none', even if other keys were present
                 print("Info: Vector database integration is disabled (type='none').")
 
         except (ValidationError, ValueError) as e:
@@ -463,6 +493,7 @@ def load_configurations() -> tuple[
                 "Warning: Vector database configuration failed. Vector DB features will be disabled."
             )
     else:
+        # final_vector_db_config dictionary was empty
         print("Info: No Vector DB configuration found. Vector DB features disabled.")
 
     return (

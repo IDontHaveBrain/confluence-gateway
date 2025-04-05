@@ -27,15 +27,32 @@ class QdrantAdapter(VectorDBAdapter):
             )
 
         try:
-            logger.info(
-                f"Connecting to Qdrant at URL: {self.config.qdrant_url}, "
-                f"gRPC Port: {self.config.qdrant_grpc_port}, "
-                f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
-                f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
-            )
+            # Determine the right parameter (url or location) based on qdrant_url value
+            client_url = None
+            client_location = None
+
+            if self.config.qdrant_url == ":memory:":
+                client_location = ":memory:"
+                logger.info(
+                    f"Initializing Qdrant in memory mode, "
+                    f"gRPC Port: {self.config.qdrant_grpc_port}, "
+                    f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
+                    f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
+                )
+            else:
+                client_url = (
+                    str(self.config.qdrant_url) if self.config.qdrant_url else None
+                )
+                logger.info(
+                    f"Connecting to Qdrant at URL: {client_url}, "
+                    f"gRPC Port: {self.config.qdrant_grpc_port}, "
+                    f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
+                    f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
+                )
 
             self.client = QdrantClient(
-                url=str(self.config.qdrant_url) if self.config.qdrant_url else None,
+                url=client_url,
+                location=client_location,
                 api_key=self.config.qdrant_api_key,
                 grpc_port=self.config.qdrant_grpc_port,
                 prefer_grpc=self.config.qdrant_prefer_grpc,
@@ -161,18 +178,18 @@ class QdrantAdapter(VectorDBAdapter):
             logger.info(
                 f"Searching Qdrant collection '{collection_name}' with top_k={top_k}, filters provided: {bool(filters)}"
             )
-            query_result = client.query_points(
+            query_response = client.query_points(
                 collection_name=collection_name,
-                query_vector=query_embedding,
+                query=query_embedding,
                 query_filter=qdrant_filter,
                 limit=top_k,
                 with_payload=True,
                 with_vectors=False,
             )
-            logger.info(f"Qdrant query returned {len(query_result.points)} results.")
+            logger.info(f"Qdrant query returned {len(query_response.points)} results.")
 
             output_results = []
-            for scored_point in query_result.points:
+            for scored_point in query_response.points:
                 payload = scored_point.payload or {}
                 text_content = payload.pop("text", None)
                 metadata = payload
