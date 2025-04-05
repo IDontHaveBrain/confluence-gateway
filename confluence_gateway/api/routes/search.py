@@ -9,18 +9,21 @@ from confluence_gateway.api.dependencies import get_search_service
 from confluence_gateway.api.schemas.requests import (
     AdvancedSearchRequest,
     CQLSearchRequest,
+    SemanticSearchRequest,
 )
 from confluence_gateway.api.schemas.responses import (
     ErrorResponse,
     PaginationLinks,
     SearchResponse,
     SearchResultItem,
+    SemanticSearchResponse,
 )
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
     ConfluenceAuthenticationError,
     ConfluenceConnectionError,
     SearchParameterError,
+    SemanticSearchError,
 )
 from confluence_gateway.services.search import SearchService
 
@@ -35,12 +38,19 @@ def handle_search_exceptions(func):
         except SearchParameterError as e:
             error = ErrorResponse(
                 code=400, message=str(e), details={"type": "search_parameter_error"}
-            )
+            )  # noqa
             raise HTTPException(status_code=400, detail=error.model_dump())
+        except SemanticSearchError as e:
+            error = ErrorResponse(
+                code=500,
+                message=f"Semantic search failed: {str(e)}",
+                details={"type": "semantic_search_error"},
+            )  # noqa
+            raise HTTPException(status_code=500, detail=error.model_dump())
         except ConfluenceAuthenticationError as e:
             error = ErrorResponse(
                 code=401, message=str(e), details={"type": "authentication_error"}
-            )
+            )  # noqa
             raise HTTPException(status_code=401, detail=error.model_dump())
         except ConfluenceConnectionError as e:
             error = ErrorResponse(
@@ -50,7 +60,7 @@ def handle_search_exceptions(func):
                     "type": "connection_error",
                     "cause": str(getattr(e, "cause", "")),
                 },
-            )
+            )  # noqa
             raise HTTPException(status_code=503, detail=error.model_dump())
         except ConfluenceAPIError as e:
             status_code = e.status_code or 500
@@ -58,14 +68,14 @@ def handle_search_exceptions(func):
                 code=status_code,
                 message=e.error_message or str(e),
                 details={"type": "api_error", "status_code": status_code},
-            )
+            )  # noqa
             raise HTTPException(status_code=status_code, detail=error.model_dump())
         except Exception as e:
             error = ErrorResponse(
                 code=500,
                 message=f"Unexpected error: {str(e)}",
                 details={"type": "server_error"},
-            )
+            )  # noqa
             raise HTTPException(status_code=500, detail=error.model_dump())
 
     return wrapper
@@ -110,7 +120,7 @@ def _build_search_response(
         for key, value in request.query_params.items():
             params[key] = value
 
-        links = PaginationLinks()
+        links = PaginationLinks()  # noqa
 
         if has_more:
             next_params = params.copy()
@@ -174,6 +184,42 @@ async def search_content(
     )
 
     return _build_search_response(search_result, search_service, request)
+
+
+@router.post(
+    "/semantic",
+    response_model=SemanticSearchResponse,
+    summary="Perform semantic search using vector embeddings",
+    description="Search for content based on semantic similarity using vector embeddings",
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid search parameters"},
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal server error during semantic search",
+        },
+        503: {
+            "model": ErrorResponse,
+            "description": "Semantic search service unavailable",
+        },
+    },
+)
+@handle_search_exceptions
+async def semantic_search(
+    request: Request,
+    search_request: SemanticSearchRequest,
+    search_service: SearchService = Depends(get_search_service),
+):
+    results, took_ms = search_service.search_semantic(
+        query=search_request.query,
+        top_k=search_request.top_k,
+        filters=search_request.filters,
+    )
+
+    return SemanticSearchResponse(
+        results=results,
+        took_ms=took_ms,
+        query=search_request.query,
+    )
 
 
 @router.post(

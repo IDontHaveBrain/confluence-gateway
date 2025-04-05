@@ -4,6 +4,8 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
+from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
+from confluence_gateway.adapters.vector_db.factory import get_vector_db_adapter
 from confluence_gateway.core.config import (
     confluence_config,
     embedding_config,
@@ -101,5 +103,12 @@ def get_indexing_service(
 def get_search_service(
     client: ConfluenceClient = Depends(get_confluence_client),
     indexing_service: Optional[IndexingService] = Depends(get_indexing_service),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
+    vector_db_adapter: Optional[VectorDBAdapter] = Depends(get_vector_db_adapter),
 ) -> SearchService:
-    return SearchService(client=client, indexing_service=indexing_service)
+    return SearchService(
+        client=client,
+        indexing_service=indexing_service,
+        embedding_service=embedding_service,
+        vector_db_adapter=vector_db_adapter,
+    )

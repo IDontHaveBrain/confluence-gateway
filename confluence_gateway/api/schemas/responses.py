@@ -3,6 +3,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
+
 
 class PaginationLinks(BaseModel):
     next: Optional[str] = Field(None)
@@ -98,6 +100,49 @@ class ErrorResponse(BaseModel):
                         "param": "query",
                         "reason": "Query must be at least 2 characters long",
                     },
+                }
+            ]
+        }
+    }
+
+
+class SemanticSearchResponse(BaseModel):
+    results: list[VectorSearchResultItem] = Field(default_factory=list)
+    took_ms: float = Field(...)
+    query: str = Field(...)
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "results": [
+                        {
+                            "id": "12345_chunk_0",
+                            "score": 0.85,
+                            "metadata": {
+                                "original_content_id": "12345",
+                                "title": "API Documentation",
+                                "space_key": "DEV",
+                                "url": "https://confluence.example.com/display/DEV/API+Documentation",
+                                "chunk_sequence_number": 0,
+                            },
+                            "text": "This document describes the API endpoints...",
+                        },
+                        {
+                            "id": "67890_chunk_2",
+                            "score": 0.78,
+                            "metadata": {
+                                "original_content_id": "67890",
+                                "title": "Getting Started with API",
+                                "space_key": "DEV",
+                                "url": "https://confluence.example.com/display/DEV/Getting+Started+with+API",
+                                "chunk_sequence_number": 2,
+                            },
+                            "text": "...authentication is handled via API tokens...",
+                        },
+                    ],
+                    "took_ms": 45.67,
+                    "query": "how to use the confluence api",
                 }
             ]
         }

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -165,6 +165,30 @@ class AdvancedSearchRequest(BaseSearchRequest):
                     "top_n": 10,
                     "sort_by": ["updated_at", "title"],
                     "sort_direction": ["desc", "asc"],
+                }
+            ]
+        }
+    }
+
+
+class SemanticSearchRequest(BaseModel):
+    query: str
+    top_k: int = Field(default=10, gt=0)
+    filters: Optional[dict[str, Any]] = None
+
+    @field_validator("query")
+    def validate_query(cls, v):
+        if not v or len(v.strip()) < 2:
+            raise ValueError("Query must be at least 2 characters long")
+        return v.strip()
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "query": "how to use the confluence api",
+                    "top_k": 5,
+                    "filters": {"space_key": "DEV"},
                 }
             ]
         }

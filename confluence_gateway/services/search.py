@@ -6,9 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar, Union
 
-from llama_index.core import Settings, VectorStoreIndex
-from llama_index.core.schema import MetadataMode, NodeWithScore
-from llama_index.core.vector_stores import ExactMatchFilter, MetadataFilters
+from llama_index.core import VectorStoreIndex
 from pydantic import BaseModel, Field
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
@@ -17,12 +15,14 @@ from confluence_gateway.adapters.confluence.models import (
     ContentType,
     SearchResult,
 )
+from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
 from confluence_gateway.core.config import search_config
 from confluence_gateway.core.exceptions import (
-    ConfluenceGatewayError,
     SearchParameterError,
+    SemanticSearchError,
 )
+from confluence_gateway.services.embedding import EmbeddingError, EmbeddingService
 from confluence_gateway.services.indexing import IndexingService
 
 logger = logging.getLogger(__name__)
@@ -67,10 +67,6 @@ class EnhancedSearchResult(BaseModel):
         return self.results
 
 
-class SemanticSearchError(ConfluenceGatewayError):
-    pass
-
-
 def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
@@ -101,28 +97,32 @@ class SearchService:
         self,
         client: ConfluenceClient,
         indexing_service: Optional[IndexingService] = None,
+        embedding_service: Optional[EmbeddingService] = None,
+        vector_db_adapter: Optional[VectorDBAdapter] = None,
     ):
         self.client = client
         self.indexing_service = indexing_service
+        self.embedding_service = embedding_service
+        self.vector_db_adapter = vector_db_adapter
         self.vector_index: Optional[VectorStoreIndex] = None
 
-        if self.indexing_service and Settings.embed_model:
-            try:
-                logger.info(
-                    "Initializing VectorStoreIndex from configured vector store..."
-                )
-                # TODO: Re-enable VectorStoreIndex initialization when vector_store is available
-                logger.info(
-                    "VectorStoreIndex initialization skipped (requires vector_store)."
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to initialize VectorStoreIndex: {e}", exc_info=True
-                )
+        if self.indexing_service:
+            logger.info("SearchService initialized with IndexingService.")
+        else:
+            logger.warning("SearchService initialized WITHOUT IndexingService.")
+
+        if self.embedding_service:
+            logger.info("SearchService initialized with EmbeddingService.")
         else:
             logger.warning(
-                "Vector store or embedding model not available from IndexingService. "
-                "Semantic search will be disabled."
+                "SearchService initialized WITHOUT EmbeddingService. Semantic search might be disabled."
+            )
+
+        if self.vector_db_adapter:
+            logger.info("SearchService initialized with VectorDBAdapter.")
+        else:
+            logger.warning(
+                "SearchService initialized WITHOUT VectorDBAdapter. Semantic search might be disabled."
             )
 
     def _prepare_sort_criteria(
@@ -383,37 +383,27 @@ class SearchService:
             results=items_to_sort,
         )
 
-    def _translate_llama_filters(
-        self, filters: Optional[dict[str, Any]]
-    ) -> Optional[MetadataFilters]:
-        if not filters:
-            return None
-
-        llama_filters = []
-        for key, value in filters.items():
-            if value is not None:
-                llama_filters.append(ExactMatchFilter(key=key, value=value))
-            else:
-                logger.debug(f"Skipping filter for key '{key}' because value is None.")
-
-        if not llama_filters:
-            return None
-
-        return MetadataFilters(filters=llama_filters)
-
     def search_semantic(
         self,
         query: str,
         top_k: int = 10,
         filters: Optional[dict[str, Any]] = None,
-    ) -> list[VectorSearchResultItem]:
-        if not self.vector_index:
+    ) -> tuple[list[VectorSearchResultItem], float]:
+        if not self.embedding_service:
             logger.error(
-                "Semantic search attempted but VectorStoreIndex is not available."
+                "Semantic search attempted but EmbeddingService is not available."
             )
             raise SemanticSearchError(
-                "Semantic search is not configured or failed to initialize."
+                "Semantic search is not configured: EmbeddingService is missing."
             )
+        if not self.vector_db_adapter:
+            logger.error(
+                "Semantic search attempted but VectorDBAdapter is not available."
+            )
+            raise SemanticSearchError(
+                "Semantic search is not configured: VectorDBAdapter is missing."
+            )
+
         if not query or query.isspace():
             raise SearchParameterError("Semantic search query cannot be empty.")
         if top_k <= 0:
@@ -424,44 +414,56 @@ class SearchService:
             f"Performing semantic search for query: '{sanitized_query}', top_k={top_k}, filters={filters}"
         )
 
-        try:
-            llama_filters = self._translate_llama_filters(filters)
-        except Exception as e:
-            logger.error(f"Failed to translate filters: {e}", exc_info=True)
-            raise SearchParameterError(f"Invalid filters provided: {e}")
+        start_time = time.time()
 
         try:
-            retriever = self.vector_index.as_retriever(
-                similarity_top_k=top_k,
-                filters=llama_filters,
-            )
-            start_time = time.time()
-            retrieved_nodes: list[NodeWithScore] = retriever.retrieve(sanitized_query)
-            retrieval_time_ms = (time.time() - start_time) * 1000
-            logger.info(
-                f"Semantic retrieval found {len(retrieved_nodes)} nodes in {retrieval_time_ms:.2f} ms."
-            )
-
-        except Exception as e:
-            logger.error(f"LlamaIndex retrieval failed: {e}", exc_info=True)
-            raise SemanticSearchError(f"Semantic search retrieval failed: {e}")
-
-        results: list[VectorSearchResultItem] = []
-        for node_with_score in retrieved_nodes:
-            node = node_with_score.node
-            metadata = node.metadata or {}
-            text_content = node.get_content(metadata_mode=MetadataMode.NONE)
-
-            results.append(
-                VectorSearchResultItem(
-                    id=node.node_id or f"missing_id_{len(results)}",
-                    score=node_with_score.score or 0.0,
-                    metadata=metadata,
-                    text=text_content,
+            logger.debug(f"Generating embedding for query: '{sanitized_query}'")
+            query_embedding = self.embedding_service.embed_text(sanitized_query)
+            if not query_embedding:
+                # This might happen if the provider returns an empty list for some reason
+                logger.error(
+                    f"Embedding service returned an empty embedding for query: '{sanitized_query}'"
                 )
-            )
+                raise SemanticSearchError("Failed to generate a valid query embedding.")
+            logger.debug("Query embedding generated successfully.")
 
-        return results
+        except EmbeddingError as e:
+            logger.error(
+                f"Embedding failed for query '{sanitized_query}': {e}", exc_info=True
+            )
+            raise SemanticSearchError(
+                f"Failed to generate embedding for the query: {e}"
+            ) from e
+        except Exception as e:
+            logger.error(f"Unexpected error during query embedding: {e}", exc_info=True)
+            raise SemanticSearchError(
+                f"An unexpected error occurred during query embedding: {e}"
+            ) from e
+
+        try:
+            logger.debug(
+                f"Searching vector database with top_k={top_k} and filters={filters}"
+            )
+            results: list[VectorSearchResultItem] = self.vector_db_adapter.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                filters=filters,
+            )
+            logger.debug(f"Vector database search returned {len(results)} results.")
+
+        except Exception as e:
+            # Catching generic Exception as adapter specifics might vary
+            logger.error(f"Vector database search failed: {e}", exc_info=True)
+            raise SemanticSearchError(
+                f"Semantic search failed during vector database query: {e}"
+            ) from e
+
+        took_ms = (time.time() - start_time) * 1000
+        logger.info(
+            f"Semantic search completed in {took_ms:.2f} ms, found {len(results)} results."
+        )
+
+        return results, took_ms
 
     @validate_search_params
     def search_by_cql(
