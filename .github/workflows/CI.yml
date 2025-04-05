@@ -22,7 +22,6 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync
-          uv pip install -e ".[dev]"
 
       - name: Cache pre-commit environments
         uses: actions/cache@v4
