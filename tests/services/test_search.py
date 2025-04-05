@@ -5,7 +5,7 @@ import pytest
 from confluence_gateway.core.config import load_configurations
 
 # Check if Confluence config could be loaded
-_confluence_config, _, _ = load_configurations()
+_confluence_config, _, _, _ = load_configurations()
 real_config_available = _confluence_config is not None
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
@@ -302,7 +302,7 @@ class TestResultEnhancement:
 
 @pytest.fixture
 def real_client(request):
-    config, _, _ = load_configurations()
+    config, _, _, _ = load_configurations()
 
     if not config:
         pytest.skip(

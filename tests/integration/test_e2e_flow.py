@@ -6,13 +6,13 @@ from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
-_confluence_config, _, _ = load_configurations()
+_confluence_config, _, _, _ = load_configurations()
 real_config_available = _confluence_config is not None
 
 
 @pytest.fixture
 def confluence_client():
-    config, _, _ = load_configurations()
+    config, _, _, _ = load_configurations()
     if not config:
         pytest.skip(
             "Confluence configuration not available - skipping integration tests"

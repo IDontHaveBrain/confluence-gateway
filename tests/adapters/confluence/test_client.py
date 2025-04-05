@@ -17,7 +17,7 @@ from confluence_gateway.core.exceptions import (
 )
 
 # Check if Confluence config could be loaded
-_confluence_config, _, _ = load_configurations()
+_confluence_config, _, _, _ = load_configurations()
 REAL_CREDENTIALS_AVAILABLE = _confluence_config is not None
 
 # Skip all tests if no real credentials available
@@ -30,7 +30,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture
 def confluence_config():
     """Get Confluence configuration using the new loading mechanism."""
-    conf_config, _, _ = load_configurations()
+    conf_config, _, _, _ = load_configurations()
     if not conf_config:
         pytest.skip("Skipping test - Confluence configuration not available")
     return conf_config
