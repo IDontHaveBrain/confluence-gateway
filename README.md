@@ -116,6 +116,44 @@ Create a JSON file in your home directory with the following structure (only inc
 }
 ```
 
+## Testing
+
+This project emphasizes **integration testing** against a real Confluence instance to ensure reliability. Mock-based tests for core Confluence interactions are generally avoided.
+
+**Test Structure:**
+
+*   **Unit Tests (`tests/core/`, `tests/api/schemas/`):** Test isolated logic (configuration, exceptions, schemas) without external dependencies or mocks.
+*   **Adapter Tests (`tests/adapters/confluence/`):** Verify `ConfluenceClient` methods against a **real Confluence instance**. Ensure API calls are made correctly and responses are parsed into Pydantic models. Marked with `@pytest.mark.integration`.
+*   **Service Tests (`tests/services/`):** Verify `SearchService` logic built *on top* of the client (parameter validation, result enhancement, sorting, semantic search orchestration). Assumes the client works (tested separately). Uses a **real Confluence instance**. Marked with `@pytest.mark.integration`.
+*   **End-to-End (E2E) Tests (`tests/integration/`):** Verify API endpoints, request routing, service processing, and response schemas. Uses a **real Confluence instance** and potentially overrides for embedding/vector DB dependencies. Marked with `@pytest.mark.integration`.
+
+**Running Tests:**
+
+*   **Prerequisites for Integration Tests:**
+    *   Valid Confluence credentials must be configured via environment variables or the `~/.confluence_gateway_config.json` file (see [Configuration](#configuration)).
+    *   The target Confluence instance should have some content (spaces, pages) for tests to interact with.
+    *   For semantic search tests, appropriate embedding/vector DB configurations (or defaults) are needed.
+*   **Run only Unit Tests:**
+    ```bash
+    pytest -m "not integration"
+    ```
+*   **Run only Integration Tests:**
+    ```bash
+    pytest -m integration
+    ```
+*   **Run all tests:**
+    ```bash
+    pytest
+    ```
+
+**Writing Tests:**
+
+*   Use Pytest classes (e.g., `TestGetPage`, `TestSearch`) to group related tests.
+*   Use descriptive test method names.
+*   Mark all tests requiring a real Confluence connection with `@pytest.mark.integration`.
+*   Use the `skipif` marker based on configuration availability (e.g., `pytest.mark.skipif(not REAL_CREDENTIALS_AVAILABLE, ...)`).
+*   Create robust and deterministic fixtures. Document any specific data prerequisites needed in the target Confluence instance.
+
 ---
 
 # Confluence Gateway <a name="한국어"></a>

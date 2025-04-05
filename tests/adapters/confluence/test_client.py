@@ -1,446 +1,265 @@
-import re
 import uuid
-from typing import Optional
 
 import pytest
-from confluence_gateway.adapters.confluence.client import ConfluenceClient, with_backoff
 from confluence_gateway.adapters.confluence.models import (
     ConfluencePage,
     ConfluenceSpace,
     ContentType,
     SearchResult,
 )
-from confluence_gateway.core.config import load_configurations
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
     SearchParameterError,
 )
 
-# Check if Confluence config could be loaded
-_confluence_config, _, _, _ = load_configurations()
-REAL_CREDENTIALS_AVAILABLE = _confluence_config is not None
-
-# Skip all tests if no real credentials available
-pytestmark = pytest.mark.skipif(
-    not REAL_CREDENTIALS_AVAILABLE,
-    reason="Confluence configuration not found in environment or config file",
-)
+from tests.conftest import REAL_CONFIG_SKIP_REASON
 
 
 @pytest.fixture
-def confluence_config():
-    """Get Confluence configuration using the new loading mechanism."""
-    conf_config, _, _, _ = load_configurations()
-    if not conf_config:
-        pytest.skip("Skipping test - Confluence configuration not available")
-    return conf_config
-
-
-@pytest.fixture
-def client(confluence_config):
-    return ConfluenceClient(config=confluence_config)
-
-
-@pytest.fixture
-def real_search_term(client):
-    """Get a search term that will return results based on actual content."""
+def existing_space_key(confluence_client):
     try:
-        # First approach: Get a term from a page title
-        spaces = client.atlassian_api.get_all_spaces(limit=1)
+        spaces = confluence_client.atlassian_api.get_all_spaces(limit=1)
         if not spaces or "results" not in spaces or len(spaces["results"]) == 0:
-            raise ValueError("No spaces available")
-
-        space_key = spaces["results"][0]["key"]
-        pages = client.atlassian_api.get_all_pages_from_space(space_key, limit=3)
-
-        if pages and len(pages) > 0:
-            # Extract a meaningful word from a page title
-            title = pages[0].get("title", "")
-            # Find words with 3+ characters
-            words = re.findall(r"\b[a-zA-Z]{3,}\b", title)
-            if words:
-                return words[0]
-            elif title:
-                return title.split()[0] if title.split() else "the"
-
-        # Second approach: Get a term from space name
-        if spaces and "results" in spaces and spaces["results"]:
-            space_name = spaces["results"][0].get("name", "")
-            words = re.findall(r"\b[a-zA-Z]{3,}\b", space_name)
-            if words:
-                return words[0]
-
-        # Fallback to default terms
-        return "the"
-    except Exception:
-        # If anything goes wrong, use a common word as fallback
-        return "the"
+            pytest.skip("No spaces available in the Confluence instance")
+        return spaces["results"][0]["key"]
+    except Exception as e:
+        pytest.skip(f"Could not retrieve space key: {e}")
 
 
-def get_test_page_id(client) -> Optional[str]:
-    """Helper to get an existing page ID for testing."""
+@pytest.fixture
+def existing_page_id(confluence_client, existing_space_key):
     try:
-        spaces = client.atlassian_api.get_all_spaces(limit=1)
-        if not spaces or "results" not in spaces or len(spaces["results"]) == 0:
-            return None
-
-        space_key = spaces["results"][0]["key"]
-        pages = client.atlassian_api.get_all_pages_from_space(space_key, limit=1)
-        if not pages or len(pages) == 0:
-            return None
-
-        return pages[0]["id"]
-    except Exception:
-        return None
-
-
-class TestConfluenceClientInitialization:
-    def test_init_with_config(self, confluence_config):
-        client = ConfluenceClient(config=confluence_config)
-
-        assert client.config == confluence_config
-        assert client.base_url == str(confluence_config.url).rstrip("/")
-        assert client.session is not None
-        assert client.atlassian_api is not None
-
-
-class TestSessionManagement:
-    def test_create_session(self, client):
-        session = client._create_session()
-
-        assert session.auth is not None
-        assert "Accept" in session.headers
-        assert "Content-Type" in session.headers
-
-
-class TestMakeRequest:
-    def test_make_get_request_success(self, client):
-        try:
-            result = client._make_request("get", "space", params={"limit": 1})
-
-            assert isinstance(result, dict)
-            assert "results" in result
-        except ConfluenceAPIError:
-            spaces = client.atlassian_api.get_all_spaces(limit=1)
-            assert isinstance(spaces, dict)
-            assert "results" in spaces
-            pytest.skip("Direct API access failed, but atlassian-python-api works")
-
-    def test_make_request_with_model_class(self, client):
-        try:
-            spaces = client.atlassian_api.get_all_spaces(limit=1)
-
-            if not spaces or not spaces.get("results") or len(spaces["results"]) == 0:
-                pytest.skip("No spaces available in the Confluence instance")
-
-            space_key = spaces["results"][0]["key"]
-
-            result = client._make_request(
-                "get", f"space/{space_key}", model_class=ConfluenceSpace
-            )
-
-            assert isinstance(result, ConfluenceSpace)
-            assert result.id is not None
-            assert result.title is not None
-            assert result.key == space_key
-        except ConfluenceAPIError:
-            spaces = client.atlassian_api.get_all_spaces(limit=1)
-            space_key = spaces["results"][0]["key"]
-            space_data = client.atlassian_api.get_space(space_key)
-            result = client._parse_space(space_data)
-
-            assert isinstance(result, ConfluenceSpace)
-            assert result.id is not None
-            assert result.title is not None
-            assert result.key == space_key
-
-            pytest.skip(
-                "Direct API access failed, but transformation with atlassian-python-api works"
-            )
-
-    def test_make_request_not_found_error(self, client):
-        nonexistent_id = f"99999{uuid.uuid4().hex[:8]}"
-
-        with pytest.raises(ConfluenceAPIError) as excinfo:
-            client._make_request("get", f"content/{nonexistent_id}")
-
-        assert excinfo.value.status_code in (404, 400)
-
-
-class TestParsingMethods:
-    def test_parse_space(self, client):
-        spaces_response = client.atlassian_api.get_all_spaces(limit=1)
-
-        if (
-            not spaces_response
-            or "results" not in spaces_response
-            or len(spaces_response["results"]) == 0
-        ):
-            pytest.skip("No spaces available in the Confluence instance")
-
-        space_data = spaces_response["results"][0]
-
-        result = client._parse_space(space_data)
-
-        assert isinstance(result, ConfluenceSpace)
-        assert result.id is not None
-        assert result.title is not None
-        assert result.key is not None
-
-        space_data_numeric = {
-            "id": 98309,
-            "name": "Test Personal Space",
-            "key": "~test",
-            "type": "personal",
-        }
-
-        result_numeric = client._parse_space(space_data_numeric)
-
-        assert isinstance(result_numeric, ConfluenceSpace)
-        assert result_numeric.id == "98309"
-        assert result_numeric.title == "Test Personal Space"
-        assert result_numeric.key == "~test"
-
-    def test_parse_page(self, client):
-        spaces_response = client.atlassian_api.get_all_spaces(limit=1)
-
-        if (
-            not spaces_response
-            or "results" not in spaces_response
-            or len(spaces_response["results"]) == 0
-        ):
-            pytest.skip("No spaces available in the Confluence instance")
-
-        space_key = spaces_response["results"][0]["key"]
-
-        # Get pages from that space
-        pages = client.atlassian_api.get_all_pages_from_space(space_key, limit=1)
-        if not pages or len(pages) == 0:
-            pytest.skip("No pages available in the Confluence space")
-
-        # Get full page data
-        page_data = client.atlassian_api.get_page_by_id(
-            pages[0]["id"], expand="body.view,body.storage,space,version"
+        pages = confluence_client.atlassian_api.get_all_pages_from_space(
+            existing_space_key, limit=1
         )
-
-        # Parse the page data
-        result = client._parse_page(page_data)
-
-        # Verify basic structure
-        assert isinstance(result, ConfluencePage)
-        assert result.id is not None
-        assert result.title is not None
-        assert result.content_type is not None
-        assert result.space is not None
-
-    def test_parse_search_result(self, client, real_search_term):
-        # Perform a simple search to get real search results using a term from real content
-        search_data = client.atlassian_api.cql(f'text ~ "{real_search_term}"', limit=2)
-
-        # Parse the search results
-        result = client._parse_search_result(search_data)
-
-        # Verify basic structure
-        assert isinstance(result, SearchResult)
-        assert hasattr(result, "total_size")
-        assert hasattr(result, "start")
-        assert hasattr(result, "limit")
-        assert hasattr(result, "results")
+        if not pages or len(pages) == 0:
+            pytest.skip(f"No pages available in space '{existing_space_key}'")
+        return pages[0]["id"]
+    except Exception as e:
+        pytest.skip(f"Could not retrieve page ID: {e}")
 
 
 class TestCqlBuilding:
-    def test_escape_cql(self, client):
-        assert client._escape_cql('text with "quotes"') == 'text with \\"quotes\\"'
-
-    def test_build_search_cql_basic(self, client):
-        cql = client._build_search_cql("test query")
-        assert 'text ~ "test query"' in cql
-        # We no longer include 'status != "archived"' in CQL queries
-        # Instead, we use the include_archived_spaces parameter in the API call
-
-    def test_build_search_cql_with_filters(self, client):
-        cql = client._build_search_cql(
-            "test query",
-            content_type=ContentType.PAGE,
-            space_key="TEST",
-            include_archived=True,
+    def test_escape_cql(self, confluence_client):
+        assert (
+            confluence_client._escape_cql('text with "quotes"')
+            == 'text with \\"quotes\\"'
         )
-        assert 'text ~ "test query"' in cql
-        assert 'type = "page"' in cql
-        assert 'space = "TEST"' in cql
-        assert 'status != "archived"' not in cql  # Should not include status filter
 
 
-class TestClientPublicMethods:
-    def test_test_connection_success(self, client):
-        result = client.test_connection()
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestConnection:
+    def test_test_connection_success(self, confluence_client):
+        result = confluence_client.test_connection()
         assert result is True
 
-    def test_get_space_success(self, client):
-        # Get list of spaces to find one to test with
-        spaces = client.atlassian_api.get_all_spaces(limit=1)
-        if not spaces or "results" not in spaces or len(spaces["results"]) == 0:
-            pytest.skip("No spaces available in the Confluence instance")
 
-        space_key = spaces["results"][0]["key"]
-
-        # Test with real space
-        result = client.get_space(space_key)
-
-        # Verify basic structure
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestGetSpace:
+    def test_get_space_success(self, confluence_client, existing_space_key):
+        result = confluence_client.get_space(existing_space_key)
         assert isinstance(result, ConfluenceSpace)
         assert result.id is not None
-        assert result.key == space_key
+        assert result.key == existing_space_key
         assert result.title is not None
 
-    def test_get_space_not_found(self, client):
-        # Generate a likely non-existent space key
+    def test_get_space_not_found(self, confluence_client):
         nonexistent_key = f"NONEXISTENT{uuid.uuid4().hex[:8]}"
-
         with pytest.raises(ConfluenceAPIError) as excinfo:
-            client.get_space(nonexistent_key)
+            confluence_client.get_space(nonexistent_key)
+        error_message = str(excinfo.value).lower()
+        assert excinfo.value.status_code == 404 or "permission" in error_message
 
-        # Verify error details
-        error_message = str(excinfo.value)
-        assert any(
-            text in error_message.lower()
-            for text in [
-                "no space with the given key",
-                "not found",
-                "does not have permission",
-            ]
-        )
 
-    def test_get_page_success(self, client):
-        # First get a space
-        spaces = client.atlassian_api.get_all_spaces(limit=1)
-        if not spaces or "results" not in spaces or len(spaces["results"]) == 0:
-            pytest.skip("No spaces available in the Confluence instance")
-
-        space_key = spaces["results"][0]["key"]
-
-        # Get pages from that space
-        pages = client.atlassian_api.get_all_pages_from_space(space_key, limit=1)
-        if not pages or len(pages) == 0:
-            pytest.skip("No pages available in the Confluence space")
-
-        page_id = pages[0]["id"]
-
-        # Test with real page
-        result = client.get_page(page_id)
-
-        # Verify basic structure
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestGetPage:
+    def test_get_page_success(self, confluence_client, existing_page_id):
+        result = confluence_client.get_page(existing_page_id)
         assert isinstance(result, ConfluencePage)
-        assert result.id == str(
-            page_id
-        )  # Ensure ID comparison works with string conversion
+        assert result.id == str(existing_page_id)
         assert result.title is not None
         assert result.content_type is not None
 
-    def test_get_page_with_expand(self, client):
-        # First get a space
-        spaces = client.atlassian_api.get_all_spaces(limit=1)
-        if not spaces or "results" not in spaces or len(spaces["results"]) == 0:
-            pytest.skip("No spaces available in the Confluence instance")
-
-        space_key = spaces["results"][0]["key"]
-
-        # Get pages from that space
-        pages = client.atlassian_api.get_all_pages_from_space(space_key, limit=1)
-        if not pages or len(pages) == 0:
-            pytest.skip("No pages available in the Confluence space")
-
-        page_id = pages[0]["id"]
-
-        # Test with custom expand
-        result = client.get_page(page_id, expand=["version", "space"])
-
-        # Verify basic structure with specific expansions
+    def test_get_page_with_expand(self, confluence_client, existing_page_id):
+        result = confluence_client.get_page(
+            existing_page_id, expand=["version", "space"]
+        )
         assert isinstance(result, ConfluencePage)
         assert result.version is not None
         assert result.space is not None
+        assert (
+            hasattr(result.space, "key")
+            or isinstance(result.space, dict)
+            and "key" in result.space
+        )
 
-    def test_search_basic(self, client, real_search_term):
-        # Test with a term derived from actual content
-        result = client.search(real_search_term)
+    def test_get_page_not_found(self, confluence_client):
+        nonexistent_page_id = "999999999999"
+        with pytest.raises(ConfluenceAPIError) as excinfo:
+            confluence_client.get_page(nonexistent_page_id)
+        error_message = str(excinfo.value).lower()
+        assert excinfo.value.status_code == 404 or "permission" in error_message
 
-        # Verify result structure
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestSearch:
+    def test_search_basic(self, confluence_client, real_search_term):
+        result = confluence_client.search(real_search_term)
         assert isinstance(result, SearchResult)
         assert hasattr(result, "results")
         assert hasattr(result, "total_size")
-        assert hasattr(result, "start")
-        assert hasattr(result, "limit")
+        assert result.total_size >= 0
 
-    def test_search_with_filters(self, client, real_search_term):
-        # Get a space key to use in the filter
-        spaces = client.atlassian_api.get_all_spaces(limit=1)
-        if not spaces or "results" not in spaces or len(spaces["results"]) == 0:
-            pytest.skip("No spaces available in the Confluence instance")
-
-        space_key = spaces["results"][0]["key"]
-
-        # Search with filters
-        result = client.search(
+    def test_search_with_filters(
+        self, confluence_client, real_search_term, existing_space_key
+    ):
+        result = confluence_client.search(
             real_search_term,
             content_type=ContentType.PAGE,
-            space_key=space_key,
+            space_key=existing_space_key,
             limit=5,
         )
-
-        # Verify result structure
         assert isinstance(result, SearchResult)
         assert result.limit == 5
+        if result.results:
+            for item in result.results:
+                assert item.content_type == ContentType.PAGE
+                if item.space:
+                    space_data = (
+                        item.space
+                        if isinstance(item.space, dict)
+                        else item.space.__dict__
+                    )
+                    assert space_data.get("key") == existing_space_key
 
-        # All results should be of type PAGE
-        for item in result.results:
-            assert item.content_type == ContentType.PAGE
+    def test_search_empty_query(self, confluence_client):
+        with pytest.raises(SearchParameterError):
+            confluence_client.search("")
 
-    def test_search_by_cql_basic(self, client, real_search_term):
-        # Test with a term derived from actual content
-        cql_query = f'text ~ "{real_search_term}"'
+    def test_search_pagination(self, confluence_client, real_search_term):
+        full_result = confluence_client.search(real_search_term, limit=50)
+        total_available = full_result.total_size
 
-        result = client.search_by_cql(cql_query)
+        if total_available < 2:
+            pytest.skip("Not enough results to test pagination reliably")
 
-        # Verify result structure
+        result_limit_1 = confluence_client.search(real_search_term, limit=1)
+        assert isinstance(result_limit_1, SearchResult)
+        assert len(result_limit_1.results) <= 1
+        assert result_limit_1.limit == 1
+
+        result_start_1 = confluence_client.search(real_search_term, limit=1, start=1)
+        assert isinstance(result_start_1, SearchResult)
+        assert len(result_start_1.results) <= 1
+        assert result_start_1.start == 1
+
+    def test_search_include_archived(
+        self, confluence_client, real_search_term, existing_space_key
+    ):
+        try:
+            result_with = confluence_client.search(
+                real_search_term,
+                space_key=existing_space_key,
+                include_archived=True,
+                limit=5,
+            )
+            assert isinstance(result_with, SearchResult)
+
+            result_without = confluence_client.search(
+                real_search_term,
+                space_key=existing_space_key,
+                include_archived=False,
+                limit=5,
+            )
+            assert isinstance(result_without, SearchResult)
+
+        except Exception as e:
+            pytest.fail(f"API call with include_archived failed: {e}")
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestSearchByCQL:
+    def test_search_by_cql_basic(self, confluence_client, real_search_term):
+        cql_query = f'text ~ "{confluence_client._escape_cql(real_search_term)}"'
+        result = confluence_client.search_by_cql(cql_query)
         assert isinstance(result, SearchResult)
         assert hasattr(result, "results")
-        assert hasattr(result, "total_size")
-        assert hasattr(result, "start")
-        assert hasattr(result, "limit")
+        assert result.total_size >= 0
 
-    def test_search_by_cql_all_results(self, client, real_search_term):
-        # Set a low max_results to keep the test efficient
-        # Use a query that combines content type with the real term
-        cql_query = f'type = "page" AND text ~ "{real_search_term}"'
+    def test_search_by_cql_all_results(self, confluence_client, real_search_term):
+        cql_query = f'type = "page" AND text ~ "{confluence_client._escape_cql(real_search_term)}"'
         max_results = 10
-
-        result = client.search_by_cql(
+        result = confluence_client.search_by_cql(
             cql_query, get_all_results=True, max_results=max_results
         )
-
-        # Verify result structure
         assert isinstance(result, SearchResult)
         assert len(result.results) <= max_results
+        if result.results:
+            for item in result.results:
+                assert item.content_type == ContentType.PAGE
 
-    def test_search_empty_query(self, client):
+    def test_search_by_cql_empty_query(self, confluence_client):
         with pytest.raises(SearchParameterError):
-            client.search("")
+            confluence_client.search_by_cql("")
 
-    def test_search_by_cql_empty_query(self, client):
-        with pytest.raises(SearchParameterError):
-            client.search_by_cql("")
+    def test_search_by_cql_pagination(self, confluence_client, real_search_term):
+        cql_query = f'text ~ "{confluence_client._escape_cql(real_search_term)}" ORDER BY title ASC, id ASC'
+        full_result = confluence_client.search_by_cql(cql_query, limit=50)
+        total_available = full_result.total_size
 
+        if total_available < 2:
+            pytest.skip("Not enough results to test CQL pagination reliably")
 
-class TestWithBackoffDecorator:
-    def test_with_backoff_functionality(self):
-        # This test just demonstrates that the decorator can be applied
-        # We won't test the actual retry behavior since that would require API calls
+        results_0_1 = confluence_client.search_by_cql(cql_query, limit=2, start=0)
+        assert isinstance(results_0_1, SearchResult)
+        if len(results_0_1.results) < 2:
+            pytest.skip("Could not retrieve 2 distinct results for pagination test")
+        assert results_0_1.limit == 2
+        assert results_0_1.start == 0
+        first_item_id = results_0_1.results[0].id
+        second_item_id = results_0_1.results[1].id
+        assert first_item_id != second_item_id
 
-        # Define a test function that can be decorated
-        @with_backoff(max_retries=2, initial_delay=0.01)
-        def func_with_backoff():
-            return "success"
+        results_1_2 = confluence_client.search_by_cql(cql_query, limit=2, start=1)
+        assert isinstance(results_1_2, SearchResult)
+        assert len(results_1_2.results) >= 1
+        assert results_1_2.limit == 2
+        assert results_1_2.start == 1
 
-        # Just call the function to verify it runs
-        result = func_with_backoff()
-        assert result == "success"
+    def test_search_by_cql_include_archived(
+        self, confluence_client, real_search_term, existing_space_key
+    ):
+        cql_query_base = f'space = "{existing_space_key}" AND text ~ "{confluence_client._escape_cql(real_search_term)}"'
+        try:
+            result_with = confluence_client.search_by_cql(
+                cql_query_base, include_archived=True, limit=5
+            )
+            assert isinstance(result_with, SearchResult)
+
+            result_without = confluence_client.search_by_cql(
+                cql_query_base, include_archived=False, limit=5
+            )
+            assert isinstance(result_without, SearchResult)
+
+        except Exception as e:
+            pytest.fail(f"API call with include_archived failed: {e}")

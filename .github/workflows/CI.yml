@@ -2,16 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ] # Assuming 'main' is your primary branch
   pull_request:
-    branches: [ master ]
+    branches: [ main ] # Assuming 'main' is your primary branch
   workflow_dispatch:
 
 jobs:
-  CI:
+  unit-tests:
+    name: Lint & Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -31,10 +33,42 @@ jobs:
           restore-keys: |
             pre-commit-cache-${{ runner.os }}-
 
-      - name: Run pre-commit hooks
+      - name: Run pre-commit hooks (Linting & Formatting)
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
-      - name: Run tests
-        if: ${{ success() }}
+      - name: Run Unit Tests
+        if: ${{ success() }} # Only run if pre-commit passes
         run: |
-          uv run pytest tests/ -v
+          uv run pytest -m "not integration" -v
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    # Run only on pushes to main or manual trigger, requires secrets
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: unit-tests # Run only if unit tests pass
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          pyproject-file: "pyproject.toml"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync
+
+      - name: Run Integration Tests
+        env:
+          # These secrets must be configured in GitHub repository settings
+          # (Settings > Secrets and variables > Actions > Repository secrets)
+          CONFLUENCE_URL: ${{ secrets.CONFLUENCE_URL }}
+          CONFLUENCE_USERNAME: ${{ secrets.CONFLUENCE_USERNAME }}
+          CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          # Add other secrets needed for integration tests if applicable
+          # e.g., VECTOR_DB_*, EMBEDDING_* if not using defaults/overrides
+        run: |
+          uv run pytest -m integration -v
