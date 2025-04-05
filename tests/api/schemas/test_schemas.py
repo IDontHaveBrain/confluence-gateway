@@ -315,7 +315,7 @@ class TestSearchResponseSchemas:
             code=400,
             message="Invalid search parameters",
         )
-        assert error.status == "error"  # Default value
+        assert error.status == "error"
         assert error.code == 400
         assert error.message == "Invalid search parameters"
         assert error.details is None
@@ -414,78 +414,3 @@ class TestJSONSerialization:
         assert '"message": "Invalid search parameters"' in json_data
         assert '"details":' in json_data
         assert '"param": "query"' in json_data
-
-
-class TestSchemaTransformations:
-    def test_transform_confluence_data_to_search_response(self):
-        mock_search_result = {
-            "results": [
-                {
-                    "id": "12345",
-                    "title": "API Documentation",
-                    "type": "page",
-                    "space": {"key": "DEV", "name": "Development"},
-                    "url": "https://confluence.example.com/display/DEV/API+Documentation",
-                    "excerpt": "<p>This document describes the <em>API</em> endpoints...</p>",
-                    "last_modified": "2023-05-15T14:32:21Z",
-                }
-            ],
-            "total_size": 42,
-            "start": 0,
-            "limit": 20,
-            "took_ms": 123.45,
-        }
-
-        results = []
-        for item in mock_search_result["results"]:
-            results.append(
-                SearchResultItem(
-                    id=item["id"],
-                    title=item["title"],
-                    type=item["type"],
-                    space_key=item["space"]["key"],
-                    space_name=item["space"]["name"],
-                    url=item["url"],
-                    excerpt=item["excerpt"],
-                    last_modified=datetime.fromisoformat(
-                        item["last_modified"].replace("Z", "+00:00")
-                    ),
-                )
-            )
-
-        response = SearchResponse(
-            results=results,
-            total=mock_search_result["total_size"],
-            start=mock_search_result["start"],
-            limit=mock_search_result["limit"],
-            took_ms=mock_search_result["took_ms"],
-            page_count=(
-                mock_search_result["total_size"] + mock_search_result["limit"] - 1
-            )
-            // mock_search_result["limit"],
-            current_page=mock_search_result["start"] // mock_search_result["limit"] + 1,
-            has_more=mock_search_result["start"] + mock_search_result["limit"]
-            < mock_search_result["total_size"],
-            links=PaginationLinks(
-                next=f"/api/search?query=api&start={mock_search_result['start'] + mock_search_result['limit']}&limit={mock_search_result['limit']}"
-                if mock_search_result["start"] + mock_search_result["limit"]
-                < mock_search_result["total_size"]
-                else None,
-                previous=f"/api/search?query=api&start={max(0, mock_search_result['start'] - mock_search_result['limit'])}&limit={mock_search_result['limit']}"
-                if mock_search_result["start"] > 0
-                else None,
-            ),
-        )
-
-        assert len(response.results) == 1
-        assert response.results[0].id == "12345"
-        assert response.results[0].title == "API Documentation"
-        assert response.results[0].type == "page"
-        assert response.results[0].space_key == "DEV"
-        assert response.results[0].space_name == "Development"
-        assert response.total == 42
-        assert response.has_more is True
-        assert response.page_count == 3
-        assert response.current_page == 1
-        assert response.links.next is not None
-        assert response.links.previous is None

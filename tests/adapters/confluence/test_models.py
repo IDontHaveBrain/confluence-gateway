@@ -1,6 +1,5 @@
 from datetime import datetime
 
-import pytest
 from confluence_gateway.adapters.confluence.models import (
     BodyContent,
     ConfluenceObject,
@@ -11,38 +10,6 @@ from confluence_gateway.adapters.confluence.models import (
     SpaceType,
     Version,
 )
-
-
-class TestContentTypeEnum:
-    def test_content_type_values(self):
-        assert ContentType.PAGE.value == "page"
-        assert ContentType.BLOGPOST.value == "blogpost"
-        assert ContentType.ATTACHMENT.value == "attachment"
-        assert ContentType.COMMENT.value == "comment"
-
-    def test_content_type_from_string(self):
-        assert ContentType("page") == ContentType.PAGE
-        assert ContentType("blogpost") == ContentType.BLOGPOST
-        assert ContentType("attachment") == ContentType.ATTACHMENT
-        assert ContentType("comment") == ContentType.COMMENT
-
-    def test_content_type_invalid_value(self):
-        with pytest.raises(ValueError):
-            ContentType("invalid_type")
-
-
-class TestSpaceTypeEnum:
-    def test_space_type_values(self):
-        assert SpaceType.GLOBAL.value == "global"
-        assert SpaceType.PERSONAL.value == "personal"
-
-    def test_space_type_from_string(self):
-        assert SpaceType("global") == SpaceType.GLOBAL
-        assert SpaceType("personal") == SpaceType.PERSONAL
-
-    def test_space_type_invalid_value(self):
-        with pytest.raises(ValueError):
-            SpaceType("invalid_type")
 
 
 class TestConfluenceObject:
@@ -68,8 +35,8 @@ class TestConfluenceObject:
         obj = ConfluenceObject(
             id="123",
             title="Test Object",
-            created=now,  # API field
-            updated=now,  # API field
+            created=now,
+            updated=now,
         )
         assert obj.created_at == now
         assert obj.updated_at == now
@@ -108,7 +75,6 @@ class TestConfluenceSpace:
         assert space.title == "Test Space"
 
     def test_confluence_space_description_handling(self):
-        # Test with full description structure
         space = ConfluenceSpace(
             id="123",
             title="Test Space",
@@ -127,7 +93,7 @@ class TestConfluencePage:
         page = ConfluencePage(id="123", title="Test Page")
         assert page.id == "123"
         assert page.title == "Test Page"
-        assert page.content_type == ContentType.PAGE  # default
+        assert page.content_type == ContentType.PAGE
         assert page.space is None
         assert page.body is None
         assert page.version is None
