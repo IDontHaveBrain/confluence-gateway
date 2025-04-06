@@ -73,7 +73,6 @@ def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
         limit = kwargs.get("limit")
         original_start = kwargs.get("start")
 
-        # Validate limit if explicitly provided (including zero)
         if limit is not None:
             if limit <= 0 or limit > search_config.max_limit:
                 raise SearchParameterError(
@@ -81,7 +80,6 @@ def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
                 )
             actual_limit = limit
         else:
-            # Apply default only if limit is None
             actual_limit = search_config.default_limit
 
         if original_start is not None and original_start < 0:
@@ -424,7 +422,6 @@ class SearchService:
             logger.debug(f"Generating embedding for query: '{sanitized_query}'")
             query_embedding = self.embedding_service.embed_text(sanitized_query)
             if not query_embedding:
-                # This might happen if the provider returns an empty list for some reason
                 logger.error(
                     f"Embedding service returned an empty embedding for query: '{sanitized_query}'"
                 )
@@ -456,7 +453,6 @@ class SearchService:
             logger.debug(f"Vector database search returned {len(results)} results.")
 
         except Exception as e:
-            # Catching generic Exception as adapter specifics might vary
             logger.error(f"Vector database search failed: {e}", exc_info=True)
             raise SemanticSearchError(
                 f"Semantic search failed during vector database query: {e}"

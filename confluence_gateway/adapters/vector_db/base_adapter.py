@@ -12,12 +12,10 @@ class VectorDBAdapter(ABC):
         pass
 
     @abstractmethod
-    def initialize(self) -> None:
-        pass
+    def initialize(self) -> None: ...
 
     @abstractmethod
-    def upsert(self, documents: list[Document]) -> None:
-        pass
+    def upsert(self, documents: list[Document]) -> None: ...
 
     @abstractmethod
     def search(
@@ -29,13 +27,21 @@ class VectorDBAdapter(ABC):
         pass
 
     @abstractmethod
-    def delete(self, ids: list[str]) -> None:
-        pass
+    def delete(self, ids: list[str]) -> None: ...
 
     @abstractmethod
-    def count(self) -> int:
-        pass
+    def count(self) -> int: ...
 
     @abstractmethod
-    def close(self) -> None:
-        pass
+    def search_by_metadata(
+        self,
+        filters: dict[str, Any],
+        select: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict[str, Any]]: ...
+
+    @abstractmethod
+    def delete_by_metadata(self, filters: dict[str, Any]) -> None: ...
+
+    @abstractmethod
+    def close(self) -> None: ...

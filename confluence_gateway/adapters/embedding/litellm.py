@@ -270,7 +270,5 @@ class LiteLLMProvider(EmbeddingProvider):
         return self.config.dimension
 
     def close(self) -> None:
-        logger.info(
-            f"Closing LiteLLMProvider for model '{self.config.model_name}'. (No specific action taken)"
-        )
+        logger.info(f"Closing LiteLLMProvider for model '{self.config.model_name}'.")
         pass

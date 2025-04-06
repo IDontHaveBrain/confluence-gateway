@@ -11,21 +11,16 @@ class EmbeddingProvider(ABC):
         self.config = config
 
     @abstractmethod
-    def initialize(self) -> None:
-        pass
+    def initialize(self) -> None: ...
 
     @abstractmethod
-    def embed_text(self, text: str) -> list[float]:
-        pass
+    def embed_text(self, text: str) -> list[float]: ...
 
     @abstractmethod
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        pass
+    def embed_texts(self, texts: list[str]) -> list[list[float]]: ...
 
     @abstractmethod
-    def get_dimension(self) -> int:
-        pass
+    def get_dimension(self) -> int: ...
 
     @abstractmethod
-    def close(self) -> None:
-        pass
+    def close(self) -> None: ...

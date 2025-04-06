@@ -4,37 +4,33 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from confluence_gateway.services.parsers.base import ContentParser
 
-# Optional dependency: markitdown
 markitdown_module: Optional[ModuleType] = None
-MarkItDownClass: Optional[Any] = None  # Use Any temporarily
+MarkItDownClass: Optional[Any] = None
 try:
     from markitdown import MarkItDown
 
     MarkItDownClass = MarkItDown
 except ImportError:
-    pass  # Keep them None
+    MarkItDownClass = None
 
-# Optional dependency: unstructured
-partition_html: Optional[Callable[..., list[Any]]] = None  # Use Any for Element type
+partition_html: Optional[Callable[..., list[Any]]] = None
 clean_extra_whitespace: Optional[Callable[[str], str]] = None
 try:
     from unstructured.cleaners.core import clean_extra_whitespace
     from unstructured.partition.html import partition_html
 except ImportError:
-    pass  # Keep them None
+    partition_html = None
+    clean_extra_whitespace = None
 
 
 logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
-    # Define types for better static analysis if needed
     pass
 
 
 class MarkitdownHtmlParser(ContentParser):
-    """Parses HTML content using the markitdown library."""
-
     def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]:
         if MarkItDownClass is None:
             logger.error(
@@ -48,10 +44,8 @@ class MarkitdownHtmlParser(ContentParser):
             return None
 
         try:
-            # Instantiate the converter and call convert
             converter = MarkItDownClass()
             result = converter.convert(content)
-            # Basic whitespace cleaning
             extracted_text = " ".join(result.markdown.split())
             logger.debug("Successfully extracted text using markitdown")
             return extracted_text if extracted_text else None
@@ -61,8 +55,6 @@ class MarkitdownHtmlParser(ContentParser):
 
 
 class UnstructuredHtmlParser(ContentParser):
-    """Parses HTML content using the unstructured library."""
-
     def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]:
         if partition_html is None:
             logger.error(

@@ -35,8 +35,11 @@ class ConfluenceObject(BaseModel):
         if "created" in data and data["created"] and "created_at" not in data:
             data["created_at"] = data["created"]
 
-        if "updated" in data and data["updated"] and "updated_at" not in data:
+        if "updated" in data and data["updated"]:
             data["updated_at"] = data["updated"]
+        elif "created" in data and data["created"]:
+            if "updated_at" not in data:
+                data["updated_at"] = data["created"]
 
         super().__init__(**data)
 
@@ -100,7 +103,10 @@ class ConfluencePage(ConfluenceObject):
             data["body"] = BodyContent(**data["body"])
 
         if "version" in data and isinstance(data["version"], dict):
-            data["version"] = Version(**data["version"])
+            version_obj = Version(**data["version"])
+            data["version"] = version_obj
+            if version_obj.when:
+                data["updated_at"] = version_obj.when
 
         if "space" in data and isinstance(data["space"], dict):
             pass
@@ -153,7 +159,7 @@ class ConfluenceAttachment(ConfluenceObject):
             try:
                 data["content_type"] = ContentType(data["content_type"])
             except ValueError:
-                pass  # Keep original string if not a valid enum member
+                pass
 
         if "_links" in data and isinstance(data["_links"], dict):
             data["_links"] = ConfluenceAttachmentLinks(**data["_links"])
@@ -162,7 +168,10 @@ class ConfluenceAttachment(ConfluenceObject):
             data["extensions"] = ConfluenceAttachmentExtensions(**data["extensions"])
 
         if "version" in data and isinstance(data["version"], dict):
-            data["version"] = Version(**data["version"])
+            version_obj = Version(**data["version"])
+            data["version"] = version_obj
+            if version_obj.when:
+                data["updated_at"] = version_obj.when
 
         super().__init__(**data)
 
@@ -180,12 +189,10 @@ class ConfluenceAttachment(ConfluenceObject):
 
 
 class SearchResult(BaseModel):
-    total_size: int = Field(0, description="Total number of results available")
-    start: int = Field(0, description="Starting index of results")
-    limit: int = Field(0, description="Maximum number of results returned")
-    results: list[ConfluencePage] = Field(
-        default_factory=list, description="Search result items"
-    )
+    total_size: int = 0
+    start: int = 0
+    limit: int = 0
+    results: list[ConfluencePage] = Field(default_factory=list)
 
     model_config = {
         "populate_by_name": True,
@@ -203,21 +210,17 @@ class SearchResult(BaseModel):
             transformed_results = []
             for item_data in data["results"]:
                 if isinstance(item_data, dict):
-                    # Determine if it's a page or attachment based on 'type' or structure
                     item_type = item_data.get("type")
-                    if (
-                        not item_type and "content" in item_data
-                    ):  # Handle search result structure
+                    if not item_type and "content" in item_data:
                         content_data = item_data.get("content", {})
                         item_type = content_data.get("type")
-                        # Merge content fields into the main dict for parsing
                         merged_data = item_data.copy()
                         merged_data.update(content_data)
                         item_data = merged_data
 
                     if item_type == ContentType.ATTACHMENT.value:
                         transformed_results.append(ConfluenceAttachment(**item_data))
-                    else:  # Default to Page or Blogpost
+                    else:
                         transformed_results.append(ConfluencePage(**item_data))
                 elif isinstance(item_data, (ConfluencePage, ConfluenceAttachment)):
                     transformed_results.append(item_data)

@@ -8,11 +8,11 @@ from confluence_gateway.services.parsers.attachment_parsers import (
     unstructured_partition,
 )
 from confluence_gateway.services.parsers.attachment_parsers import (
-    MarkItDownClass as MarkItDownClassAttach,  # Import the class check variable
+    MarkItDownClass as MarkItDownClassAttach,
 )
 from confluence_gateway.services.parsers.base import ContentParser
 from confluence_gateway.services.parsers.html_parsers import (
-    MarkItDownClass as MarkItDownClassHtml,  # Import the class check variable
+    MarkItDownClass as MarkItDownClassHtml,
 )
 from confluence_gateway.services.parsers.html_parsers import (
     MarkitdownHtmlParser,
@@ -24,28 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 class ParserNotAvailableError(ConfluenceGatewayError):
-    """Raised when a requested parser cannot be instantiated due to missing dependencies."""
-
     pass
 
 
 def get_parser(
     parser_name: str, content_category: Literal["html", "attachment"]
 ) -> ContentParser:
-    """
-    Factory function to get a content parser instance based on name and category.
-
-    Args:
-        parser_name: The name of the parser (e.g., "markitdown", "unstructured").
-        content_category: The type of content ("html" or "attachment").
-
-    Returns:
-        An instance of the requested ContentParser.
-
-    Raises:
-        ValueError: If the parser_name or content_category is invalid.
-        ParserNotAvailableError: If the required library for the parser is not installed.
-    """
     parser_name = parser_name.lower()
     logger.debug(
         f"Attempting to get parser: name='{parser_name}', category='{content_category}'"
@@ -53,14 +37,14 @@ def get_parser(
 
     if content_category == "html":
         if parser_name == "markitdown":
-            if MarkItDownClassHtml is None:  # Check the imported class variable
+            if MarkItDownClassHtml is None:
                 raise ParserNotAvailableError(
                     "Markitdown library not installed or MarkItDown class not found. "
                     "Cannot create MarkitdownHtmlParser. Install with 'pip install markitdown'"
                 )
             return MarkitdownHtmlParser()
         elif parser_name == "unstructured":
-            if partition_html is None:  # Check the imported function variable
+            if partition_html is None:
                 raise ParserNotAvailableError(
                     "Unstructured library (or partition_html function) not installed. "
                     "Cannot create UnstructuredHtmlParser. Install with 'pip install unstructured'"
@@ -73,14 +57,14 @@ def get_parser(
 
     elif content_category == "attachment":
         if parser_name == "markitdown":
-            if MarkItDownClassAttach is None:  # Check the imported class variable
+            if MarkItDownClassAttach is None:
                 raise ParserNotAvailableError(
                     "Markitdown library not installed or MarkItDown class not found. "
                     "Cannot create MarkitdownAttachmentParser. Install with 'pip install markitdown[cli]'"
                 )
             return MarkitdownAttachmentParser()
         elif parser_name == "unstructured":
-            if unstructured_partition is None:  # Check the imported function variable
+            if unstructured_partition is None:
                 raise ParserNotAvailableError(
                     "Unstructured library (or partition function) not installed. "
                     "Cannot create UnstructuredAttachmentParser. Install with 'pip install unstructured[local-inference]'"

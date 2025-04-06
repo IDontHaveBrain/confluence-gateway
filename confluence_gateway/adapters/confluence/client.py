@@ -288,7 +288,6 @@ class ConfluenceClient:
             raise ConfluenceAPIError(error_message=str(e)) from e
 
     def _parse_attachment(self, data: dict[str, Any]) -> ConfluenceAttachment:
-        # Basic parsing, model handles more complex logic
         return ConfluenceAttachment(**data)
 
     def _escape_cql(self, value: str) -> str:
@@ -399,7 +398,6 @@ class ConfluenceClient:
                 if version:
                     result["version"] = int(getattr(version, "number", 0))
 
-                # Construct URL robustly
                 space_key = result.get("space_key")
                 if space_key and content.id:
                     result["url"] = (
@@ -417,19 +415,23 @@ class ConfluenceClient:
                 result["media_type"] = content.media_type
                 result["download_url"] = content.download_url
                 if not result["download_url"] and content.id:
-                    # Fallback construction if link missing
                     result["download_url"] = (
                         f"{self.base_url}/wiki/download/attachments/{content.id}"
                     )
-                # Ensure _links exists and has a webui attribute before accessing it
                 if content._links and content._links.webui:
                     result["url"] = f"{self.base_url}{content._links.webui}"
 
         elif content_type == ContentType.COMMENT.value:
-            if isinstance(
-                content, ConfluencePage
-            ):  # Comments might be parsed as Pages initially
+            if isinstance(content, ConfluencePage):
                 result["plain_content"] = getattr(content, "plain_content", None)
+                container = getattr(content, "container", None)
+                if container:
+                    result["parent_id"] = (
+                        container.get("id", "")
+                        if isinstance(container, dict)
+                        else getattr(container, "id", "")
+                    )
+        elif hasattr(content, "container"):
             container = getattr(content, "container", None)
             if container:
                 result["parent_id"] = (
@@ -460,8 +462,6 @@ class ConfluenceClient:
                     cql.space(space_key)
 
                 if not include_archived:
-                    # Note: atlassian-python-api doesn't directly support 'archived' status in cql_builder easily
-                    # We might need to append it manually or rely on the include_archived_spaces flag later
                     pass
 
                 return str(cql)
@@ -478,10 +478,6 @@ class ConfluenceClient:
         if space_key:
             space_key_escaped = self._escape_cql(space_key)
             cql_parts.append(f'space = "{space_key_escaped}"')
-
-        # Add archived filter manually if needed and not handled by library flags
-        # if not include_archived:
-        #     cql_parts.append('label != "archived"') # Example, actual label might differ
 
         return " AND ".join(cql_parts)
 
@@ -544,7 +540,6 @@ class ConfluenceClient:
     def list_attachments(
         self, page_id: str, limit: int = 50, start: int = 0
     ) -> list[ConfluenceAttachment]:
-        """Lists attachments for a given page ID."""
         attachments = []
         current_start = start
         while True:
@@ -560,11 +555,10 @@ class ConfluenceClient:
                     try:
                         attachments.append(self._parse_attachment(attach_data))
                     except Exception as parse_err:
-                        # Log parsing error but continue
                         print(f"Warning: Failed to parse attachment data: {parse_err}")
 
                 if len(results) < limit or "next" not in response.get("_links", {}):
-                    break  # No more pages
+                    break
 
                 current_start += limit
 
@@ -573,7 +567,7 @@ class ConfluenceClient:
                     raise ConfluenceAuthenticationError("Authentication failed.") from e
                 if isinstance(e, requests.exceptions.RequestException):
                     raise ConfluenceConnectionError(cause=e)
-                if "404" in str(e):  # Page not found
+                if "404" in str(e):
                     raise ConfluenceAPIError(
                         status_code=404,
                         error_message=f"Page {page_id} not found when listing attachments",
@@ -585,10 +579,7 @@ class ConfluenceClient:
 
     @with_backoff()
     def download_attachment(self, attachment_id: str) -> bytes:
-        """Downloads the content of an attachment by its ID."""
         try:
-            # First, get attachment details to find the download URL
-            # Using a direct API call as atlassian-python-api download saves to file
             endpoint = f"content/attachment/{attachment_id}"
             attach_data = self._make_request("GET", endpoint, api_version="rest/api")
 
@@ -605,11 +596,8 @@ class ConfluenceClient:
 
             download_url = f"{self.base_url}{download_path}"
 
-            # Use the session to download the content
-            response = self.session.get(
-                download_url, timeout=self.config.timeout * 2
-            )  # Longer timeout for downloads
-            response.raise_for_status()  # Raise HTTP errors
+            response = self.session.get(download_url, timeout=self.config.timeout * 2)
+            response.raise_for_status()
             return response.content
 
         except requests.exceptions.RequestException as e:
@@ -626,7 +614,6 @@ class ConfluenceClient:
                 ) from e
             raise ConfluenceConnectionError(cause=e)
         except Exception as e:
-            # Catch potential parsing errors or other issues
             raise ConfluenceAPIError(
                 error_message=f"Failed to download attachment {attachment_id}: {e}"
             ) from e
