@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ContentType(str, Enum):
@@ -89,29 +89,38 @@ class ConfluencePage(ConfluenceObject):
     version: Optional[Version] = None
     status: Optional[str] = None
 
-    def __init__(self, **data):
-        if "type" in data and "content_type" not in data:
-            data["content_type"] = data["type"]
+    model_config = {
+        "populate_by_name": True,
+        "str_strip_whitespace": True,
+    }
 
-        if "content_type" in data and isinstance(data["content_type"], str):
+    @field_validator("content_type", mode="before")
+    @classmethod
+    def normalize_content_type(cls, v):
+        if isinstance(v, str):
             try:
-                data["content_type"] = ContentType(data["content_type"])
+                return ContentType(v)
             except ValueError:
                 pass
+        return v
 
-        if "body" in data and isinstance(data["body"], dict):
-            data["body"] = BodyContent(**data["body"])
+    @model_validator(mode="before")
+    @classmethod
+    def map_type_to_content_type(cls, data: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(data, dict):
+            if "type" in data and "content_type" not in data:
+                data["content_type"] = data["type"]
 
-        if "version" in data and isinstance(data["version"], dict):
-            version_obj = Version(**data["version"])
-            data["version"] = version_obj
-            if version_obj.when:
-                data["updated_at"] = version_obj.when
+            if "body" in data and isinstance(data["body"], dict):
+                data["body"] = BodyContent(**data["body"])
 
-        if "space" in data and isinstance(data["space"], dict):
-            pass
+            if "version" in data and isinstance(data["version"], dict):
+                version_obj = Version(**data["version"])
+                data["version"] = version_obj
+                if version_obj.when:
+                    data["updated_at"] = version_obj.when
 
-        super().__init__(**data)
+        return data
 
     @property
     def html_content(self) -> Optional[str]:

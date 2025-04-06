@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 try:
     import litellm
@@ -51,24 +51,22 @@ class LiteLLMProvider(EmbeddingProvider):
         original_base = litellm.api_base
 
         try:
-            if self.config.litellm_api_key:
-                litellm.api_key = self.config.litellm_api_key
-                logger.debug("LiteLLM API key set globally from provider config.")
-            else:
-                litellm.api_key = None
-                logger.debug(
-                    "LiteLLM API key set globally to None (not provided in config)."
-                )
+            # Configure LiteLLM global settings
+            litellm.api_key = self.config.litellm_api_key
+            logger.debug(
+                f"LiteLLM API key {'set from config' if self.config.litellm_api_key else 'not provided'}"
+            )
 
-            if self.config.litellm_api_base:
-                litellm.api_base = str(self.config.litellm_api_base)
-                logger.debug(f"LiteLLM API base set globally to: {litellm.api_base}")
-            else:
-                litellm.api_base = None
-                logger.debug(
-                    "LiteLLM API base set globally to None (not provided in config)."
-                )
+            litellm.api_base = (
+                str(self.config.litellm_api_base)
+                if self.config.litellm_api_base
+                else None
+            )
+            logger.debug(
+                f"LiteLLM API base {'set to: ' + str(litellm.api_base) if litellm.api_base else 'not provided'}"
+            )
 
+            # Validate with a test call
             test_text = "validate provider initialization"
             logger.debug(
                 f"Performing test embedding call with model '{self.config.model_name}'..."
@@ -79,38 +77,18 @@ class LiteLLMProvider(EmbeddingProvider):
             )
             logger.debug("Test embedding call successful.")
 
-            if (
-                not response.data
-                or not isinstance(response.data, list)
-                or len(response.data) == 0
-            ):
-                raise EmbeddingProviderError(
-                    "Test embedding call returned empty or invalid data structure."
-                )
+            try:
+                response_data = self._validate_embedding_response(response)
+                embedding = self._extract_embedding_from_item(response_data[0])
 
-            first_item = response.data[0]
-            if not isinstance(first_item, dict) or "embedding" not in first_item:
-                raise EmbeddingProviderError(
-                    "Test embedding call response missing 'embedding' key in data item."
+                logger.info(
+                    f"LiteLLM provider initialized and dimension ({len(embedding)}D) validated "
+                    f"successfully for model '{self.config.model_name}'."
                 )
-
-            first_embedding = first_item["embedding"]
-            if not first_embedding or not isinstance(first_embedding, list):
+            except EmbeddingProviderError as e:
                 raise EmbeddingProviderError(
-                    "Test embedding call response 'embedding' is not a valid list."
+                    f"Test embedding validation failed: {str(e)}"
                 )
-
-            actual_dimension = len(first_embedding)
-            if actual_dimension != self.config.dimension:
-                raise EmbeddingProviderError(
-                    f"Model '{self.config.model_name}' output dimension ({actual_dimension}) "
-                    f"does not match configured dimension ({self.config.dimension}). "
-                    "Please ensure EMBEDDING_DIMENSION is set correctly for the chosen model."
-                )
-
-            logger.info(
-                f"LiteLLM provider initialized and dimension ({actual_dimension}D) validated successfully for model '{self.config.model_name}'."
-            )
 
         except (
             AuthenticationError,
@@ -123,6 +101,7 @@ class LiteLLMProvider(EmbeddingProvider):
             error_message = f"Failed to initialize LiteLLM provider for model '{self.config.model_name}'. Error: {type(e).__name__}: {e}"
             logger.error(error_message, exc_info=True)
 
+            # Restore original settings
             litellm.api_key = original_key
             litellm.api_base = original_base
             logger.debug(
@@ -131,51 +110,68 @@ class LiteLLMProvider(EmbeddingProvider):
 
             raise EmbeddingProviderError(error_message) from e
 
+    def _validate_embedding_response(self, response, expected_count=1):
+        """Validate embedding response format and structure."""
+        if (
+            not response.data
+            or not isinstance(response.data, list)
+            or len(response.data) != expected_count
+        ):
+            raise EmbeddingProviderError(
+                f"LiteLLM embedding response data mismatch. Expected {expected_count} embeddings, "
+                f"got {len(response.data) if response.data else 0}."
+            )
+
+        return response.data
+
+    def _extract_embedding_from_item(self, item, index=None):
+        """Extract and validate a single embedding from a response item."""
+        index_info = f" at index {index}" if index is not None else ""
+
+        if not isinstance(item, dict) or "embedding" not in item:
+            raise EmbeddingProviderError(
+                f"LiteLLM response missing 'embedding' key{index_info}."
+            )
+
+        embedding = item["embedding"]
+        if not isinstance(embedding, list):
+            raise EmbeddingProviderError(
+                f"LiteLLM response 'embedding' is not a list{index_info}."
+            )
+
+        if len(embedding) != self.config.dimension:
+            logger.warning(
+                f"LiteLLM returned embedding dimension {len(embedding)}, expected {self.config.dimension}. Check model consistency."
+            )
+            raise EmbeddingProviderError(
+                f"Dimension mismatch{index_info}: Expected {self.config.dimension}, got {len(embedding)}"
+            )
+
+        return embedding
+
+    def _check_configuration(self):
+        """Verify the provider is properly configured."""
+        if not self.config.model_name or self.config.dimension is None:
+            raise EmbeddingProviderError(
+                "LiteLLM provider is not properly configured (missing model name or dimension)."
+            )
+
     def embed_text(self, text: str) -> list[float]:
         if not text or not isinstance(text, str):
             logger.warning(
                 "Received empty or invalid text for embedding, returning empty list."
             )
             return []
-        if not self.config.model_name or self.config.dimension is None:
-            raise EmbeddingProviderError(
-                "LiteLLM provider is not properly configured (missing model name or dimension)."
-            )
+
+        self._check_configuration()
 
         try:
             response = litellm.embedding(model=self.config.model_name, input=[text])
+            response_data = self._validate_embedding_response(response)
+            return self._extract_embedding_from_item(response_data[0])
 
-            if (
-                not response.data
-                or not isinstance(response.data, list)
-                or len(response.data) == 0
-            ):
-                raise EmbeddingProviderError(
-                    "LiteLLM embedding response missing or invalid data structure."
-                )
-
-            first_item = response.data[0]
-            if not isinstance(first_item, dict) or "embedding" not in first_item:
-                raise EmbeddingProviderError(
-                    "LiteLLM embedding response missing 'embedding' key in data item."
-                )
-
-            embedding = first_item["embedding"]
-            if not isinstance(embedding, list):
-                raise EmbeddingProviderError(
-                    "LiteLLM embedding response 'embedding' is not a valid list."
-                )
-
-            if len(embedding) != self.config.dimension:
-                logger.warning(
-                    f"LiteLLM returned embedding dimension {len(embedding)}, expected {self.config.dimension}. Check model consistency."
-                )
-                raise EmbeddingProviderError(
-                    f"Dimension mismatch: Expected {self.config.dimension}, got {len(embedding)}"
-                )
-
-            return embedding
-
+        except EmbeddingProviderError:
+            raise
         except Exception as e:
             logger.error(
                 f"Error during single text embedding with LiteLLM model '{self.config.model_name}': {e}",
@@ -191,10 +187,8 @@ class LiteLLMProvider(EmbeddingProvider):
                 "Received empty list for batch embedding, returning empty list."
             )
             return []
-        if not self.config.model_name or self.config.dimension is None:
-            raise EmbeddingProviderError(
-                "LiteLLM provider is not properly configured (missing model name or dimension)."
-            )
+
+        self._check_configuration()
 
         valid_texts = [t for t in texts if t and isinstance(t, str)]
         if not valid_texts:
@@ -212,47 +206,17 @@ class LiteLLMProvider(EmbeddingProvider):
             response = litellm.embedding(
                 model=self.config.model_name, input=valid_texts
             )
+            response_data = self._validate_embedding_response(
+                response, expected_count=len(valid_texts)
+            )
 
-            if (
-                not response.data
-                or not isinstance(response.data, list)
-                or len(response.data) != len(valid_texts)
-            ):
-                raise EmbeddingProviderError(
-                    f"LiteLLM batch embedding response data mismatch or missing. "
-                    f"Expected {len(valid_texts)} embeddings, got {len(response.data) if response.data else 0}."
-                )
+            return [
+                self._extract_embedding_from_item(item, i)
+                for i, item in enumerate(response_data)
+            ]
 
-            embeddings: list[Optional[list[float]]] = []
-            for i, item in enumerate(response.data):
-                if not isinstance(item, dict) or "embedding" not in item:
-                    raise EmbeddingProviderError(
-                        f"LiteLLM batch response missing 'embedding' key in item {i}."
-                    )
-                embedding = item["embedding"]
-                if not isinstance(embedding, list):
-                    raise EmbeddingProviderError(
-                        f"LiteLLM batch response 'embedding' is not a list in item {i}."
-                    )
-                embeddings.append(embedding)
-
-            final_embeddings: list[list[float]] = []
-            for i, emb in enumerate(embeddings):
-                if emb is None:
-                    raise EmbeddingProviderError(
-                        f"Missing embedding for text at index {i} in the batch."
-                    )
-                if len(emb) != self.config.dimension:
-                    logger.error(
-                        f"Unexpected batch embedding dimension from LiteLLM model '{self.config.model_name}' at index {i}. Expected {self.config.dimension}, got {len(emb)}."
-                    )
-                    raise EmbeddingProviderError(
-                        f"Unexpected batch embedding dimension received from LiteLLM at index {i}."
-                    )
-                final_embeddings.append(emb)
-
-            return final_embeddings
-
+        except EmbeddingProviderError:
+            raise
         except Exception as e:
             logger.error(
                 f"Error during batch text embedding with LiteLLM model '{self.config.model_name}': {e}",

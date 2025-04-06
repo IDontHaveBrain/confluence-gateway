@@ -240,45 +240,50 @@ class VectorDBConfig(BaseModel):
 
 
 def _load_raw_env_vars(prefix: str, case_sensitive: bool = False) -> dict[str, Any]:
+    """Load environment variables with given prefix into a dictionary."""
     env_vars = {}
 
+    # Windows environment variables are case-insensitive
     is_windows = platform.system().lower() == "windows"
     effective_case_sensitive = case_sensitive and not is_windows
 
+    prefix_upper = prefix.upper()
+    prefix_len = len(prefix)
+
     for key, value in os.environ.items():
-        if effective_case_sensitive:
-            if key.startswith(prefix):
-                config_key = key[len(prefix) :]
-                env_vars[config_key] = value
-        else:
-            if key.upper().startswith(prefix.upper()):
-                config_key = key[len(prefix) :].lower()
-                env_vars[config_key] = value
+        key_to_check = key if effective_case_sensitive else key.upper()
+        prefix_to_check = prefix if effective_case_sensitive else prefix_upper
+
+        if key_to_check.startswith(prefix_to_check):
+            config_key = (
+                key[prefix_len:].lower()
+                if not effective_case_sensitive
+                else key[prefix_len:]
+            )
+            env_vars[config_key] = value
 
     return env_vars
 
 
+def _try_convert_to_int(config: dict[str, Any], key: str, error_message: str) -> None:
+    """Try to convert a string value to an integer in the config dict."""
+    if key in config and isinstance(config[key], str):
+        try:
+            config[key] = int(config[key])
+        except ValueError:
+            print(error_message)
+            del config[key]
+
+
 def _load_raw_search_env() -> dict[str, Any]:
-    search_env = _load_raw_env_vars("SEARCH_")
+    """Load search configuration from environment variables."""
+    validations = {
+        "default_limit": int,
+        "max_limit": int,
+        "default_expand": "comma_list",
+    }
 
-    if "default_limit" in search_env and isinstance(search_env["default_limit"], str):
-        try:
-            search_env["default_limit"] = int(search_env["default_limit"])
-        except ValueError:
-            print("Warning: Invalid SEARCH_DEFAULT_LIMIT value, using default.")
-            del search_env["default_limit"]
-    if "max_limit" in search_env and isinstance(search_env["max_limit"], str):
-        try:
-            search_env["max_limit"] = int(search_env["max_limit"])
-        except ValueError:
-            print("Warning: Invalid SEARCH_MAX_LIMIT value, using default.")
-            del search_env["max_limit"]
-    if "default_expand" in search_env and isinstance(search_env["default_expand"], str):
-        search_env["default_expand"] = [
-            s.strip() for s in search_env["default_expand"].split(",") if s.strip()
-        ]
-
-    return search_env
+    return _load_env_with_validation("SEARCH_", validations)
 
 
 def _load_raw_confluence_env() -> dict[str, Any]:
@@ -295,52 +300,39 @@ def _load_raw_confluence_env() -> dict[str, Any]:
 
 
 def _load_raw_vector_db_env() -> dict[str, Any]:
-    raw_config: dict[str, Any] = {}
+    """Load vector database configuration from environment variables."""
+    # Base vector DB config
+    validations = {
+        "type": get_args(VectorDBType),
+        "embedding_dimension": int,
+        "chunk_size": int,
+        "chunk_overlap": int,
+    }
 
-    vector_db_type_str = os.getenv("VECTOR_DB_TYPE", "").lower()
-    if vector_db_type_str:
-        if vector_db_type_str not in get_args(VectorDBType):
-            print(
-                f"Warning: Invalid VECTOR_DB_TYPE '{vector_db_type_str}' in environment. Check config file or defaults."
-            )
-        else:
-            raw_config["type"] = vector_db_type_str
+    raw_config = _load_env_with_validation("VECTOR_DB_", validations)
 
-    if dim_str := os.getenv("VECTOR_DB_EMBEDDING_DIMENSION"):
-        try:
-            raw_config["embedding_dimension"] = int(dim_str)
-        except ValueError:
-            raw_config["embedding_dimension"] = dim_str
+    # Chroma-specific config
+    for env_var, config_key in [
+        ("CHROMA_PERSIST_PATH", "chroma_persist_path"),
+        ("CHROMA_HOST", "chroma_host"),
+    ]:
+        if value := os.getenv(env_var):
+            raw_config[config_key] = value
 
-    if col_name := os.getenv("VECTOR_DB_COLLECTION_NAME"):
-        raw_config["collection_name"] = col_name
-
-    if path := os.getenv("CHROMA_PERSIST_PATH"):
-        raw_config["chroma_persist_path"] = path
-    if host := os.getenv("CHROMA_HOST"):
-        raw_config["chroma_host"] = host
     if port_str := os.getenv("CHROMA_PORT"):
         try:
             raw_config["chroma_port"] = int(port_str)
         except ValueError:
             raw_config["chroma_port"] = port_str
 
-    if chunk_size_str := os.getenv("VECTOR_DB_CHUNK_SIZE"):
-        try:
-            raw_config["chunk_size"] = int(chunk_size_str)
-        except ValueError:
-            raw_config["chunk_size"] = chunk_size_str
+    # Qdrant-specific config
+    for env_var, config_key in [
+        ("QDRANT_URL", "qdrant_url"),
+        ("QDRANT_API_KEY", "qdrant_api_key"),
+    ]:
+        if value := os.getenv(env_var):
+            raw_config[config_key] = value
 
-    if chunk_overlap_str := os.getenv("VECTOR_DB_CHUNK_OVERLAP"):
-        try:
-            raw_config["chunk_overlap"] = int(chunk_overlap_str)
-        except ValueError:
-            raw_config["chunk_overlap"] = chunk_overlap_str
-
-    if url := os.getenv("QDRANT_URL"):
-        raw_config["qdrant_url"] = url
-    if key := os.getenv("QDRANT_API_KEY"):
-        raw_config["qdrant_api_key"] = key
     if grpc_port_str := os.getenv("QDRANT_GRPC_PORT"):
         try:
             raw_config["qdrant_grpc_port"] = int(grpc_port_str)
@@ -359,101 +351,96 @@ def _load_raw_vector_db_env() -> dict[str, Any]:
     return raw_config
 
 
+def _load_env_with_validation(
+    prefix: str, validations: dict[str, Any] = None
+) -> dict[str, Any]:
+    """Load environment variables with given prefix, applying optional type conversions and validations."""
+    raw_config = _load_raw_env_vars(prefix)
+
+    if not validations:
+        return raw_config
+
+    for key, validator in validations.items():
+        if key not in raw_config:
+            continue
+
+        value = raw_config[key]
+
+        # Handle type conversions
+        if isinstance(validator, type):
+            try:
+                if validator is int:
+                    raw_config[key] = int(value)
+                elif validator is bool and isinstance(value, str):
+                    raw_config[key] = value.lower() in ["true", "1", "t", "yes", "y"]
+                # Add more type conversions as needed
+            except ValueError:
+                # Keep the original value, let validation models handle errors
+                pass
+
+        # Handle enum validation
+        elif isinstance(validator, list):
+            if isinstance(value, str) and value.lower() not in [
+                str(v).lower() for v in validator
+            ]:
+                print(
+                    f"Warning: Invalid {prefix}{key} '{value}' in environment. Using default."
+                )
+            elif isinstance(value, str):
+                raw_config[key] = value.lower()
+
+        # Handle comma-separated lists
+        elif validator == "comma_list" and isinstance(value, str):
+            raw_config[key] = [s.strip() for s in value.split(",") if s.strip()]
+
+        # Add more validation types as needed
+
+    return raw_config
+
+
 def _load_raw_embedding_env() -> dict[str, Any]:
-    raw_config: dict[str, Any] = {}
+    """Load embedding configuration from environment variables."""
+    validations = {
+        "provider": get_args(Literal["sentence-transformers", "litellm", "none"]),
+        "dimension": int,
+        "device": get_args(Literal["cpu", "cuda"]),
+    }
 
-    provider_str = os.getenv("EMBEDDING_PROVIDER", "").lower()
-    if provider_str:
-        valid_providers = get_args(Literal["sentence-transformers", "litellm", "none"])
-        if provider_str not in valid_providers:
-            print(
-                f"Warning: Invalid EMBEDDING_PROVIDER '{provider_str}' in environment. Check config file or defaults."
-            )
-        else:
-            raw_config["provider"] = provider_str
+    raw_config = _load_env_with_validation("EMBEDDING_", validations)
 
-    if model_name := os.getenv("EMBEDDING_MODEL_NAME"):
-        raw_config["model_name"] = model_name
-
-    if dim_str := os.getenv("EMBEDDING_DIMENSION"):
-        try:
-            raw_config["dimension"] = int(dim_str)
-        except ValueError:
-            raw_config["dimension"] = dim_str
-
-    if api_key := os.getenv("LITELLM_API_KEY"):
-        raw_config["litellm_api_key"] = api_key
-    if api_base := os.getenv("LITELLM_API_BASE"):
-        raw_config["litellm_api_base"] = api_base
-
-    device_str = os.getenv("EMBEDDING_DEVICE", "").lower()
-    if device_str:
-        valid_devices = get_args(Optional[Literal["cpu", "cuda"]])
-        valid_devices_str = [d for d in valid_devices if isinstance(d, str)]
-        if device_str not in valid_devices_str:
-            print(
-                f"Warning: Invalid EMBEDDING_DEVICE '{device_str}' in environment. Using auto-detect or default."
-            )
-        else:
-            raw_config["device"] = device_str
+    # Add specific LITELLM variables
+    for env_var, config_key in [
+        ("LITELLM_API_KEY", "litellm_api_key"),
+        ("LITELLM_API_BASE", "litellm_api_base"),
+    ]:
+        if value := os.getenv(env_var):
+            raw_config[config_key] = value
 
     return raw_config
 
 
 def _load_raw_indexing_env() -> dict[str, Any]:
-    raw_config: dict[str, Any] = {}
-    if include_str := os.getenv("INDEXING_INCLUDE_SPACES"):
-        raw_config["include_spaces"] = [
-            s.strip() for s in include_str.split(",") if s.strip()
-        ]
-    if exclude_str := os.getenv("INDEXING_EXCLUDE_SPACES"):
-        raw_config["exclude_spaces"] = [
-            s.strip() for s in exclude_str.split(",") if s.strip()
-        ]
+    """Load indexing configuration from environment variables."""
+    validations = {
+        "include_spaces": "comma_list",
+        "exclude_spaces": "comma_list",
+        "html_parser": get_args(Literal["markitdown", "unstructured"]),
+        "include_attachments": bool,
+        "max_attachment_size_mb": int,
+        "allowed_attachment_extensions": "comma_list",
+        "attachment_parser": get_args(Literal["markitdown", "unstructured"]),
+    }
 
-    html_parser_str = os.getenv("INDEXING_HTML_PARSER", "").lower()
-    if html_parser_str:
-        valid_parsers = get_args(Literal["markitdown", "unstructured"])
-        if html_parser_str not in valid_parsers:
-            print(
-                f"Warning: Invalid INDEXING_HTML_PARSER '{html_parser_str}' in environment. Using default."
-            )
-        else:
-            raw_config["html_parser"] = html_parser_str
+    raw_config = _load_env_with_validation("INDEXING_", validations)
 
-    if include_attach_str := os.getenv("INDEXING_INCLUDE_ATTACHMENTS"):
-        raw_config["include_attachments"] = include_attach_str.lower() in [
-            "true",
-            "1",
-            "t",
-            "yes",
-            "y",
-        ]
-
-    if max_size_str := os.getenv("INDEXING_MAX_ATTACHMENT_SIZE_MB"):
-        try:
-            raw_config["max_attachment_size_mb"] = int(max_size_str)
-        except ValueError:
-            raw_config["max_attachment_size_mb"] = (
-                max_size_str  # Let pydantic handle error
-            )
-
-    if allowed_ext_str := os.getenv("INDEXING_ALLOWED_ATTACHMENT_EXTENSIONS"):
+    # Process extension list to ensure proper format
+    if "allowed_attachment_extensions" in raw_config and isinstance(
+        raw_config["allowed_attachment_extensions"], list
+    ):
         raw_config["allowed_attachment_extensions"] = [
-            s.strip().lower().lstrip(".")
-            for s in allowed_ext_str.split(",")
-            if s.strip()
+            ext.lower().lstrip(".")
+            for ext in raw_config["allowed_attachment_extensions"]
         ]
-
-    attach_parser_str = os.getenv("INDEXING_ATTACHMENT_PARSER", "").lower()
-    if attach_parser_str:
-        valid_parsers = get_args(Literal["markitdown", "unstructured"])
-        if attach_parser_str not in valid_parsers:
-            print(
-                f"Warning: Invalid INDEXING_ATTACHMENT_PARSER '{attach_parser_str}' in environment. Using default."
-            )
-        else:
-            raw_config["attachment_parser"] = attach_parser_str
 
     return raw_config
 
