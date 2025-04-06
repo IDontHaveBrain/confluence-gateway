@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +34,46 @@ class SearchResultItem(BaseModel):
                     "excerpt": "This document describes the <em>API</em> endpoints...",
                     "last_modified": "2023-05-15T14:32:21Z",
                 }
+            ]
+        }
+    }
+
+
+class IndexingStatusResponse(BaseModel):
+    status: Literal["idle", "running", "success", "failure"] = Field(
+        ..., description="Current status of the indexing process."
+    )
+    last_run_start_time: Optional[datetime] = Field(
+        None, description="Timestamp when the last indexing run started."
+    )
+    last_run_end_time: Optional[datetime] = Field(
+        None, description="Timestamp when the last indexing run finished."
+    )
+    last_error_message: Optional[str] = Field(
+        None, description="Error message from the last failed run, if any."
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "status": "idle",
+                    "last_run_start_time": "2023-10-27T10:00:00Z",
+                    "last_run_end_time": "2023-10-27T10:30:00Z",
+                    "last_error_message": None,
+                },
+                {
+                    "status": "running",
+                    "last_run_start_time": "2023-10-27T11:00:00Z",
+                    "last_run_end_time": None,
+                    "last_error_message": None,
+                },
+                {
+                    "status": "failure",
+                    "last_run_start_time": "2023-10-27T09:00:00Z",
+                    "last_run_end_time": "2023-10-27T09:15:00Z",
+                    "last_error_message": "Failed to connect to Confluence API.",
+                },
             ]
         }
     }
@@ -143,6 +183,69 @@ class SemanticSearchResponse(BaseModel):
                     ],
                     "took_ms": 45.67,
                     "query": "how to use the confluence api",
+                }
+            ]
+        }
+    }
+
+
+class SourceDocument(BaseModel):
+    id: str = Field(..., description="The unique ID of the source document chunk.")
+    score: float = Field(
+        ..., description="Relevance score of the chunk during retrieval."
+    )
+    title: Optional[str] = Field(
+        None, description="Title of the original Confluence page/attachment."
+    )
+    url: Optional[str] = Field(
+        None, description="URL of the original Confluence page/attachment."
+    )
+    space_key: Optional[str] = Field(
+        None, description="Space key of the original content."
+    )
+
+    @classmethod
+    def from_vector_search_item(cls, item: VectorSearchResultItem) -> "SourceDocument":
+        metadata = item.metadata or {}
+        return cls(
+            id=item.id,
+            score=item.score,
+            title=metadata.get("title"),
+            url=metadata.get("url"),
+            space_key=metadata.get("space_key"),
+        )
+
+
+class GenerateAnswerResponse(BaseModel):
+    answer: str = Field(
+        ..., description="The generated answer based on the retrieved context."
+    )
+    sources: list[SourceDocument] = Field(
+        default_factory=list,
+        description="List of source document chunks used to generate the answer.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "answer": "Authentication is handled via API tokens passed in the Authorization header.",
+                    "sources": [
+                        {
+                            "id": "12345_chunk_0",
+                            "score": 0.85,
+                            "title": "API Documentation",
+                            "url": "https://confluence.example.com/display/DEV/API+Documentation",
+                            "space_key": "DEV",
+                        },
+                        {
+                            "id": "67890_chunk_2",
+                            "score": 0.78,
+                            "title": "Getting Started with API",
+                            "url": "https://confluence.example.com/display/DEV/Getting+Started+with+API",
+                            "space_key": "DEV",
+                        },
+                    ],
                 }
             ]
         }

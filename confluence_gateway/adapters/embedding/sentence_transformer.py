@@ -2,10 +2,8 @@ import logging
 from types import ModuleType
 from typing import TYPE_CHECKING, Optional
 
-from confluence_gateway.providers.embedding.base import (
-    EmbeddingProvider,
-    EmbeddingProviderError,
-)
+from confluence_gateway.adapters.embedding.base import EmbeddingProvider
+from confluence_gateway.core.exceptions import EmbeddingProviderError
 
 torch: Optional[ModuleType] = None
 try:
@@ -42,31 +40,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
         )
 
     def _determine_device(self) -> str:
-        requested_device = self.config.device
-
-        if requested_device:
-            if requested_device == "cuda":
-                if not _torch_available:
-                    logger.warning(
-                        "Torch library not found. Cannot use CUDA. Falling back to CPU."
-                    )
-                    return "cpu"
-                if not torch or not torch.cuda.is_available():
-                    logger.warning(
-                        "CUDA requested but not available (or torch check failed). Falling back to CPU."
-                    )
-                    return "cpu"
-                logger.info("CUDA requested and available. Using CUDA.")
-                return "cuda"
-            elif requested_device == "cpu":
-                logger.info("CPU explicitly requested. Using CPU.")
-                return "cpu"
-            else:
-                logger.warning(
-                    f"Invalid device '{requested_device}' requested. Falling back to CPU."
-                )
-                return "cpu"
-        else:
+        if not self.config.device:
             if _torch_available and torch and torch.cuda.is_available():
                 logger.info("Auto-detected CUDA availability. Using CUDA.")
                 return "cuda"
@@ -75,6 +49,29 @@ class SentenceTransformerProvider(EmbeddingProvider):
                     "Auto-detection: CUDA not available or torch not installed. Using CPU."
                 )
                 return "cpu"
+
+        if self.config.device == "cuda":
+            if not _torch_available:
+                logger.warning(
+                    "Torch library not found. Cannot use CUDA. Falling back to CPU."
+                )
+                return "cpu"
+
+            if not torch or not torch.cuda.is_available():
+                logger.warning("CUDA requested but not available. Falling back to CPU.")
+                return "cpu"
+
+            logger.info("CUDA requested and available. Using CUDA.")
+            return "cuda"
+
+        if self.config.device == "cpu":
+            logger.info("CPU explicitly requested. Using CPU.")
+            return "cpu"
+
+        logger.warning(
+            f"Invalid device '{self.config.device}' requested. Falling back to CPU."
+        )
+        return "cpu"
 
     def _validate_dimension(self) -> None:
         if not self.model:
@@ -141,7 +138,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
                 f"Ensure the model name is correct and accessible. Original error: {e}"
             ) from e
 
-    def embed_text(self, text: str) -> list[float]:
+    def _check_initialization(self) -> None:
         if not self.model:
             raise EmbeddingProviderError(
                 "SentenceTransformerProvider is not initialized. Call initialize() first."
@@ -149,31 +146,33 @@ class SentenceTransformerProvider(EmbeddingProvider):
         if not self.config.dimension:
             raise EmbeddingProviderError("Configuration dimension is missing.")
 
+    def _validate_embedding(self, embedding, index=None) -> list[float]:
+        if not isinstance(embedding, list) or len(embedding) != self.config.dimension:
+            index_info = f" at index {index}" if index is not None else ""
+            logger.error(
+                f"Unexpected embedding format{index_info}: Expected {self.config.dimension}D list, "
+                f"got {type(embedding)} with length {len(embedding) if isinstance(embedding, list) else 'N/A'}."
+            )
+            raise EmbeddingProviderError(
+                f"Unexpected embedding format received from model{index_info}."
+            )
+        return embedding
+
+    def embed_text(self, text: str) -> list[float]:
         if not text or not isinstance(text, str):
             logger.warning(
                 "Received empty or invalid text for embedding, returning empty list."
             )
             return []
 
+        self._check_initialization()
+        assert self.model is not None
+
         try:
-            embedding: list[float] = self.model.encode(
-                text, convert_to_numpy=False
-            ).tolist()
-
-            if (
-                not isinstance(embedding, list)
-                or len(embedding) != self.config.dimension
-            ):
-                logger.error(
-                    f"Unexpected embedding format or dimension returned by model. "
-                    f"Expected {self.config.dimension}D list[float], got {type(embedding)} "
-                    f"with length {len(embedding) if isinstance(embedding, list) else 'N/A'}."
-                )
-                raise EmbeddingProviderError(
-                    "Unexpected embedding format received from model."
-                )
-
-            return embedding
+            embedding = self.model.encode(text, convert_to_numpy=False).tolist()
+            return self._validate_embedding(embedding)
+        except EmbeddingProviderError:
+            raise
         except Exception as e:
             logger.error(
                 f"Error during single text embedding with model '{self.config.model_name}': {e}",
@@ -184,18 +183,14 @@ class SentenceTransformerProvider(EmbeddingProvider):
             ) from e
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        if not self.model:
-            raise EmbeddingProviderError(
-                "SentenceTransformerProvider is not initialized. Call initialize() first."
-            )
-        if not self.config.dimension:
-            raise EmbeddingProviderError("Configuration dimension is missing.")
-
         if not texts:
             logger.warning(
                 "Received empty list for batch embedding, returning empty list."
             )
             return []
+
+        self._check_initialization()
+        assert self.model is not None
 
         valid_texts = [t for t in texts if t and isinstance(t, str)]
         if not valid_texts:
@@ -210,26 +205,24 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
 
         try:
-            embeddings: list[list[float]] = self.model.encode(
+            embeddings = self.model.encode(
                 valid_texts,
                 convert_to_numpy=False,
                 show_progress_bar=False,
             ).tolist()
 
-            if not isinstance(embeddings, list) or not all(
-                isinstance(emb, list) and len(emb) == self.config.dimension
-                for emb in embeddings
-            ):
-                logger.error(
-                    f"Unexpected batch embedding format or dimension returned by model. "
-                    f"Expected list[list[float]] with inner dim {self.config.dimension}, "
-                    f"got {type(embeddings)}."
-                )
+            if not isinstance(embeddings, list):
+                logger.error("Model returned non-list output for batch embedding.")
                 raise EmbeddingProviderError(
                     "Unexpected batch embedding format received from model."
                 )
 
-            return embeddings
+            return [
+                self._validate_embedding(emb, i) for i, emb in enumerate(embeddings)
+            ]
+
+        except EmbeddingProviderError:
+            raise
         except Exception as e:
             logger.error(
                 f"Error during batch text embedding with model '{self.config.model_name}': {e}",

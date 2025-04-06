@@ -140,7 +140,14 @@ class TestLoadConfigurations:
         if Path(get_user_config_path()).exists():
             Path(get_user_config_path()).unlink()
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            confluence_config,
+            search_config,
+            vector_db_config,
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert confluence_config is not None
         assert str(confluence_config.url) == "https://test-confluence.atlassian.net/"
@@ -194,7 +201,14 @@ class TestLoadConfigurations:
             }
         )
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            confluence_config,
+            search_config,
+            vector_db_config,
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert confluence_config is not None
         assert str(confluence_config.url) == "https://file-confluence.atlassian.net/"
@@ -236,7 +250,14 @@ class TestLoadConfigurations:
             }
         )
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            confluence_config,
+            search_config,
+            vector_db_config,
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert confluence_config is not None
         assert str(confluence_config.url) == "https://file-confluence.atlassian.net/"
@@ -275,7 +296,14 @@ class TestLoadConfigurations:
             }
         )
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            confluence_config,
+            search_config,
+            vector_db_config,
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert confluence_config is not None
         assert str(confluence_config.url) == "https://env-confluence.atlassian.net/"
@@ -302,7 +330,14 @@ class TestLoadConfigurations:
         with open(config_path, "w") as f:
             f.write("This is not valid JSON")
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            confluence_config,
+            _,  # search_config
+            _,  # vector_db_config
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert confluence_config is not None
         assert str(confluence_config.url) == "https://env-confluence.atlassian.net/"
@@ -318,7 +353,14 @@ class TestLoadConfigurations:
         with open(config_path, "w") as f:
             f.write(json.dumps(["item1", "item2"]))
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            confluence_config,
+            _,  # search_config
+            _,  # vector_db_config
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert confluence_config is not None
         assert str(confluence_config.url) == "https://env-confluence.atlassian.net/"
@@ -333,7 +375,14 @@ class TestLoadConfigurations:
 
         mock_user_config_file({"confluence": {"timeout": 30}})
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            confluence_config,
+            search_config,
+            _,  # vector_db_config
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert confluence_config is None
         assert search_config is not None
@@ -342,7 +391,14 @@ class TestLoadConfigurations:
     def test_vector_db_type_validation(self, monkeypatch, mock_user_config_file):
         mock_user_config_file({"vector_db": {"type": "qdrant"}})
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            _,  # confluence_config
+            _,  # search_config
+            vector_db_config,
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert vector_db_config is None
 
@@ -364,6 +420,13 @@ class TestLoadConfigurations:
             }
         )
 
-        confluence_config, search_config, vector_db_config, _ = load_configurations()
+        (
+            _,  # confluence_config
+            _,  # search_config
+            vector_db_config,
+            _,  # embedding_config
+            _,  # indexing_config
+            _,  # generation_config
+        ) = load_configurations()
 
         assert vector_db_config is None

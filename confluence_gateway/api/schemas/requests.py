@@ -64,6 +64,21 @@ class TextSearchRequest(BaseSearchRequest):
     }
 
 
+class IndexingTriggerRequest(BaseModel):
+    space_keys: Optional[list[str]] = Field(
+        None,
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"space_keys": ["DEV", "PROD"]},
+                {},
+            ]
+        }
+    }
+
+
 class CQLSearchRequest(BaseSearchRequest):
     cql: str
 
@@ -188,6 +203,35 @@ class SemanticSearchRequest(BaseModel):
                 {
                     "query": "how to use the confluence api",
                     "top_k": 5,
+                    "filters": {"space_key": "DEV"},
+                }
+            ]
+        }
+    }
+
+
+class GenerateAnswerRequest(BaseModel):
+    query: str = Field(...)
+    top_k_retrieval: Optional[int] = Field(
+        default=5,
+        gt=0,
+    )
+    filters: Optional[dict[str, Any]] = Field(
+        default=None,
+    )
+
+    @field_validator("query")
+    def validate_query(cls, v):
+        if not v or len(v.strip()) < 2:
+            raise ValueError("Query must be at least 2 characters long")
+        return v.strip()
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "query": "How is authentication handled in the API?",
+                    "top_k_retrieval": 5,
                     "filters": {"space_key": "DEV"},
                 }
             ]

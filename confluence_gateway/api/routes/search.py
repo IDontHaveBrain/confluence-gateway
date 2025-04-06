@@ -38,19 +38,19 @@ def handle_search_exceptions(func):
         except SearchParameterError as e:
             error = ErrorResponse(
                 code=400, message=str(e), details={"type": "search_parameter_error"}
-            )  # noqa
+            )
             raise HTTPException(status_code=400, detail=error.model_dump())
         except SemanticSearchError as e:
             error = ErrorResponse(
                 code=500,
                 message=f"Semantic search failed: {str(e)}",
                 details={"type": "semantic_search_error"},
-            )  # noqa
+            )
             raise HTTPException(status_code=500, detail=error.model_dump())
         except ConfluenceAuthenticationError as e:
             error = ErrorResponse(
                 code=401, message=str(e), details={"type": "authentication_error"}
-            )  # noqa
+            )
             raise HTTPException(status_code=401, detail=error.model_dump())
         except ConfluenceConnectionError as e:
             error = ErrorResponse(
@@ -60,7 +60,7 @@ def handle_search_exceptions(func):
                     "type": "connection_error",
                     "cause": str(getattr(e, "cause", "")),
                 },
-            )  # noqa
+            )
             raise HTTPException(status_code=503, detail=error.model_dump())
         except ConfluenceAPIError as e:
             status_code = e.status_code or 500
@@ -68,14 +68,14 @@ def handle_search_exceptions(func):
                 code=status_code,
                 message=e.error_message or str(e),
                 details={"type": "api_error", "status_code": status_code},
-            )  # noqa
+            )
             raise HTTPException(status_code=status_code, detail=error.model_dump())
         except Exception as e:
             error = ErrorResponse(
                 code=500,
                 message=f"Unexpected error: {str(e)}",
                 details={"type": "server_error"},
-            )  # noqa
+            )
             raise HTTPException(status_code=500, detail=error.model_dump())
 
     return wrapper
@@ -92,13 +92,13 @@ def _build_search_response(
                 "type", str(item.content_type)
             ),
             space_key=search_service.client.extract_content_fields(item).get(
-                "space_key", ""
+                "space_key"
             ),
             space_name=search_service.client.extract_content_fields(item).get(
-                "space_name", ""
+                "space_name"
             ),
             url=search_service.client.extract_content_fields(item).get("url")
-            or f"{search_service.client.base_url}/wiki/spaces/{search_service.client.extract_content_fields(item).get('space_key', '')}/pages/{item.id}",
+            or f"{search_service.client.base_url}/wiki/spaces/{search_service.client.extract_content_fields(item).get('space_key')}/pages/{item.id}",
             excerpt=getattr(item, "excerpt", None),
             last_modified=item.updated_at or item.created_at or datetime.now(),
         )
@@ -120,7 +120,7 @@ def _build_search_response(
         for key, value in request.query_params.items():
             params[key] = value
 
-        links = PaginationLinks()  # noqa
+        links = PaginationLinks()
 
         if has_more:
             next_params = params.copy()

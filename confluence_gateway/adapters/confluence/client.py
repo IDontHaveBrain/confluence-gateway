@@ -1,13 +1,16 @@
+import logging
 import random
 import time
 from functools import wraps
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Callable, Optional, TypeVar, Union
 
 import requests
 from atlassian import Confluence
+from pydantic import ValidationError
 from requests.auth import HTTPBasicAuth
 
 from confluence_gateway.adapters.confluence.models import (
+    ConfluenceAttachment,
     ConfluencePage,
     ConfluenceSpace,
     ContentType,
@@ -25,34 +28,30 @@ from confluence_gateway.core.exceptions import (
     SearchParameterError,
 )
 
+logger = logging.getLogger(__name__)
+
 T = TypeVar("T")
 
 
-def with_backoff(max_retries=5, initial_delay=1):
+def with_backoff(max_retries=5, initial_delay=1, backoff_factor=2, jitter_factor=0.3):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             retries = 0
             delay = initial_delay
 
-            while retries <= max_retries:
+            while True:
                 try:
                     return func(*args, **kwargs)
                 except ConfluenceAPIError as e:
-                    if getattr(e, "status_code", None) != 429:
+                    if getattr(e, "status_code", None) != 429 or retries >= max_retries:
                         raise
 
-                    if retries == max_retries:
-                        raise
-
-                    jitter = random.uniform(0, 0.3) * delay
-                    sleep_time = delay + jitter
-                    time.sleep(sleep_time)
+                    jitter = random.uniform(0, jitter_factor) * delay
+                    time.sleep(delay + jitter)
 
                     retries += 1
-                    delay *= 2
-
-            return func(*args, **kwargs)
+                    delay *= backoff_factor
 
         return wrapper
 
@@ -101,129 +100,123 @@ class ConfluenceClient:
         api_version: Optional[str] = None,
         use_transformer: bool = True,
     ) -> Union[dict[str, Any], T, None]:
-        response = None
-        if self._working_api_path and api_version is None:
-            api_version = self._working_api_path
-        elif api_version is not None:
-            pass
-        else:
-            last_exception = None
+        api_path_to_use = api_version or self._working_api_path
 
-            for api_path in self.API_PATHS:
-                try:
-                    url = f"{self.base_url}/{api_path}/{endpoint.lstrip('/')}"
-                    response = getattr(self.session, method.lower())(
-                        url, params=params, json=data, timeout=self.config.timeout
-                    )
+        if not api_path_to_use:
+            api_path_to_use = self._discover_working_api_path(
+                endpoint, params, data, method
+            )
 
-                    if response.status_code == 401:
-                        raise ConfluenceAuthenticationError(
-                            "Authentication failed. Check username and API token."
-                        )
+        if not api_path_to_use:
+            raise ConfluenceAPIError(
+                status_code=404, error_message="Failed to find working API endpoint"
+            )
 
-                    if response.status_code != 404:
-                        response.raise_for_status()
-                        self._working_api_path = api_path
-                        break
-                except requests.exceptions.RequestException as e:
-                    if not (
-                        isinstance(e, requests.exceptions.HTTPError)
-                        and hasattr(e, "response")
-                        and e.response.status_code == 404
-                    ):
-                        raise
-                    last_exception = e
-            else:
-                if last_exception:
-                    if isinstance(last_exception, requests.exceptions.HTTPError):
-                        error_message = str(last_exception)
-                        try:
-                            error_data = last_exception.response.json()
-                            if "message" in error_data:
-                                error_message = error_data["message"]
-                        except (ValueError, AttributeError):
-                            pass
-                        raise ConfluenceAPIError(
-                            status_code=last_exception.response.status_code,
-                            error_message=error_message,
-                        ) from last_exception
-                    raise ConfluenceConnectionError(cause=last_exception)
+        url = f"{self.base_url}/{api_path_to_use}/{endpoint.lstrip('/')}"
+        response = self._execute_request(method, url, params, data)
 
-                raise ConfluenceAPIError(
-                    status_code=404, error_message="Failed to find working API endpoint"
-                )
+        if response.status_code == 204:
+            return None
 
-        if response is None:
-            url = f"{self.base_url}/{api_version}/{endpoint.lstrip('/')}"
+        response_data = response.json()
+
+        if model_class:
+            if use_transformer:
+                transformer_method = self._get_transformer_for_model(model_class)
+                if transformer_method:
+                    return transformer_method(response_data)
+
+            return model_class(**response_data)
+
+        return response_data
+
+    def _discover_working_api_path(
+        self,
+        endpoint: str,
+        params: Optional[dict[str, Any]],
+        data: Optional[dict[str, Any]],
+        method: str,
+    ) -> Optional[str]:
+        last_exception: Optional[requests.exceptions.RequestException] = None
+
+        for api_path in self.API_PATHS:
             try:
-                response = getattr(self.session, method.lower())(
-                    url, params=params, json=data, timeout=self.config.timeout
-                )
+                url = f"{self.base_url}/{api_path}/{endpoint.lstrip('/')}"
+                self._execute_request(method, url, params, data)
 
-                if response.status_code == 401:
-                    raise ConfluenceAuthenticationError(
-                        "Authentication failed. Check username and API token."
-                    )
+                self._working_api_path = api_path
+                return api_path
 
-                response.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    last_exception = e
+                    continue
+                raise
             except requests.exceptions.RequestException as e:
-                if isinstance(e, requests.exceptions.HTTPError) and hasattr(
-                    e, "response"
-                ):
-                    error_message = str(e)
-                    try:
-                        error_data = e.response.json()
-                        if "message" in error_data:
-                            error_message = error_data["message"]
-                    except (ValueError, AttributeError):
-                        pass
-
-                    raise ConfluenceAPIError(
-                        status_code=e.response.status_code, error_message=error_message
-                    ) from e
+                last_exception = e
                 raise ConfluenceConnectionError(cause=e)
 
+        if last_exception:
+            if isinstance(last_exception, requests.exceptions.HTTPError):
+                raise self._create_api_error_from_http_error(last_exception)
+            raise ConfluenceConnectionError(cause=last_exception)
+
+        return None
+
+    def _execute_request(
+        self,
+        method: str,
+        url: str,
+        params: Optional[dict[str, Any]],
+        data: Optional[dict[str, Any]],
+    ) -> requests.Response:
         try:
-            if response.status_code == 204:
-                return None
+            response = getattr(self.session, method.lower())(
+                url, params=params, json=data, timeout=self.config.timeout
+            )
 
-            response_data = response.json()
+            if response.status_code == 401:
+                raise ConfluenceAuthenticationError(
+                    "Authentication failed. Check username and API token."
+                )
 
-            if model_class:
-                if use_transformer:
-                    transformer_method = None
-                    if model_class == ConfluenceSpace:
-                        transformer_method = self._parse_space
-                    elif model_class == ConfluencePage:
-                        transformer_method = self._parse_page
-                    elif model_class == SearchResult:
-                        transformer_method = self._parse_search_result
+            if response.status_code != 404:
+                response.raise_for_status()
 
-                    if transformer_method:
-                        return transformer_method(response_data)
+            return response
 
-                return model_class(**response_data)
-
-            return response_data
-
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                raise
+            raise self._create_api_error_from_http_error(e)
         except requests.exceptions.RequestException as e:
-            if (
-                isinstance(e, requests.exceptions.HTTPError)
-                and hasattr(e, "response")
-                and e.response.status_code != 401
-            ):
-                error_message = str(e)
-                try:
-                    error_data = e.response.json()
-                    if "message" in error_data:
-                        error_message = error_data["message"]
-                except (ValueError, AttributeError):
-                    pass
-
-                raise ConfluenceAPIError(
-                    status_code=e.response.status_code, error_message=error_message
-                ) from e
             raise ConfluenceConnectionError(cause=e)
+
+    def _get_transformer_for_model(
+        self, model_class: type[T]
+    ) -> Optional[Callable[[dict[str, Any]], T]]:
+        if model_class == ConfluenceSpace:
+            return self._parse_space
+        elif model_class == ConfluencePage:
+            return self._parse_page
+        elif model_class == SearchResult:
+            return self._parse_search_result
+        return None
+
+    def _create_api_error_from_http_error(
+        self, http_error: requests.exceptions.HTTPError
+    ) -> ConfluenceAPIError:
+        error_message = str(http_error)
+        try:
+            error_data = http_error.response.json()
+            if "message" in error_data:
+                error_message = error_data["message"]
+        except (ValueError, AttributeError):
+            pass
+
+        return ConfluenceAPIError(
+            status_code=http_error.response.status_code, error_message=error_message
+        )
 
     def test_connection(self) -> bool:
         try:
@@ -241,6 +234,56 @@ class ConfluenceClient:
             if isinstance(e, requests.exceptions.RequestException):
                 raise ConfluenceConnectionError(cause=e)
             raise ConfluenceAPIError(error_message=str(e)) from e
+
+    @with_backoff()
+    def list_all_spaces(self, limit: int = 50) -> list[ConfluenceSpace]:
+        all_spaces = []
+        start = 0
+        while True:
+            try:
+                logger.debug(f"Fetching spaces, start={start}, limit={limit}")
+                spaces_data = self.atlassian_api.get_all_spaces(
+                    start=start, limit=limit, expand="description.plain"
+                )
+
+                if not spaces_data or "results" not in spaces_data:
+                    logger.debug("No more spaces found or unexpected response format.")
+                    break
+
+                results = spaces_data.get("results", [])
+                for space_dict in results:
+                    try:
+                        space = self._parse_space(space_dict)
+                        all_spaces.append(space)
+                    except (ValidationError, TypeError) as parse_err:
+                        logger.warning(
+                            f"Failed to parse space data: {space_dict.get('key', 'N/A')}. Error: {parse_err}"
+                        )
+
+                if "next" not in spaces_data.get("_links", {}):
+                    logger.debug("No 'next' link found, assuming all spaces fetched.")
+                    break
+
+                # Simple increment based on limit, assuming API behaves predictably
+                start += limit
+                # Add a small delay to avoid hitting rate limits aggressively
+                time.sleep(0.1)
+
+            except Exception as e:
+                if "401" in str(e):
+                    raise ConfluenceAuthenticationError(
+                        "Authentication failed. Check username and API token."
+                    ) from e
+                if isinstance(e, requests.exceptions.RequestException):
+                    raise ConfluenceConnectionError(cause=e)
+                logger.error(
+                    f"Error fetching spaces at start={start}: {e}", exc_info=True
+                )
+                # Decide whether to break or raise depending on desired robustness
+                raise ConfluenceAPIError(error_message=str(e)) from e
+
+        logger.info(f"Successfully fetched {len(all_spaces)} spaces in total.")
+        return all_spaces
 
     def get_space(self, space_key: str) -> ConfluenceSpace:
         try:
@@ -286,6 +329,9 @@ class ConfluenceClient:
                 ) from e
             raise ConfluenceAPIError(error_message=str(e)) from e
 
+    def _parse_attachment(self, data: dict[str, Any]) -> ConfluenceAttachment:
+        return ConfluenceAttachment(**data)
+
     def _escape_cql(self, value: str) -> str:
         return value.replace('"', '\\"')
 
@@ -330,106 +376,118 @@ class ConfluenceClient:
         return ConfluencePage(**data)
 
     def _parse_search_result(self, data: dict[str, Any]) -> SearchResult:
-        if "totalSize" in data:
-            data["total_size"] = data["totalSize"]
-        elif "total" in data:
-            data["total_size"] = data["total"]
-        elif "size" in data and "total_size" not in data:
-            data["total_size"] = data["size"]
+        for total_field in ["totalSize", "total", "size"]:
+            if total_field in data and "total_size" not in data:
+                data["total_size"] = data[total_field]
+                break
+
         transformed_results = []
+
         if "results" in data and isinstance(data["results"], list):
             for item in data["results"]:
-                if isinstance(item, dict):
-                    try:
+                try:
+                    if isinstance(item, dict):
                         if "content" in item and isinstance(item["content"], dict):
                             page_data = item["content"].copy()
-                            for key, value in item.items():
-                                if key != "content" and key not in page_data:
-                                    page_data[key] = value
+                            page_data.update(
+                                {
+                                    k: v
+                                    for k, v in item.items()
+                                    if k != "content" and k not in page_data
+                                }
+                            )
                             page = self._parse_page(page_data)
                         else:
                             page = self._parse_page(item)
 
                         transformed_results.append(page)
-                    except Exception:
-                        pass
-                elif isinstance(item, ConfluencePage):
-                    transformed_results.append(item)
+                    elif isinstance(item, ConfluencePage):
+                        transformed_results.append(item)
+                except Exception:
+                    pass
 
             data["results"] = transformed_results
 
         return SearchResult(**data)
 
-    def extract_content_fields(self, content: ConfluencePage) -> dict[str, Any]:
-        result = {
+    def extract_content_fields(
+        self, content: Union[ConfluencePage, ConfluenceAttachment]
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "id": content.id,
             "title": content.title,
-            "type": getattr(content.content_type, "value", content.content_type),
+            "type": content.content_type.value,
             "created_at": content.created_at,
             "updated_at": content.updated_at,
+            "space_key": None,
+            "space_name": None,
+            "url": None,
+            "version": None,
+            "html_content": None,
+            "plain_content": None,
+            "parent_id": None,
+            "file_name": None,
+            "file_size": None,
+            "media_type": None,
+            "download_url": None,
         }
 
-        space = getattr(content, "space", None)
-        if space:
-            if isinstance(space, dict):
-                result["space_key"] = space.get("key", "")
-                result["space_name"] = space.get("name", "")
-            else:
-                result["space_key"] = getattr(space, "key", "")
-                result["space_name"] = getattr(space, "name", "")
+        # Extract space info consistently, ensuring strings
+        space_obj = getattr(content, "space", None)
+        if isinstance(space_obj, ConfluenceSpace):
+            result["space_key"] = space_obj.key or ""
+            result["space_name"] = (space_obj.name or space_obj.title) or ""
+        elif isinstance(space_obj, dict):
+            result["space_key"] = space_obj.get("key") or ""
+            result["space_name"] = space_obj.get("name") or ""
         else:
-            result["space_key"] = getattr(content, "space_key", "")
-            result["space_name"] = getattr(content, "space_name", "")
+            # Ensure empty strings if space is None or unexpected type
+            result["space_key"] = ""
+            result["space_name"] = ""
 
-        content_type = content.content_type
-        if content_type in (ContentType.PAGE, ContentType.BLOGPOST):
-            result["html_content"] = getattr(content, "html_content", None)
-            result["plain_content"] = getattr(content, "plain_content", None)
+        # Extract type-specific fields using isinstance
+        if isinstance(content, ConfluencePage):
+            result["html_content"] = content.html_content
+            result["plain_content"] = content.plain_content
+            if content.version:
+                result["version"] = content.version.number
 
-            version = getattr(content, "version", None)
-            if version:
-                result["version"] = int(getattr(version, "number", version))
-
-            if hasattr(self.atlassian_api, "get_page_url") and content.id:
-                try:
-                    result["url"] = self.atlassian_api.get_page_url(
-                        result.get("space_key"), content.id
-                    )
-                except Exception:
-                    if result.get("space_key"):
-                        result["url"] = (
-                            f"{self.base_url}/wiki/spaces/{result['space_key']}/pages/{content.id}"
-                        )
-
-        elif content_type == ContentType.ATTACHMENT:
-            result["file_name"] = content.title
-            extensions = getattr(content, "extensions", {})
-            if extensions:
-                result["file_size"] = extensions.get("fileSize")
-                result["media_type"] = extensions.get("mediaType")
-
-            if hasattr(self.atlassian_api, "get_attachment_url") and content.id:
-                try:
-                    filename = result.get("file_name", content.title)
-                    result["download_url"] = self.atlassian_api.get_attachment_url(
-                        content.id, filename=filename
-                    )
-                except Exception:
-                    if result.get("space_key"):
-                        result["download_url"] = (
-                            f"{self.base_url}/wiki/download/attachments/{content.id}"
-                        )
-
-        elif content_type == ContentType.COMMENT:
-            result["plain_content"] = getattr(content, "plain_content", None)
-            container = getattr(content, "container", None)
-            if container:
-                result["parent_id"] = (
-                    container.get("id", "")
-                    if isinstance(container, dict)
-                    else getattr(container, "id", "")
+            # Construct URL for pages/blogposts
+            if result["space_key"] and content.id:
+                result["url"] = (
+                    f"{self.base_url}/wiki/spaces/{result['space_key']}/pages/{content.id}"
                 )
+            elif hasattr(content, "_links") and content._links and content._links.webui:
+                result["url"] = f"{self.base_url}{content._links.webui}"
 
+            # Handle comments specifically (they are often modeled as ConfluencePage by the lib)
+            if content.content_type == ContentType.COMMENT:
+                container = getattr(content, "container", None)
+                if isinstance(container, dict):
+                    result["parent_id"] = container.get("id")
+                # Use getattr for safer access if container is not a dict but might have id
+                elif container is not None:
+                    result["parent_id"] = getattr(container, "id", None)
+
+        elif isinstance(content, ConfluenceAttachment):
+            result["file_name"] = content.title
+            result["file_size"] = content.file_size
+            result["media_type"] = content.media_type
+            result["download_url"] = content.download_url
+
+            # Fallback download URL construction
+            if not result["download_url"] and content.id:
+                # This path might vary, relying on _links is safer
+                # result["download_url"] = f"{self.base_url}/wiki/download/attachments/{content.id}"
+                pass  # Prefer relying on the _links.download if available
+
+            # Construct URL for attachments
+            if content._links and content._links.webui:
+                result["url"] = f"{self.base_url}{content._links.webui}"
+
+        # Return only keys that have non-None values if needed,
+        # but returning the full structure might be more consistent.
+        # return {k: v for k, v in result.items() if v is not None}
         return result
 
     def _build_search_cql(
@@ -439,22 +497,7 @@ class ConfluenceClient:
         space_key: Optional[str] = None,
         include_archived: bool = False,
     ) -> str:
-        if hasattr(self.atlassian_api, "cql_builder"):
-            try:
-                cql = self.atlassian_api.cql_builder()
-                cql.text_contains(query)
-
-                if content_type:
-                    content_type_str = getattr(content_type, "value", content_type)
-                    cql.content_type(content_type_str)
-
-                if space_key:
-                    cql.space(space_key)
-
-                return str(cql)
-            except (AttributeError, TypeError):
-                pass
-
+        # Consistently use manual CQL building for robustness
         query_escaped = self._escape_cql(query)
         cql_parts = [f'text ~ "{query_escaped}"']
 
@@ -522,6 +565,91 @@ class ConfluenceClient:
             if isinstance(e, requests.exceptions.RequestException):
                 raise ConfluenceConnectionError(cause=e)
             raise ConfluenceAPIError(error_message=str(e)) from e
+
+    @with_backoff()
+    def list_attachments(
+        self, page_id: str, limit: int = 50, start: int = 0
+    ) -> list[ConfluenceAttachment]:
+        attachments = []
+        current_start = start
+        while True:
+            try:
+                response = self.atlassian_api.get_attachments_from_content(
+                    page_id=page_id, limit=limit, start=current_start
+                )
+                if not response or "results" not in response:
+                    break
+
+                results = response.get("results", [])
+                for attach_data in results:
+                    try:
+                        attachments.append(self._parse_attachment(attach_data))
+                    except (ValidationError, TypeError) as parse_err:
+                        attach_id = attach_data.get("id", "UNKNOWN")
+                        logger.warning(
+                            f"Failed to parse attachment data for ID {attach_id}: {parse_err}"
+                        )
+
+                if len(results) < limit or "next" not in response.get("_links", {}):
+                    break
+
+                current_start += limit
+
+            except Exception as e:
+                if "401" in str(e):
+                    raise ConfluenceAuthenticationError("Authentication failed.") from e
+                if isinstance(e, requests.exceptions.RequestException):
+                    raise ConfluenceConnectionError(cause=e)
+                if "404" in str(e):
+                    raise ConfluenceAPIError(
+                        status_code=404,
+                        error_message=f"Page {page_id} not found when listing attachments",
+                    ) from e
+                raise ConfluenceAPIError(
+                    error_message=f"Failed to list attachments for page {page_id}: {e}"
+                ) from e
+        return attachments
+
+    @with_backoff()
+    def download_attachment(self, attachment_id: str) -> bytes:
+        try:
+            endpoint = f"content/attachment/{attachment_id}"
+            attach_data = self._make_request("GET", endpoint, api_version="rest/api")
+
+            if not attach_data or not isinstance(attach_data, dict):
+                raise ConfluenceAPIError(
+                    error_message=f"Could not retrieve metadata for attachment {attachment_id}"
+                )
+
+            download_path = attach_data.get("_links", {}).get("download")
+            if not download_path:
+                raise ConfluenceAPIError(
+                    error_message=f"Download URL not found for attachment {attachment_id}"
+                )
+
+            download_url = f"{self.base_url}{download_path}"
+
+            response = self.session.get(download_url, timeout=self.config.timeout * 2)
+            response.raise_for_status()
+            return response.content
+
+        except requests.exceptions.RequestException as e:
+            if isinstance(e, requests.exceptions.HTTPError) and hasattr(e, "response"):
+                if e.response.status_code == 401:
+                    raise ConfluenceAuthenticationError("Authentication failed.") from e
+                if e.response.status_code == 404:
+                    raise ConfluenceAPIError(
+                        status_code=404,
+                        error_message=f"Attachment {attachment_id} not found",
+                    ) from e
+                raise ConfluenceAPIError(
+                    status_code=e.response.status_code, error_message=str(e)
+                ) from e
+            raise ConfluenceConnectionError(cause=e)
+        except Exception as e:
+            raise ConfluenceAPIError(
+                error_message=f"Failed to download attachment {attachment_id}: {e}"
+            ) from e
 
     @with_backoff()
     def search(

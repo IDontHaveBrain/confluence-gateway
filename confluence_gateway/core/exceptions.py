@@ -5,6 +5,14 @@ class ConfluenceGatewayError(Exception):
     pass
 
 
+class EmbeddingError(ConfluenceGatewayError):
+    pass
+
+
+class EmbeddingProviderError(ConfluenceGatewayError):
+    pass
+
+
 class ConfluenceConnectionError(ConfluenceGatewayError):
     def __init__(
         self,
@@ -40,6 +48,8 @@ class SearchParameterError(ConfluenceGatewayError):
 
 
 class SemanticSearchError(ConfluenceGatewayError):
-    """Error specific to semantic search operations."""
+    pass
 
+
+class GenerationError(ConfluenceGatewayError):
     pass

@@ -37,5 +37,18 @@ class VectorDBAdapter(ABC):
         pass
 
     @abstractmethod
+    def search_by_metadata(
+        self,
+        filters: dict[str, Any],
+        select: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def delete_by_metadata(self, filters: dict[str, Any]) -> None:
+        pass
+
+    @abstractmethod
     def close(self) -> None:
         pass

@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ContentType(str, Enum):
@@ -35,8 +35,11 @@ class ConfluenceObject(BaseModel):
         if "created" in data and data["created"] and "created_at" not in data:
             data["created_at"] = data["created"]
 
-        if "updated" in data and data["updated"] and "updated_at" not in data:
+        if "updated" in data and data["updated"]:
             data["updated_at"] = data["updated"]
+        elif "created" in data and data["created"]:
+            if "updated_at" not in data:
+                data["updated_at"] = data["created"]
 
         super().__init__(**data)
 
@@ -86,26 +89,38 @@ class ConfluencePage(ConfluenceObject):
     version: Optional[Version] = None
     status: Optional[str] = None
 
-    def __init__(self, **data):
-        if "type" in data and "content_type" not in data:
-            data["content_type"] = data["type"]
+    model_config = {
+        "populate_by_name": True,
+        "str_strip_whitespace": True,
+    }
 
-        if "content_type" in data and isinstance(data["content_type"], str):
+    @field_validator("content_type", mode="before")
+    @classmethod
+    def normalize_content_type(cls, v):
+        if isinstance(v, str):
             try:
-                data["content_type"] = ContentType(data["content_type"])
+                return ContentType(v)
             except ValueError:
                 pass
+        return v
 
-        if "body" in data and isinstance(data["body"], dict):
-            data["body"] = BodyContent(**data["body"])
+    @model_validator(mode="before")
+    @classmethod
+    def map_type_to_content_type(cls, data: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(data, dict):
+            if "type" in data and "content_type" not in data:
+                data["content_type"] = data["type"]
 
-        if "version" in data and isinstance(data["version"], dict):
-            data["version"] = Version(**data["version"])
+            if "body" in data and isinstance(data["body"], dict):
+                data["body"] = BodyContent(**data["body"])
 
-        if "space" in data and isinstance(data["space"], dict):
-            pass
+            if "version" in data and isinstance(data["version"], dict):
+                version_obj = Version(**data["version"])
+                data["version"] = version_obj
+                if version_obj.when:
+                    data["updated_at"] = version_obj.when
 
-        super().__init__(**data)
+        return data
 
     @property
     def html_content(self) -> Optional[str]:
@@ -126,13 +141,67 @@ class ConfluencePage(ConfluenceObject):
         return None
 
 
+class ConfluenceAttachmentLinks(BaseModel):
+    download: Optional[str] = None
+    webui: Optional[str] = None
+    self: Optional[str] = None
+
+
+class ConfluenceAttachmentExtensions(BaseModel):
+    mediaType: Optional[str] = Field(None, alias="media-type")
+    fileSize: Optional[int] = Field(None, alias="file-size")
+    comment: Optional[str] = None
+
+
+class ConfluenceAttachment(ConfluenceObject):
+    content_type: ContentType = ContentType.ATTACHMENT
+    status: Optional[str] = None
+    extensions: Optional[ConfluenceAttachmentExtensions] = None
+    _links: Optional[ConfluenceAttachmentLinks] = None
+    version: Optional[Version] = None
+
+    def __init__(self, **data):
+        if "type" in data and "content_type" not in data:
+            data["content_type"] = data["type"]
+
+        if "content_type" in data and isinstance(data["content_type"], str):
+            try:
+                data["content_type"] = ContentType(data["content_type"])
+            except ValueError:
+                pass
+
+        if "_links" in data and isinstance(data["_links"], dict):
+            data["_links"] = ConfluenceAttachmentLinks(**data["_links"])
+
+        if "extensions" in data and isinstance(data["extensions"], dict):
+            data["extensions"] = ConfluenceAttachmentExtensions(**data["extensions"])
+
+        if "version" in data and isinstance(data["version"], dict):
+            version_obj = Version(**data["version"])
+            data["version"] = version_obj
+            if version_obj.when:
+                data["updated_at"] = version_obj.when
+
+        super().__init__(**data)
+
+    @property
+    def download_url(self) -> Optional[str]:
+        return self._links.download if self._links else None
+
+    @property
+    def media_type(self) -> Optional[str]:
+        return self.extensions.mediaType if self.extensions else None
+
+    @property
+    def file_size(self) -> Optional[int]:
+        return self.extensions.fileSize if self.extensions else None
+
+
 class SearchResult(BaseModel):
-    total_size: int = Field(0, description="Total number of results available")
-    start: int = Field(0, description="Starting index of results")
-    limit: int = Field(0, description="Maximum number of results returned")
-    results: list[ConfluencePage] = Field(
-        default_factory=list, description="Search result items"
-    )
+    total_size: int = 0
+    start: int = 0
+    limit: int = 0
+    results: list[ConfluencePage] = Field(default_factory=list)
 
     model_config = {
         "populate_by_name": True,
@@ -148,11 +217,22 @@ class SearchResult(BaseModel):
 
         if "results" in data and isinstance(data["results"], list):
             transformed_results = []
-            for item in data["results"]:
-                if isinstance(item, dict):
-                    transformed_results.append(ConfluencePage(**item))
-                elif isinstance(item, ConfluencePage):
-                    transformed_results.append(item)
+            for item_data in data["results"]:
+                if isinstance(item_data, dict):
+                    item_type = item_data.get("type")
+                    if not item_type and "content" in item_data:
+                        content_data = item_data.get("content", {})
+                        item_type = content_data.get("type")
+                        merged_data = item_data.copy()
+                        merged_data.update(content_data)
+                        item_data = merged_data
+
+                    if item_type == ContentType.ATTACHMENT.value:
+                        transformed_results.append(ConfluenceAttachment(**item_data))
+                    else:
+                        transformed_results.append(ConfluencePage(**item_data))
+                elif isinstance(item_data, (ConfluencePage, ConfluenceAttachment)):
+                    transformed_results.append(item_data)
             data["results"] = transformed_results
 
         super().__init__(**data)

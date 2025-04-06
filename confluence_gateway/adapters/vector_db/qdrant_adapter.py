@@ -1,8 +1,13 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client.models import Filter as QdrantFilter
+from qdrant_client.models import (
+    PayloadSelector,
+    UpdateResult,
+)
 
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import (
@@ -27,7 +32,6 @@ class QdrantAdapter(VectorDBAdapter):
             )
 
         try:
-            # Determine the right parameter (url or location) based on qdrant_url value
             client_url = None
             client_location = None
 
@@ -162,7 +166,29 @@ class QdrantAdapter(VectorDBAdapter):
         if not must_conditions:
             return None
 
-        return models.Filter(must=must_conditions)
+        if not must_conditions:
+            return None
+
+        return QdrantFilter(must=must_conditions)
+
+    def _build_qdrant_filter(
+        self, filters: Optional[dict[str, Any]]
+    ) -> Optional[QdrantFilter]:
+        if not filters:
+            return None
+
+        must_conditions = []
+        for key, value in filters.items():
+            condition = models.FieldCondition(
+                key=f"metadata.{key}",
+                match=models.MatchValue(value=value),
+            )
+            must_conditions.append(condition)
+
+        if not must_conditions:
+            return None
+
+        return QdrantFilter(must=must_conditions)
 
     def search(
         self,
@@ -208,6 +234,79 @@ class QdrantAdapter(VectorDBAdapter):
             logger.error(f"Qdrant query operation failed: {e}", exc_info=True)
             raise RuntimeError(f"Qdrant query failed: {e}") from e
 
+    def search_by_metadata(
+        self,
+        filters: dict[str, Any],
+        select: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        client = self._ensure_client()
+        collection_name = self.config.collection_name
+        qdrant_filter = self._build_qdrant_filter(filters)
+
+        if not qdrant_filter:
+            logger.warning("search_by_metadata called with empty or invalid filters.")
+            return []
+
+        payload_selector: Union[PayloadSelector, bool, None]
+        if select:
+            payload_selector = models.PayloadSelectorInclude(
+                include=[f"metadata.{key}" for key in select]
+            )
+        else:
+            payload_selector = True
+
+        results = []
+        next_offset = None
+        retrieved_count = 0
+
+        try:
+            logger.info(
+                f"Scrolling Qdrant collection '{collection_name}' with filter: {filters}, select: {select}, limit: {limit}"
+            )
+            while True:
+                scroll_limit = 50
+                if limit is not None:
+                    remaining = limit - retrieved_count
+                    if remaining <= 0:
+                        break
+                    scroll_limit = min(scroll_limit, remaining)
+
+                points, next_offset_value = client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=qdrant_filter,
+                    limit=scroll_limit,
+                    offset=next_offset,
+                    with_payload=payload_selector,
+                    with_vectors=False,
+                )
+
+                for point in points:
+                    metadata_payload = (
+                        point.payload.get("metadata", {}) if point.payload else {}
+                    )
+                    doc_data = {"id": str(point.id)}
+                    if select:
+                        for key in select:
+                            if key in metadata_payload:
+                                doc_data[key] = metadata_payload[key]
+                    else:
+                        doc_data.update(metadata_payload)
+
+                    results.append(doc_data)
+                    retrieved_count += 1
+
+                next_offset = next_offset_value
+                if not next_offset or (limit is not None and retrieved_count >= limit):
+                    break
+
+            logger.info(f"Qdrant scroll returned {len(results)} results.")
+            return results
+
+        except Exception as e:
+            logger.error(f"Qdrant scroll operation failed: {e}", exc_info=True)
+            raise RuntimeError(f"Qdrant metadata search failed: {e}") from e
+
     def delete(self, ids: list[str]) -> None:
         if not ids:
             logger.warning("Delete called with empty ID list.")
@@ -225,10 +324,47 @@ class QdrantAdapter(VectorDBAdapter):
                 points_selector=models.PointIdsList(points=ids),
                 wait=True,
             )
-            logger.info(f"Successfully deleted {len(ids)} points.")
+            logger.info(f"Successfully deleted {len(ids)} points based on IDs.")
         except Exception as e:
-            logger.error(f"Qdrant delete operation failed: {e}", exc_info=True)
-            raise RuntimeError(f"Qdrant delete failed: {e}") from e
+            logger.error(f"Qdrant delete by ID operation failed: {e}", exc_info=True)
+            raise RuntimeError(f"Qdrant delete by ID failed: {e}") from e
+
+    def delete_by_metadata(self, filters: dict[str, Any]) -> None:
+        if not filters:
+            logger.warning("delete_by_metadata called with empty filters.")
+            return
+
+        client = self._ensure_client()
+        collection_name = self.config.collection_name
+        qdrant_filter = self._build_qdrant_filter(filters)
+
+        if not qdrant_filter:
+            logger.warning("delete_by_metadata filter construction failed.")
+            return
+
+        try:
+            logger.info(
+                f"Deleting points from Qdrant collection '{collection_name}' matching filter: {filters}"
+            )
+            result: UpdateResult = client.delete(
+                collection_name=collection_name,
+                points_selector=models.FilterSelector(filter=qdrant_filter),
+                wait=True,
+            )
+            if result.status == models.UpdateStatus.COMPLETED:
+                logger.info(
+                    f"Qdrant delete by metadata operation completed for filter: {filters}"
+                )
+            else:
+                logger.warning(
+                    f"Qdrant delete by metadata operation status: {result.status} for filter: {filters}"
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Qdrant delete by metadata operation failed: {e}", exc_info=True
+            )
+            raise RuntimeError(f"Qdrant delete by metadata failed: {e}") from e
 
     def count(self) -> int:
         client = self._ensure_client()
