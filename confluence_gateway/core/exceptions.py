@@ -48,6 +48,8 @@ class SearchParameterError(ConfluenceGatewayError):
 
 
 class SemanticSearchError(ConfluenceGatewayError):
-    """Error specific to semantic search operations."""
+    pass
 
+
+class GenerationError(ConfluenceGatewayError):
     pass

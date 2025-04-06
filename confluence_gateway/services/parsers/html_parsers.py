@@ -13,6 +13,7 @@ try:
 except ImportError:
     MarkItDownClass = None
 
+
 partition_html: Optional[Callable[..., list[Any]]] = None
 clean_extra_whitespace: Optional[Callable[[str], str]] = None
 try:

@@ -1,7 +1,9 @@
+import asyncio
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from llama_index.core.node_parser import SentenceSplitter
 
@@ -39,6 +41,22 @@ PAGE_FETCH_LIMIT = 50
 
 
 class IndexingService:
+    _instance: Optional["IndexingService"] = None
+    _lock = threading.Lock()
+
+    _is_running: bool = False
+    _last_run_start_time: Optional[datetime] = None
+    _last_run_end_time: Optional[datetime] = None
+    _last_run_status: Literal["idle", "running", "success", "failure"] = "idle"
+    _last_error_message: Optional[str] = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            with cls._lock:
+                if not cls._instance:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(
         self,
         confluence_client: ConfluenceClient,
@@ -47,6 +65,9 @@ class IndexingService:
         vector_db_config: Optional[VectorDBConfig],
         embedding_service: Optional[EmbeddingService] = None,
     ):
+        if hasattr(self, "text_splitter") and self.text_splitter is not None:
+            return
+
         self.confluence_client = confluence_client
         self.indexing_config = indexing_config
         self.search_config = search_config
@@ -113,6 +134,16 @@ class IndexingService:
                 f"Could not initialize Attachment parser '{self.indexing_config.attachment_parser}': {e}. Attachment parsing will be disabled."
             )
             self.attachment_parser = None
+
+    @property
+    def status(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "status": self._last_run_status,
+                "last_run_start_time": self._last_run_start_time,
+                "last_run_end_time": self._last_run_end_time,
+                "last_error_message": self._last_error_message,
+            }
 
     def _list_all_accessible_spaces(self) -> list[ConfluenceSpace]:
         all_spaces = []
@@ -672,7 +703,6 @@ class IndexingService:
         )
 
         try:
-            # Fetch all unique original_content_ids stored for this space_key
             logger.debug(
                 f"Fetching stored content IDs for space '{space_key}' from vector DB..."
             )
@@ -699,7 +729,6 @@ class IndexingService:
                 f"Processed {len(processed_content_ids_in_space)} content IDs from Confluence in this run for space '{space_key}'."
             )
 
-            # Find IDs in the DB that were NOT processed in this run
             orphaned_ids = db_content_ids - processed_content_ids_in_space
 
             if orphaned_ids:
@@ -728,8 +757,42 @@ class IndexingService:
                 exc_info=True,
             )
 
-    def run_indexing(self, space_keys: Optional[list[str]] = None) -> None:
-        logger.info("Starting indexing run...")
+    async def run_indexing(self, space_keys: Optional[list[str]] = None) -> None:
+        with self._lock:
+            if self._is_running:
+                logger.warning("Indexing is already running. Skipping new trigger.")
+                return
+            self._is_running = True
+            self._last_run_start_time = datetime.now(timezone.utc)
+            self._last_run_end_time = None
+            self._last_run_status = "running"
+            self._last_error_message = None
+
+        logger.info(
+            f"Scheduling indexing run in background thread... Target spaces: {space_keys or 'Configured'}"
+        )
+        try:
+            await asyncio.to_thread(self._run_indexing_sync, space_keys)
+            with self._lock:
+                self._last_run_status = "success"
+                self._last_error_message = None
+            logger.info("Background indexing run completed successfully.")
+        except Exception as e:
+            error_msg = f"Background indexing run failed: {e}"
+            logger.error(error_msg, exc_info=True)
+            with self._lock:
+                self._last_run_status = "failure"
+                self._last_error_message = error_msg
+        finally:
+            with self._lock:
+                self._is_running = False
+                self._last_run_end_time = datetime.now(timezone.utc)
+                if self._last_run_status == "running":
+                    self._last_run_status = "failure"
+                    self._last_error_message = "Indexing finished unexpectedly without success or failure status."
+
+    def _run_indexing_sync(self, space_keys: Optional[list[str]] = None) -> None:
+        logger.info("Background indexing thread started.")
 
         if not self.vector_db_adapter or not self.embedding_service:
             logger.error(
@@ -810,9 +873,7 @@ class IndexingService:
                     page_details_for_check
                 )
 
-                page_details_full: Optional[ConfluencePage] = (
-                    None  # To store full details if needed
-                )
+                page_details_full: Optional[ConfluencePage] = None
 
                 if should_index_page:
                     logger.info(f"Page {page_id}: Processing required.")
@@ -955,4 +1016,4 @@ class IndexingService:
 
             logger.info(f"--- Completed All Tasks for Space: {space_key} ---")
 
-        logger.info("Indexing run finished.")
+        logger.info("Background indexing thread finished.")

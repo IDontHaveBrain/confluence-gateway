@@ -16,6 +16,7 @@ try:
 except ImportError:
     MarkItDownClass = None
 
+
 unstructured_partition: Optional[Callable[..., list[Any]]] = None
 clean_extra_whitespace: Optional[Callable[[str], str]] = None
 try:

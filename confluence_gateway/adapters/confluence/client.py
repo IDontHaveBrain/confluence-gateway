@@ -1,3 +1,4 @@
+import logging
 import random
 import time
 from functools import wraps
@@ -5,6 +6,7 @@ from typing import Any, Callable, Optional, TypeVar, Union
 
 import requests
 from atlassian import Confluence
+from pydantic import ValidationError
 from requests.auth import HTTPBasicAuth
 
 from confluence_gateway.adapters.confluence.models import (
@@ -26,6 +28,8 @@ from confluence_gateway.core.exceptions import (
     SearchParameterError,
 )
 
+logger = logging.getLogger(__name__)
+
 T = TypeVar("T")
 
 
@@ -43,7 +47,6 @@ def with_backoff(max_retries=5, initial_delay=1, backoff_factor=2, jitter_factor
                     if getattr(e, "status_code", None) != 429 or retries >= max_retries:
                         raise
 
-                    # Add jitter to prevent thundering herd problem
                     jitter = random.uniform(0, jitter_factor) * delay
                     time.sleep(delay + jitter)
 
@@ -97,10 +100,8 @@ class ConfluenceClient:
         api_version: Optional[str] = None,
         use_transformer: bool = True,
     ) -> Union[dict[str, Any], T, None]:
-        # Determine which API path to use
         api_path_to_use = api_version or self._working_api_path
 
-        # If no working API path is known, try to discover one
         if not api_path_to_use:
             api_path_to_use = self._discover_working_api_path(
                 endpoint, params, data, method
@@ -111,17 +112,14 @@ class ConfluenceClient:
                 status_code=404, error_message="Failed to find working API endpoint"
             )
 
-        # Now make the actual request with the known API path
         url = f"{self.base_url}/{api_path_to_use}/{endpoint.lstrip('/')}"
         response = self._execute_request(method, url, params, data)
 
-        # Process the response
         if response.status_code == 204:
             return None
 
         response_data = response.json()
 
-        # Transform the response if needed
         if model_class:
             if use_transformer:
                 transformer_method = self._get_transformer_for_model(model_class)
@@ -139,7 +137,6 @@ class ConfluenceClient:
         data: Optional[dict[str, Any]],
         method: str,
     ) -> Optional[str]:
-        """Try different API paths until one works."""
         last_exception: Optional[requests.exceptions.RequestException] = None
 
         for api_path in self.API_PATHS:
@@ -147,7 +144,6 @@ class ConfluenceClient:
                 url = f"{self.base_url}/{api_path}/{endpoint.lstrip('/')}"
                 self._execute_request(method, url, params, data)
 
-                # If we get here without exceptions, we found a working path
                 self._working_api_path = api_path
                 return api_path
 
@@ -155,13 +151,11 @@ class ConfluenceClient:
                 if e.response.status_code == 404:
                     last_exception = e
                     continue
-                # Re-raise other HTTP errors to be handled by the error handler
                 raise
             except requests.exceptions.RequestException as e:
                 last_exception = e
                 raise ConfluenceConnectionError(cause=e)
 
-        # If we get here, no API path worked
         if last_exception:
             if isinstance(last_exception, requests.exceptions.HTTPError):
                 raise self._create_api_error_from_http_error(last_exception)
@@ -176,7 +170,6 @@ class ConfluenceClient:
         params: Optional[dict[str, Any]],
         data: Optional[dict[str, Any]],
     ) -> requests.Response:
-        """Execute a request and handle common error cases."""
         try:
             response = getattr(self.session, method.lower())(
                 url, params=params, json=data, timeout=self.config.timeout
@@ -187,14 +180,13 @@ class ConfluenceClient:
                     "Authentication failed. Check username and API token."
                 )
 
-            if response.status_code != 404:  # We handle 404 specially for API discovery
+            if response.status_code != 404:
                 response.raise_for_status()
 
             return response
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                # Let the caller handle 404s specifically
                 raise
             raise self._create_api_error_from_http_error(e)
         except requests.exceptions.RequestException as e:
@@ -203,7 +195,6 @@ class ConfluenceClient:
     def _get_transformer_for_model(
         self, model_class: type[T]
     ) -> Optional[Callable[[dict[str, Any]], T]]:
-        """Get the appropriate transformer method for a model class."""
         if model_class == ConfluenceSpace:
             return self._parse_space
         elif model_class == ConfluencePage:
@@ -215,7 +206,6 @@ class ConfluenceClient:
     def _create_api_error_from_http_error(
         self, http_error: requests.exceptions.HTTPError
     ) -> ConfluenceAPIError:
-        """Create an appropriate API error from an HTTP error."""
         error_message = str(http_error)
         try:
             error_data = http_error.response.json()
@@ -336,7 +326,6 @@ class ConfluenceClient:
         return ConfluencePage(**data)
 
     def _parse_search_result(self, data: dict[str, Any]) -> SearchResult:
-        # Normalize the total size field which can appear in different formats
         for total_field in ["totalSize", "total", "size"]:
             if total_field in data and "total_size" not in data:
                 data["total_size"] = data[total_field]
@@ -348,9 +337,7 @@ class ConfluenceClient:
             for item in data["results"]:
                 try:
                     if isinstance(item, dict):
-                        # Handle case where content is nested
                         if "content" in item and isinstance(item["content"], dict):
-                            # Merge content with parent item, prioritizing content fields
                             page_data = item["content"].copy()
                             page_data.update(
                                 {
@@ -367,7 +354,6 @@ class ConfluenceClient:
                     elif isinstance(item, ConfluencePage):
                         transformed_results.append(item)
                 except Exception:
-                    # Skip items that can't be parsed
                     pass
 
             data["results"] = transformed_results
@@ -377,80 +363,77 @@ class ConfluenceClient:
     def extract_content_fields(
         self, content: Union[ConfluencePage, ConfluenceAttachment]
     ) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "id": content.id,
             "title": content.title,
-            "type": getattr(content.content_type, "value", content.content_type),
+            "type": content.content_type.value,
             "created_at": content.created_at,
             "updated_at": content.updated_at,
+            "space_key": None,
+            "space_name": None,
+            "url": None,
+            "version": None,
+            "html_content": None,
+            "plain_content": None,
+            "parent_id": None,
+            "file_name": None,
+            "file_size": None,
+            "media_type": None,
+            "download_url": None,
         }
 
-        space = getattr(content, "space", None)
-        if space:
-            if isinstance(space, dict):
-                result["space_key"] = space.get("key", "")
-                result["space_name"] = space.get("name", "")
-            else:
-                result["space_key"] = getattr(space, "key", "")
-                result["space_name"] = getattr(space, "name", "")
-        else:
-            result["space_key"] = getattr(content, "space_key", "")
-            result["space_name"] = getattr(content, "space_name", "")
+        # Extract space info consistently
+        space_obj = getattr(content, "space", None)
+        if isinstance(space_obj, ConfluenceSpace):
+            result["space_key"] = space_obj.key
+            result["space_name"] = space_obj.name or space_obj.title
+        elif isinstance(space_obj, dict):
+            result["space_key"] = space_obj.get("key")
+            result["space_name"] = space_obj.get("name")
 
-        content_type = getattr(content.content_type, "value", content.content_type)
+        # Extract type-specific fields using isinstance
+        if isinstance(content, ConfluencePage):
+            result["html_content"] = content.html_content
+            result["plain_content"] = content.plain_content
+            if content.version:
+                result["version"] = content.version.number
 
-        if content_type in (ContentType.PAGE.value, ContentType.BLOGPOST.value):
-            if isinstance(content, ConfluencePage):
-                result["html_content"] = getattr(content, "html_content", None)
-                result["plain_content"] = getattr(content, "plain_content", None)
-
-                version = getattr(content, "version", None)
-                if version:
-                    result["version"] = int(getattr(version, "number", 0))
-
-                space_key = result.get("space_key")
-                if space_key and content.id:
-                    result["url"] = (
-                        f"{self.base_url}/wiki/spaces/{space_key}/pages/{content.id}"
-                    )
-                elif hasattr(content, "_links") and getattr(
-                    content._links, "webui", None
-                ):
-                    if content._links and content._links.webui:
-                        result["url"] = f"{self.base_url}{content._links.webui}"
-
-        elif content_type == ContentType.ATTACHMENT.value:
-            if isinstance(content, ConfluenceAttachment):
-                result["file_name"] = content.title
-                result["file_size"] = content.file_size
-                result["media_type"] = content.media_type
-                result["download_url"] = content.download_url
-                if not result["download_url"] and content.id:
-                    result["download_url"] = (
-                        f"{self.base_url}/wiki/download/attachments/{content.id}"
-                    )
-                if content._links and content._links.webui:
-                    result["url"] = f"{self.base_url}{content._links.webui}"
-
-        elif content_type == ContentType.COMMENT.value:
-            if isinstance(content, ConfluencePage):
-                result["plain_content"] = getattr(content, "plain_content", None)
-                container = getattr(content, "container", None)
-                if container:
-                    result["parent_id"] = (
-                        container.get("id", "")
-                        if isinstance(container, dict)
-                        else getattr(container, "id", "")
-                    )
-        elif hasattr(content, "container"):
-            container = getattr(content, "container", None)
-            if container:
-                result["parent_id"] = (
-                    container.get("id", "")
-                    if isinstance(container, dict)
-                    else getattr(container, "id", "")
+            # Construct URL for pages/blogposts
+            if result["space_key"] and content.id:
+                result["url"] = (
+                    f"{self.base_url}/wiki/spaces/{result['space_key']}/pages/{content.id}"
                 )
+            elif hasattr(content, "_links") and content._links and content._links.webui:
+                result["url"] = f"{self.base_url}{content._links.webui}"
 
+            # Handle comments specifically (they are often modeled as ConfluencePage by the lib)
+            if content.content_type == ContentType.COMMENT:
+                container = getattr(content, "container", None)
+                if isinstance(container, dict):
+                    result["parent_id"] = container.get("id")
+                # Use getattr for safer access if container is not a dict but might have id
+                elif container is not None:
+                    result["parent_id"] = getattr(container, "id", None)
+
+        elif isinstance(content, ConfluenceAttachment):
+            result["file_name"] = content.title
+            result["file_size"] = content.file_size
+            result["media_type"] = content.media_type
+            result["download_url"] = content.download_url
+
+            # Fallback download URL construction
+            if not result["download_url"] and content.id:
+                # This path might vary, relying on _links is safer
+                # result["download_url"] = f"{self.base_url}/wiki/download/attachments/{content.id}"
+                pass  # Prefer relying on the _links.download if available
+
+            # Construct URL for attachments
+            if content._links and content._links.webui:
+                result["url"] = f"{self.base_url}{content._links.webui}"
+
+        # Return only keys that have non-None values if needed,
+        # but returning the full structure might be more consistent.
+        # return {k: v for k, v in result.items() if v is not None}
         return result
 
     def _build_search_cql(
@@ -460,25 +443,7 @@ class ConfluenceClient:
         space_key: Optional[str] = None,
         include_archived: bool = False,
     ) -> str:
-        if hasattr(self.atlassian_api, "cql_builder"):
-            try:
-                cql = self.atlassian_api.cql_builder()
-                cql.text_contains(query)
-
-                if content_type:
-                    content_type_str = getattr(content_type, "value", content_type)
-                    cql.content_type(content_type_str)
-
-                if space_key:
-                    cql.space(space_key)
-
-                if not include_archived:
-                    pass
-
-                return str(cql)
-            except (AttributeError, TypeError):
-                pass
-
+        # Consistently use manual CQL building for robustness
         query_escaped = self._escape_cql(query)
         cql_parts = [f'text ~ "{query_escaped}"']
 
@@ -565,8 +530,11 @@ class ConfluenceClient:
                 for attach_data in results:
                     try:
                         attachments.append(self._parse_attachment(attach_data))
-                    except Exception as parse_err:
-                        print(f"Warning: Failed to parse attachment data: {parse_err}")
+                    except (ValidationError, TypeError) as parse_err:
+                        attach_id = attach_data.get("id", "UNKNOWN")
+                        logger.warning(
+                            f"Failed to parse attachment data for ID {attach_id}: {parse_err}"
+                        )
 
                 if len(results) < limit or "next" not in response.get("_links", {}):
                     break

@@ -3,11 +3,7 @@
 [![Project Status: WIP – Initial development is in progress.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 [English](#english) | [한국어](#한국어)
-<!-- TODO: Add other badges like Build Status, Coverage, License, PyPI version when applicable -->
-<!-- [![Build Status](...)](...) -->
-<!-- [![Coverage Status](...)](...) -->
-<!-- [![License](...)](...) -->
-<!-- [![PyPI version](...)](...) -->
+
 
 **Enhanced Confluence Search and Knowledge Retrieval with RAG and LLMs**
 

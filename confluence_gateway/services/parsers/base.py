@@ -4,5 +4,4 @@ from typing import Any, Optional, Union
 
 class ContentParser(ABC):
     @abstractmethod
-    def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]:
-        pass
+    def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]: ...

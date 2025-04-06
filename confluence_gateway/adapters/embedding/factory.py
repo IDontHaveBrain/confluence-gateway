@@ -11,14 +11,6 @@ logger = logging.getLogger(__name__)
 def get_embedding_provider(
     config: Optional[EmbeddingConfig],
 ) -> Optional[EmbeddingProvider]:
-    """
-    Factory function to create and initialize embedding providers based on configuration.
-
-    Supported providers:
-    - sentence-transformers: For using HuggingFace sentence transformers models
-    - litellm: For using various API-based embedding models (OpenAI, Cohere, etc.)
-    - none: To explicitly disable embedding (default)
-    """
     if config is None:
         logger.info(
             "Embedding configuration not loaded. Embedding provider cannot be created."
@@ -32,7 +24,6 @@ def get_embedding_provider(
     provider_name = config.provider
     logger.info(f"Attempting to create embedding provider: {provider_name}")
 
-    # Provider class mapping - extend this dictionary when adding new providers
     provider_classes = {
         "sentence-transformers": ".sentence_transformer.SentenceTransformerProvider",
         "litellm": ".litellm.LiteLLMProvider",
@@ -43,7 +34,6 @@ def get_embedding_provider(
         return None
 
     try:
-        # Import the provider class
         provider_module_path = provider_classes[provider_name]
         try:
             module_name, class_name = provider_module_path.rsplit(".", 1)
@@ -56,7 +46,6 @@ def get_embedding_provider(
             )
             return None
 
-        # Create and initialize the provider
         provider = provider_class(config)
         logger.info(f"Initializing {provider.__class__.__name__}...")
         provider.initialize()

@@ -40,8 +40,6 @@ class SentenceTransformerProvider(EmbeddingProvider):
         )
 
     def _determine_device(self) -> str:
-        """Determine the appropriate device based on config and availability."""
-        # If no specific device requested, auto-detect
         if not self.config.device:
             if _torch_available and torch and torch.cuda.is_available():
                 logger.info("Auto-detected CUDA availability. Using CUDA.")
@@ -52,7 +50,6 @@ class SentenceTransformerProvider(EmbeddingProvider):
                 )
                 return "cpu"
 
-        # Handle explicitly requested device
         if self.config.device == "cuda":
             if not _torch_available:
                 logger.warning(
@@ -71,7 +68,6 @@ class SentenceTransformerProvider(EmbeddingProvider):
             logger.info("CPU explicitly requested. Using CPU.")
             return "cpu"
 
-        # Handle invalid device request
         logger.warning(
             f"Invalid device '{self.config.device}' requested. Falling back to CPU."
         )
@@ -143,7 +139,6 @@ class SentenceTransformerProvider(EmbeddingProvider):
             ) from e
 
     def _check_initialization(self) -> None:
-        """Verify the provider is properly initialized."""
         if not self.model:
             raise EmbeddingProviderError(
                 "SentenceTransformerProvider is not initialized. Call initialize() first."
@@ -152,7 +147,6 @@ class SentenceTransformerProvider(EmbeddingProvider):
             raise EmbeddingProviderError("Configuration dimension is missing.")
 
     def _validate_embedding(self, embedding, index=None) -> list[float]:
-        """Validate a single embedding."""
         if not isinstance(embedding, list) or len(embedding) != self.config.dimension:
             index_info = f" at index {index}" if index is not None else ""
             logger.error(
@@ -172,7 +166,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
             return []
 
         self._check_initialization()
-        assert self.model is not None  # Tell mypy self.model is guaranteed non-None
+        assert self.model is not None
 
         try:
             embedding = self.model.encode(text, convert_to_numpy=False).tolist()
@@ -196,7 +190,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
             return []
 
         self._check_initialization()
-        assert self.model is not None  # Tell mypy self.model is guaranteed non-None
+        assert self.model is not None
 
         valid_texts = [t for t in texts if t and isinstance(t, str)]
         if not valid_texts:
@@ -223,7 +217,6 @@ class SentenceTransformerProvider(EmbeddingProvider):
                     "Unexpected batch embedding format received from model."
                 )
 
-            # Validate each embedding in the batch
             return [
                 self._validate_embedding(emb, i) for i, emb in enumerate(embeddings)
             ]

@@ -31,6 +31,7 @@ class LiteLLMProvider(EmbeddingProvider):
         logger.info(
             f"LiteLLMProvider initialized with config: "
             f"Model='{self.config.model_name}', Dimension='{self.config.dimension}', "
+            f"Model='{self.config.model_name}', Dimension='{self.config.dimension}', "
             f"Base URL='{self.config.litellm_api_base}', API Key Provided={'Yes' if self.config.litellm_api_key else 'No'}"
         )
         if not self.config.model_name:
@@ -47,33 +48,21 @@ class LiteLLMProvider(EmbeddingProvider):
             f"Initializing LiteLLM provider for model: {self.config.model_name}"
         )
 
-        original_key = litellm.api_key
-        original_base = litellm.api_base
-
         try:
-            # Configure LiteLLM global settings
-            litellm.api_key = self.config.litellm_api_key
-            logger.debug(
-                f"LiteLLM API key {'set from config' if self.config.litellm_api_key else 'not provided'}"
-            )
-
-            litellm.api_base = (
-                str(self.config.litellm_api_base)
-                if self.config.litellm_api_base
-                else None
-            )
-            logger.debug(
-                f"LiteLLM API base {'set to: ' + str(litellm.api_base) if litellm.api_base else 'not provided'}"
-            )
-
-            # Validate with a test call
             test_text = "validate provider initialization"
             logger.debug(
                 f"Performing test embedding call with model '{self.config.model_name}'..."
             )
 
             response = litellm.embedding(
-                model=self.config.model_name, input=[test_text]
+                model=self.config.model_name,
+                input=[test_text],
+                api_key=self.config.litellm_api_key,
+                api_base=(
+                    str(self.config.litellm_api_base)
+                    if self.config.litellm_api_base
+                    else None
+                ),
             )
             logger.debug("Test embedding call successful.")
 
@@ -100,14 +89,6 @@ class LiteLLMProvider(EmbeddingProvider):
         ) as e:
             error_message = f"Failed to initialize LiteLLM provider for model '{self.config.model_name}'. Error: {type(e).__name__}: {e}"
             logger.error(error_message, exc_info=True)
-
-            # Restore original settings
-            litellm.api_key = original_key
-            litellm.api_base = original_base
-            logger.debug(
-                "Restored original global LiteLLM settings after initialization failure."
-            )
-
             raise EmbeddingProviderError(error_message) from e
 
     def _validate_embedding_response(self, response, expected_count=1):
@@ -166,7 +147,16 @@ class LiteLLMProvider(EmbeddingProvider):
         self._check_configuration()
 
         try:
-            response = litellm.embedding(model=self.config.model_name, input=[text])
+            response = litellm.embedding(
+                model=self.config.model_name,
+                input=[text],
+                api_key=self.config.litellm_api_key,
+                api_base=(
+                    str(self.config.litellm_api_base)
+                    if self.config.litellm_api_base
+                    else None
+                ),
+            )
             response_data = self._validate_embedding_response(response)
             return self._extract_embedding_from_item(response_data[0])
 
@@ -204,7 +194,14 @@ class LiteLLMProvider(EmbeddingProvider):
 
         try:
             response = litellm.embedding(
-                model=self.config.model_name, input=valid_texts
+                model=self.config.model_name,
+                input=valid_texts,
+                api_key=self.config.litellm_api_key,
+                api_base=(
+                    str(self.config.litellm_api_base)
+                    if self.config.litellm_api_base
+                    else None
+                ),
             )
             response_data = self._validate_embedding_response(
                 response, expected_count=len(valid_texts)
