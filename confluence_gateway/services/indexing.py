@@ -65,9 +65,6 @@ class IndexingService:
         vector_db_config: Optional[VectorDBConfig],
         embedding_service: Optional[EmbeddingService] = None,
     ):
-        if hasattr(self, "text_splitter") and self.text_splitter is not None:
-            return
-
         self.confluence_client = confluence_client
         self.indexing_config = indexing_config
         self.search_config = search_config

@@ -38,6 +38,7 @@ async def trigger_indexing(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=ErrorResponse(
+                status="error",
                 code=503,
                 message="Indexing service is not configured or failed to initialize.",
                 details={"type": "service_unavailable"},
@@ -50,6 +51,7 @@ async def trigger_indexing(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=ErrorResponse(
+                status="error",
                 code=409,
                 message="Indexing process is already running.",
                 details={"type": "indexing_in_progress"},
@@ -82,6 +84,8 @@ async def get_indexing_status(
     if indexing_service is None:
         return IndexingStatusResponse(
             status="failure",
+            last_run_start_time=None,
+            last_run_end_time=None,
             last_error_message="Indexing service is not configured or failed to initialize.",
         )
 
