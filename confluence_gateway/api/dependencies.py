@@ -7,8 +7,13 @@ from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.factory import get_vector_db_adapter
 from confluence_gateway.core.config import (
+    IndexingConfig,
+    SearchConfig,
+    VectorDBConfig,
     confluence_config,
     embedding_config,
+    indexing_config,
+    search_config,
     vector_db_config,
 )
 from confluence_gateway.providers.embedding.base import EmbeddingProvider
@@ -80,21 +85,27 @@ _embedding_provider_initialized: bool = False
 def get_indexing_service(
     client: ConfluenceClient = Depends(get_confluence_client),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
+    # Inject other configs needed by IndexingService
+    idx_config: IndexingConfig = Depends(lambda: indexing_config),
+    srch_config: SearchConfig = Depends(lambda: search_config),
+    vdb_config: Optional[VectorDBConfig] = Depends(lambda: vector_db_config),
 ) -> Optional[IndexingService]:
     global _indexing_service_instance
     if (
         _indexing_service_instance is None
-        and vector_db_config
-        and vector_db_config.type != "none"
+        and vdb_config  # Use injected config
+        and vdb_config.type != "none"
     ):
         try:
             _indexing_service_instance = IndexingService(
-                confluence_client=client, embedding_service=embedding_service
+                confluence_client=client,
+                indexing_config=idx_config,
+                search_config=srch_config,
+                vector_db_config=vdb_config,
+                embedding_service=embedding_service,
             )
         except Exception as e:
-            logging.getLogger(__name__).error(
-                f"Failed to initialize IndexingService: {e}", exc_info=True
-            )
+            logger.error(f"Failed to initialize IndexingService: {e}", exc_info=True)
             return None
 
     return _indexing_service_instance

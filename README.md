@@ -112,6 +112,22 @@ Create a JSON file in your home directory with the following structure (only inc
     // --- Chunking settings (used during indexing if vector_db type is not 'none') ---
     "chunk_size": 512, // Env: VECTOR_DB_CHUNK_SIZE
     "chunk_overlap": 50 // Env: VECTOR_DB_CHUNK_OVERLAP
+  },
+  "indexing": {
+    // Optional: Specify which spaces to index. If 'include_spaces' is set, only these are indexed.
+    // "include_spaces": ["DEV", "PRODUCT"], // Env: INDEXING_INCLUDE_SPACES (comma-separated)
+    // Optional: Specify spaces to exclude. Applied *after* 'include_spaces' if set.
+    // "exclude_spaces": ["ARCHIVE", "TEST"], // Env: INDEXING_EXCLUDE_SPACES (comma-separated)
+
+    // --- Attachment Indexing Settings ---
+    "include_attachments": false, // Env: INDEXING_INCLUDE_ATTACHMENTS - Set to true to index attachments
+    "max_attachment_size_mb": 10, // Env: INDEXING_MAX_ATTACHMENT_SIZE_MB - Max size limit
+    // Env: INDEXING_ALLOWED_ATTACHMENT_EXTENSIONS (comma-separated, e.g., "pdf,docx,txt")
+    "allowed_attachment_extensions": ["pdf", "docx", "pptx", "txt", "md"],
+    // Choose parser for attachments: "markitdown" (default) or "unstructured"
+    // Requires installing optional dependencies for the chosen parser, e.g.:
+    // pip install "markitdown[pdf,docx]" OR pip install "unstructured[pdf,docx]"
+    "attachment_parser": "markitdown" // Env: INDEXING_ATTACHMENT_PARSER
   }
 }
 ```
@@ -245,6 +261,22 @@ Confluence Gateway는 Confluence 지식 베이스와 최신 AI 기능 간의 격
     // --- 청킹 설정 (vector_db type이 'none'이 아닐 경우 인덱싱 시 사용) ---
     "chunk_size": 512, // 환경 변수: VECTOR_DB_CHUNK_SIZE
     "chunk_overlap": 50 // 환경 변수: VECTOR_DB_CHUNK_OVERLAP
+  },
+  "indexing": {
+    // 선택 사항: 인덱싱할 스페이스 지정. 'include_spaces'가 설정되면 이 스페이스들만 고려됩니다.
+    // "include_spaces": ["DEV", "PRODUCT"], // 환경 변수: INDEXING_INCLUDE_SPACES (쉼표로 구분)
+    // 선택 사항: 인덱싱에서 제외할 스페이스 지정. 'include_spaces' 설정 후 적용됩니다.
+    // "exclude_spaces": ["ARCHIVE", "TEST"], // 환경 변수: INDEXING_EXCLUDE_SPACES (쉼표로 구분)
+
+    // --- 첨부파일 인덱싱 설정 ---
+    "include_attachments": false, // 환경 변수: INDEXING_INCLUDE_ATTACHMENTS - true로 설정 시 첨부파일 인덱싱 활성화
+    "max_attachment_size_mb": 10, // 환경 변수: INDEXING_MAX_ATTACHMENT_SIZE_MB - 최대 크기 제한
+    // 환경 변수: INDEXING_ALLOWED_ATTACHMENT_EXTENSIONS (쉼표로 구분, 예: "pdf,docx,txt")
+    "allowed_attachment_extensions": ["pdf", "docx", "pptx", "txt", "md"],
+    // 첨부파일 파서 선택: "markitdown" (기본값) 또는 "unstructured"
+    // 선택한 파서에 필요한 선택적 의존성 설치 필요, 예:
+    // pip install "markitdown[pdf,docx]" 또는 pip install "unstructured[pdf,docx]"
+    "attachment_parser": "markitdown" // 환경 변수: INDEXING_ATTACHMENT_PARSER
   }
 }
 ```

@@ -89,6 +89,17 @@ class EmbeddingConfig(BaseModel):
 VectorDBType = Literal["chroma", "qdrant", "none"]
 
 
+class IndexingConfig(BaseModel):
+    include_spaces: Optional[list[str]] = Field(
+        default=None,
+        description="List of space keys to explicitly include in indexing. If set, only these spaces are considered.",
+    )
+    exclude_spaces: Optional[list[str]] = Field(
+        default=None,
+        description="List of space keys to explicitly exclude from indexing. Applied after include_spaces.",
+    )
+
+
 def get_user_config_path() -> Path:
     return Path.home() / ".confluence_gateway_config.json"
 
@@ -340,11 +351,25 @@ def _load_raw_embedding_env() -> dict[str, Any]:
     return raw_config
 
 
+def _load_raw_indexing_env() -> dict[str, Any]:
+    raw_config: dict[str, Any] = {}
+    if include_str := os.getenv("INDEXING_INCLUDE_SPACES"):
+        raw_config["include_spaces"] = [
+            s.strip() for s in include_str.split(",") if s.strip()
+        ]
+    if exclude_str := os.getenv("INDEXING_EXCLUDE_SPACES"):
+        raw_config["exclude_spaces"] = [
+            s.strip() for s in exclude_str.split(",") if s.strip()
+        ]
+    return raw_config
+
+
 def load_configurations() -> tuple[
     Optional[ConfluenceConfig],
     SearchConfig,
     Optional[VectorDBConfig],
     Optional[EmbeddingConfig],
+    IndexingConfig,
 ]:
     user_config_path = get_user_config_path()
     file_config = _load_config_from_file(user_config_path)
@@ -353,11 +378,13 @@ def load_configurations() -> tuple[
     env_search_raw = _load_raw_search_env()
     env_vector_db_raw = _load_raw_vector_db_env()
     env_embedding_raw = _load_raw_embedding_env()
+    env_indexing_raw = _load_raw_indexing_env()
 
     file_confluence = file_config.get("confluence", {})
     file_search = file_config.get("search", {})
     file_vector_db = file_config.get("vector_db", {})
     file_embedding = file_config.get("embedding", {})
+    file_indexing = file_config.get("indexing", {})
 
     final_confluence_config = env_confluence_raw.copy()
     final_confluence_config.update(file_confluence)
@@ -370,6 +397,9 @@ def load_configurations() -> tuple[
 
     final_embedding_config = env_embedding_raw.copy()
     final_embedding_config.update(file_embedding)
+
+    final_indexing_config = env_indexing_raw.copy()
+    final_indexing_config.update(file_indexing)
 
     loaded_confluence_config: Optional[ConfluenceConfig] = None
     required_confluence_fields = ["url", "username", "api_token"]
@@ -466,14 +496,25 @@ def load_configurations() -> tuple[
     else:
         print("Info: No Vector DB configuration found. Vector DB features disabled.")
 
+    try:
+        loaded_indexing_config = IndexingConfig(**final_indexing_config)
+    except ValidationError as e:
+        print(f"Error: Invalid Indexing configuration: {e}. Using defaults.")
+        loaded_indexing_config = IndexingConfig()
+
     return (
         loaded_confluence_config,
         loaded_search_config,
         loaded_vector_db_config,
         loaded_embedding_config,
+        loaded_indexing_config,
     )
 
 
-confluence_config, search_config, vector_db_config, embedding_config = (
-    load_configurations()
-)
+(
+    confluence_config,
+    search_config,
+    vector_db_config,
+    embedding_config,
+    indexing_config,
+) = load_configurations()
