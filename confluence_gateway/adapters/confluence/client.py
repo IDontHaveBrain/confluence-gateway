@@ -432,14 +432,18 @@ class ConfluenceClient:
             "download_url": None,
         }
 
-        # Extract space info consistently
+        # Extract space info consistently, ensuring strings
         space_obj = getattr(content, "space", None)
         if isinstance(space_obj, ConfluenceSpace):
-            result["space_key"] = space_obj.key
-            result["space_name"] = space_obj.name or space_obj.title
+            result["space_key"] = space_obj.key or ""
+            result["space_name"] = (space_obj.name or space_obj.title) or ""
         elif isinstance(space_obj, dict):
-            result["space_key"] = space_obj.get("key")
-            result["space_name"] = space_obj.get("name")
+            result["space_key"] = space_obj.get("key") or ""
+            result["space_name"] = space_obj.get("name") or ""
+        else:
+            # Ensure empty strings if space is None or unexpected type
+            result["space_key"] = ""
+            result["space_name"] = ""
 
         # Extract type-specific fields using isinstance
         if isinstance(content, ConfluencePage):

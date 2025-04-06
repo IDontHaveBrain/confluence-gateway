@@ -92,13 +92,13 @@ def _build_search_response(
                 "type", str(item.content_type)
             ),
             space_key=search_service.client.extract_content_fields(item).get(
-                "space_key", ""
+                "space_key"
             ),
             space_name=search_service.client.extract_content_fields(item).get(
-                "space_name", ""
+                "space_name"
             ),
             url=search_service.client.extract_content_fields(item).get("url")
-            or f"{search_service.client.base_url}/wiki/spaces/{search_service.client.extract_content_fields(item).get('space_key', '')}/pages/{item.id}",
+            or f"{search_service.client.base_url}/wiki/spaces/{search_service.client.extract_content_fields(item).get('space_key')}/pages/{item.id}",
             excerpt=getattr(item, "excerpt", None),
             last_modified=item.updated_at or item.created_at or datetime.now(),
         )
