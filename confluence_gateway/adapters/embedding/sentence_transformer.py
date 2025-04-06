@@ -2,10 +2,8 @@ import logging
 from types import ModuleType
 from typing import TYPE_CHECKING, Optional
 
-from confluence_gateway.adapters.embedding.base import (
-    EmbeddingProvider,
-    EmbeddingProviderError,
-)
+from confluence_gateway.adapters.embedding.base import EmbeddingProvider
+from confluence_gateway.core.exceptions import EmbeddingProviderError
 
 torch: Optional[ModuleType] = None
 try:

@@ -1,14 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from confluence_gateway.core.exceptions import ConfluenceGatewayError
-
 if TYPE_CHECKING:
     from confluence_gateway.core.config import EmbeddingConfig
-
-
-class EmbeddingProviderError(ConfluenceGatewayError):
-    pass
 
 
 class EmbeddingProvider(ABC):

@@ -1,8 +1,10 @@
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.confluence.models import (
+    ConfluenceAttachment,
     ConfluencePage,
     ConfluenceSpace,
 )
@@ -20,8 +22,17 @@ from confluence_gateway.core.exceptions import (
     ConfluenceConnectionError,
 )
 from confluence_gateway.services.embedding import EmbeddingError, EmbeddingService
+from confluence_gateway.services.parsers import (
+    ContentParser,
+    ParserNotAvailableError,
+    get_parser,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# Optional dependency imports (markitdown, unstructured) are no longer needed here.
+# Dependency checks are handled within the parser classes and factory.
 
 PAGE_FETCH_LIMIT = 50
 
@@ -43,6 +54,8 @@ class IndexingService:
         self.vector_db_config = vector_db_config
         self.embedding_service = embedding_service
         self.vector_db_adapter: Optional[VectorDBAdapter] = get_vector_db_adapter()
+        self.html_parser: Optional[ContentParser] = None
+        self.attachment_parser: Optional[ContentParser] = None
 
         if self.vector_db_adapter:
             if self.vector_db_config:
@@ -64,6 +77,35 @@ class IndexingService:
             logger.warning(
                 "IndexingService initialized WITHOUT Embedding Service. Embedding features will be disabled for indexing."
             )
+
+        # Initialize parsers based on config
+        try:
+            self.html_parser = get_parser(
+                parser_name=self.indexing_config.html_parser,
+                content_category="html",
+            )
+            logger.info(
+                f"Successfully initialized HTML parser: {self.indexing_config.html_parser}"
+            )
+        except (ParserNotAvailableError, ValueError) as e:
+            logger.warning(
+                f"Could not initialize HTML parser '{self.indexing_config.html_parser}': {e}. HTML content parsing will be disabled."
+            )
+            self.html_parser = None  # Ensure it's None
+
+        try:
+            self.attachment_parser = get_parser(
+                parser_name=self.indexing_config.attachment_parser,
+                content_category="attachment",
+            )
+            logger.info(
+                f"Successfully initialized Attachment parser: {self.indexing_config.attachment_parser}"
+            )
+        except (ParserNotAvailableError, ValueError) as e:
+            logger.warning(
+                f"Could not initialize Attachment parser '{self.indexing_config.attachment_parser}': {e}. Attachment parsing will be disabled."
+            )
+            self.attachment_parser = None  # Ensure it's None
 
     def _list_all_accessible_spaces(self) -> list[ConfluenceSpace]:
         """Fetches all spaces accessible by the configured credentials."""
@@ -192,13 +234,182 @@ class IndexingService:
                 )
                 break  # Stop fetching for this space on error
 
-        logger.info(f"Found {len(all_pages)} pages in space '{space_key}'.")
         return all_pages
 
     def _simulate_chunking(self, text: str, chunk_size: int = 200) -> list[str]:
         if not text:
             return []
         return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+    def _process_attachment(
+        self, attachment: ConfluenceAttachment, parent_page_id: str
+    ) -> Optional[str]:
+        """
+        Downloads attachment content, checks filters, extracts text using the configured parser.
+
+        Args:
+            attachment: The ConfluenceAttachment object.
+            parent_page_id: The ID of the page the attachment belongs to.
+
+        Returns:
+            The extracted text if successful and filters pass, None otherwise.
+        """
+        # Need Path for extension checking and io for BytesIO
+
+        attachment_id = attachment.id
+        filename = attachment.title
+        logger.info(
+            f"Processing attachment ID: {attachment_id}, Filename: '{filename}' (Parent Page: {parent_page_id})"
+        )
+
+        # 1. Check if attachment indexing is enabled
+        if not self.indexing_config.include_attachments:
+            logger.debug(
+                f"Skipping attachment '{filename}' ({attachment_id}) because attachment indexing is disabled."
+            )
+            return None
+
+        # 2. Check if attachment parser is available
+        if not self.attachment_parser:
+            logger.warning(
+                f"Attachment parser not available. Skipping attachment '{filename}' ({attachment_id})."
+            )
+            return None
+
+        # 3. Check file extension
+        file_extension = Path(filename).suffix.lower().lstrip(".")
+        allowed_extensions = self.indexing_config.allowed_attachment_extensions
+        if allowed_extensions and file_extension not in allowed_extensions:
+            logger.debug(
+                f"Skipping attachment '{filename}' ({attachment_id}) due to disallowed extension '{file_extension}'."
+            )
+            return None
+
+        # 4. Check file size
+        file_size_bytes = attachment.file_size
+        max_size_bytes = self.indexing_config.max_attachment_size_mb * 1024 * 1024
+        if file_size_bytes is None:
+            logger.warning(
+                f"File size not available for attachment '{filename}' ({attachment_id}). Skipping size check."
+            )
+        elif file_size_bytes > max_size_bytes:
+            logger.debug(
+                f"Skipping attachment '{filename}' ({attachment_id}) because its size ({file_size_bytes / (1024 * 1024):.2f} MB) exceeds the limit ({self.indexing_config.max_attachment_size_mb} MB)."
+            )
+            return None
+
+        # 5. Download content
+        try:
+            logger.debug(
+                f"Downloading content for attachment '{filename}' ({attachment_id})..."
+            )
+            attachment_content = self.confluence_client.download_attachment(
+                attachment_id
+            )
+            logger.debug(
+                f"Successfully downloaded attachment '{filename}' ({attachment_id})."
+            )
+        except (ConfluenceAPIError, ConfluenceConnectionError) as e:
+            logger.error(
+                f"Failed to download attachment '{filename}' ({attachment_id}): {e}",
+                exc_info=True,
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                f"Unexpected error downloading attachment '{filename}' ({attachment_id}): {e}",
+                exc_info=True,
+            )
+            return None
+
+        if not attachment_content:
+            logger.warning(
+                f"Downloaded content for attachment '{filename}' ({attachment_id}) is empty."
+            )
+            return None
+
+        # 6. Parse content
+        try:
+            logger.debug(
+                f"Parsing content of attachment '{filename}' ({attachment_id})..."
+            )
+            extracted_text = self.attachment_parser.parse(
+                content=attachment_content,
+                filename=filename,
+                content_type=attachment.media_type,
+            )
+
+            if not extracted_text:
+                logger.warning(
+                    f"Attachment parser yielded no content for '{filename}' ({attachment_id})."
+                )
+                return None
+
+            logger.info(
+                f"Successfully extracted text from attachment '{filename}' ({attachment_id}) (length: {len(extracted_text)})"
+            )
+            return extracted_text
+
+        except Exception as e:
+            logger.error(
+                f"Failed to parse attachment '{filename}' ({attachment_id}) using {self.indexing_config.attachment_parser}: {e}",
+                exc_info=True,
+            )
+            return None
+
+    def _process_page(self, page_summary: ConfluencePage) -> Optional[str]:
+        """
+        Fetches full page details, extracts text, and prepares for indexing.
+        This is a partial implementation for Task 1.2 - will be expanded in Task 1.5.
+
+        Returns the extracted text if successful, None otherwise.
+        """
+        page_id = page_summary.id
+        logger.info(f"Processing page ID: {page_id}, Title: '{page_summary.title}'")
+
+        try:
+            # Task 1.2.1: Fetch full page content with storage format
+            logger.debug(f"Fetching full details for page {page_id}...")
+            page_details = self.confluence_client.get_page(
+                page_id, expand=["body.storage", "version", "space"]
+            )
+            logger.debug(f"Successfully fetched details for page {page_id}")
+
+            # Extract storage content (preferred for cleaner HTML)
+            html_content = page_details.storage_content
+            if not html_content:
+                logger.warning(
+                    f"No storage content found for page {page_id}. Skipping text extraction."
+                )
+                return None
+
+            # Task 1.2.3 / 2.2.3: Extract text using the configured parser instance
+            extracted_text = None
+            if self.html_parser:
+                extracted_text = self.html_parser.parse(html_content)
+            else:
+                logger.warning(
+                    f"HTML parser not available for page {page_id}. Skipping text extraction."
+                )
+                return None  # Cannot proceed without a parser
+
+            if not extracted_text:
+                logger.warning(f"HTML parser yielded no content for page {page_id}")
+                return None
+
+            logger.info(
+                f"Successfully extracted text for page {page_id} (length: {len(extracted_text)})"
+            )
+            return extracted_text
+
+        except (ConfluenceAPIError, ConfluenceConnectionError) as e:
+            logger.error(f"Failed to fetch/process page {page_id}: {e}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(
+                f"Unexpected error processing page {page_id}: {e}", exc_info=True
+            )
+            return None
 
     def index_content(
         self,

@@ -4,7 +4,14 @@ import platform
 from pathlib import Path
 from typing import Any, Literal, Optional, Union, get_args
 
-from pydantic import BaseModel, Field, HttpUrl, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    HttpUrl,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 class ConfluenceConfig(BaseModel):
@@ -98,6 +105,48 @@ class IndexingConfig(BaseModel):
         default=None,
         description="List of space keys to explicitly exclude from indexing. Applied after include_spaces.",
     )
+    html_parser: Literal["markitdown", "unstructured"] = Field(
+        default="markitdown",
+        description="Parser to use for extracting text from Confluence page HTML ('markitdown' or 'unstructured').",
+    )
+    include_attachments: bool = Field(
+        default=False,
+        description="Enable or disable indexing of attachments.",
+    )
+    max_attachment_size_mb: int = Field(
+        default=10,
+        ge=0,
+        description="Maximum size in MB for an attachment to be processed.",
+    )
+    allowed_attachment_extensions: Optional[list[str]] = Field(
+        default=["pdf", "docx", "pptx", "txt", "md"],
+        description="List of file extensions to process. If None or empty, attempts all supported types. Case-insensitive.",
+    )
+    attachment_parser: Literal["markitdown", "unstructured"] = Field(
+        default="markitdown",
+        description="Parser to use for extracting text from attachments ('markitdown' or 'unstructured').",
+    )
+
+    @field_validator("html_parser", "attachment_parser")
+    @classmethod
+    def check_parser_name(cls, v: str) -> str:
+        """Validate that the parser name is one of the known types."""
+        valid_parsers = {"markitdown", "unstructured"}
+        if v.lower() not in valid_parsers:
+            raise ValueError(
+                f"Invalid parser name '{v}'. Must be one of: {', '.join(valid_parsers)}"
+            )
+        return v.lower()  # Return the lowercased version
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_extensions(cls, values: dict[str, Any]) -> dict[str, Any]:
+        extensions = values.get("allowed_attachment_extensions")
+        if isinstance(extensions, list):
+            values["allowed_attachment_extensions"] = [
+                ext.lower().lstrip(".") for ext in extensions if isinstance(ext, str)
+            ]
+        return values
 
 
 def get_user_config_path() -> Path:
@@ -361,6 +410,51 @@ def _load_raw_indexing_env() -> dict[str, Any]:
         raw_config["exclude_spaces"] = [
             s.strip() for s in exclude_str.split(",") if s.strip()
         ]
+
+    html_parser_str = os.getenv("INDEXING_HTML_PARSER", "").lower()
+    if html_parser_str:
+        valid_parsers = get_args(Literal["markitdown", "unstructured"])
+        if html_parser_str not in valid_parsers:
+            print(
+                f"Warning: Invalid INDEXING_HTML_PARSER '{html_parser_str}' in environment. Using default."
+            )
+        else:
+            raw_config["html_parser"] = html_parser_str
+
+    if include_attach_str := os.getenv("INDEXING_INCLUDE_ATTACHMENTS"):
+        raw_config["include_attachments"] = include_attach_str.lower() in [
+            "true",
+            "1",
+            "t",
+            "yes",
+            "y",
+        ]
+
+    if max_size_str := os.getenv("INDEXING_MAX_ATTACHMENT_SIZE_MB"):
+        try:
+            raw_config["max_attachment_size_mb"] = int(max_size_str)
+        except ValueError:
+            raw_config["max_attachment_size_mb"] = (
+                max_size_str  # Let pydantic handle error
+            )
+
+    if allowed_ext_str := os.getenv("INDEXING_ALLOWED_ATTACHMENT_EXTENSIONS"):
+        raw_config["allowed_attachment_extensions"] = [
+            s.strip().lower().lstrip(".")
+            for s in allowed_ext_str.split(",")
+            if s.strip()
+        ]
+
+    attach_parser_str = os.getenv("INDEXING_ATTACHMENT_PARSER", "").lower()
+    if attach_parser_str:
+        valid_parsers = get_args(Literal["markitdown", "unstructured"])
+        if attach_parser_str not in valid_parsers:
+            print(
+                f"Warning: Invalid INDEXING_ATTACHMENT_PARSER '{attach_parser_str}' in environment. Using default."
+            )
+        else:
+            raw_config["attachment_parser"] = attach_parser_str
+
     return raw_config
 
 

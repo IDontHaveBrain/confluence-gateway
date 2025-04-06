@@ -16,11 +16,8 @@ except ImportError:
         "Please install it using 'pip install litellm'."
     )
 
-
-from confluence_gateway.adapters.embedding.base import (
-    EmbeddingProvider,
-    EmbeddingProviderError,
-)
+from confluence_gateway.adapters.embedding.base import EmbeddingProvider
+from confluence_gateway.core.exceptions import EmbeddingProviderError
 
 if TYPE_CHECKING:
     from confluence_gateway.core.config import EmbeddingConfig

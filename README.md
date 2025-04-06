@@ -119,18 +119,27 @@ Create a JSON file in your home directory with the following structure (only inc
     // Optional: Specify spaces to exclude. Applied *after* 'include_spaces' if set.
     // "exclude_spaces": ["ARCHIVE", "TEST"], // Env: INDEXING_EXCLUDE_SPACES (comma-separated)
 
+    // Choose parser for HTML content: "markitdown" (default) or "unstructured"
+    // Requires installing optional dependencies for the chosen parser, e.g.:
+    // pip install markitdown OR pip install unstructured
+    "html_parser": "markitdown", // Env: INDEXING_HTML_PARSER
+
     // --- Attachment Indexing Settings ---
     "include_attachments": false, // Env: INDEXING_INCLUDE_ATTACHMENTS - Set to true to index attachments
     "max_attachment_size_mb": 10, // Env: INDEXING_MAX_ATTACHMENT_SIZE_MB - Max size limit
     // Env: INDEXING_ALLOWED_ATTACHMENT_EXTENSIONS (comma-separated, e.g., "pdf,docx,txt")
     "allowed_attachment_extensions": ["pdf", "docx", "pptx", "txt", "md"],
-    // Choose parser for attachments: "markitdown" (default) or "unstructured"
-    // Requires installing optional dependencies for the chosen parser, e.g.:
-    // pip install "markitdown[pdf,docx]" OR pip install "unstructured[pdf,docx]"
-    "attachment_parser": "markitdown" // Env: INDEXING_ATTACHMENT_PARSER
+    // 첨부파일 파서 선택: "markitdown" (기본값) 또는 "unstructured"
+    // 선택한 파서에 필요한 선택적 의존성 설치 필요, 예:
+    // pip install "markitdown[pdf,docx]" 또는 pip install "unstructured[pdf,docx]"
+    "attachment_parser": "markitdown" // 환경 변수: INDEXING_ATTACHMENT_PARSER
   }
 }
 ```
+
+## 개요
+
+## Testing
 
 ## Testing
 
@@ -267,6 +276,11 @@ Confluence Gateway는 Confluence 지식 베이스와 최신 AI 기능 간의 격
     // "include_spaces": ["DEV", "PRODUCT"], // 환경 변수: INDEXING_INCLUDE_SPACES (쉼표로 구분)
     // 선택 사항: 인덱싱에서 제외할 스페이스 지정. 'include_spaces' 설정 후 적용됩니다.
     // "exclude_spaces": ["ARCHIVE", "TEST"], // 환경 변수: INDEXING_EXCLUDE_SPACES (쉼표로 구분)
+
+    // HTML 콘텐츠 파서 선택: "markitdown" (기본값) 또는 "unstructured"
+    // 선택한 파서에 필요한 선택적 의존성 설치 필요, 예:
+    // pip install markitdown 또는 pip install unstructured
+    "html_parser": "markitdown", // 환경 변수: INDEXING_HTML_PARSER
 
     // --- 첨부파일 인덱싱 설정 ---
     "include_attachments": false, // 환경 변수: INDEXING_INCLUDE_ATTACHMENTS - true로 설정 시 첨부파일 인덱싱 활성화

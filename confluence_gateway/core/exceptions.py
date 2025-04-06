@@ -5,6 +5,14 @@ class ConfluenceGatewayError(Exception):
     pass
 
 
+class EmbeddingError(ConfluenceGatewayError):
+    pass
+
+
+class EmbeddingProviderError(ConfluenceGatewayError):
+    pass
+
+
 class ConfluenceConnectionError(ConfluenceGatewayError):
     def __init__(
         self,
