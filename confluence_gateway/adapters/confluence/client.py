@@ -235,6 +235,56 @@ class ConfluenceClient:
                 raise ConfluenceConnectionError(cause=e)
             raise ConfluenceAPIError(error_message=str(e)) from e
 
+    @with_backoff()
+    def list_all_spaces(self, limit: int = 50) -> list[ConfluenceSpace]:
+        all_spaces = []
+        start = 0
+        while True:
+            try:
+                logger.debug(f"Fetching spaces, start={start}, limit={limit}")
+                spaces_data = self.atlassian_api.get_all_spaces(
+                    start=start, limit=limit, expand="description.plain"
+                )
+
+                if not spaces_data or "results" not in spaces_data:
+                    logger.debug("No more spaces found or unexpected response format.")
+                    break
+
+                results = spaces_data.get("results", [])
+                for space_dict in results:
+                    try:
+                        space = self._parse_space(space_dict)
+                        all_spaces.append(space)
+                    except (ValidationError, TypeError) as parse_err:
+                        logger.warning(
+                            f"Failed to parse space data: {space_dict.get('key', 'N/A')}. Error: {parse_err}"
+                        )
+
+                if "next" not in spaces_data.get("_links", {}):
+                    logger.debug("No 'next' link found, assuming all spaces fetched.")
+                    break
+
+                # Simple increment based on limit, assuming API behaves predictably
+                start += limit
+                # Add a small delay to avoid hitting rate limits aggressively
+                time.sleep(0.1)
+
+            except Exception as e:
+                if "401" in str(e):
+                    raise ConfluenceAuthenticationError(
+                        "Authentication failed. Check username and API token."
+                    ) from e
+                if isinstance(e, requests.exceptions.RequestException):
+                    raise ConfluenceConnectionError(cause=e)
+                logger.error(
+                    f"Error fetching spaces at start={start}: {e}", exc_info=True
+                )
+                # Decide whether to break or raise depending on desired robustness
+                raise ConfluenceAPIError(error_message=str(e)) from e
+
+        logger.info(f"Successfully fetched {len(all_spaces)} spaces in total.")
+        return all_spaces
+
     def get_space(self, space_key: str) -> ConfluenceSpace:
         try:
             space_data = self.atlassian_api.get_space(

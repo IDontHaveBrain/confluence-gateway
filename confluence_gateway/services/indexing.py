@@ -143,30 +143,20 @@ class IndexingService:
             }
 
     def _list_all_accessible_spaces(self) -> list[ConfluenceSpace]:
-        all_spaces = []
         try:
-            logger.info("Fetching all accessible spaces from Confluence...")
-            spaces_data = self.confluence_client.atlassian_api.get_all_spaces(limit=50)
-            if spaces_data and "results" in spaces_data:
-                for space_dict in spaces_data["results"]:
-                    try:
-                        space = self.confluence_client._parse_space(space_dict)
-                        all_spaces.append(space)
-                    except Exception as parse_err:
-                        logger.warning(
-                            f"Failed to parse space data: {space_dict.get('key', 'N/A')}. Error: {parse_err}"
-                        )
-                logger.info(f"Successfully fetched {len(all_spaces)} spaces.")
-            else:
-                logger.warning("No spaces found or unexpected response format.")
+            logger.info("Fetching all accessible spaces from Confluence via client...")
+            all_spaces = self.confluence_client.list_all_spaces()
+            logger.info(f"Client returned {len(all_spaces)} accessible spaces.")
+            return all_spaces
         except (ConfluenceAPIError, ConfluenceConnectionError) as e:
             logger.error(f"Failed to fetch spaces from Confluence: {e}", exc_info=True)
+            return []
         except Exception as e:
             logger.error(
                 f"An unexpected error occurred while fetching spaces: {e}",
                 exc_info=True,
             )
-        return all_spaces
+            return []
 
     def _list_target_spaces(self) -> list[ConfluenceSpace]:
         all_spaces = self._list_all_accessible_spaces()
@@ -214,9 +204,9 @@ class IndexingService:
         all_pages: list[ConfluencePage] = []
         start = 0
         limit = PAGE_FETCH_LIMIT
-        cql = (
-            f'space = "{self.confluence_client._escape_cql(space_key)}" AND type = page'
-        )
+        # Note: We rely on the client/library to handle potential special characters in space_key if necessary.
+        # If space keys can contain quotes or other CQL special chars, client-side escaping might be needed.
+        cql = f'space = "{space_key}" AND type = page'
         logger.info(
             f"Fetching pages for space '{space_key}' using CQL: '{cql}' (limit: {limit})"
         )
