@@ -4,6 +4,8 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
+from confluence_gateway.adapters.embedding.base import EmbeddingProvider
+from confluence_gateway.adapters.embedding.factory import get_embedding_provider
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.factory import get_vector_db_adapter
 from confluence_gateway.core.config import (
@@ -16,8 +18,6 @@ from confluence_gateway.core.config import (
     search_config,
     vector_db_config,
 )
-from confluence_gateway.providers.embedding.base import EmbeddingProvider
-from confluence_gateway.providers.embedding.factory import get_embedding_provider
 from confluence_gateway.services.embedding import EmbeddingService
 from confluence_gateway.services.indexing import IndexingService
 from confluence_gateway.services.search import SearchService

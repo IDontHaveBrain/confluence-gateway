@@ -6,6 +6,13 @@ from typing import Any, Optional
 
 import pytest
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
+from confluence_gateway.adapters.embedding.factory import (
+    EmbeddingProvider,
+    get_embedding_provider,
+)
+from confluence_gateway.adapters.embedding.sentence_transformer import (
+    SentenceTransformerProvider,
+)
 from confluence_gateway.adapters.vector_db.factory import (
     VectorDBAdapter,
     get_vector_db_adapter,
@@ -22,13 +29,6 @@ from confluence_gateway.core.config import (
 )
 from confluence_gateway.core.config import (
     embedding_config as global_embedding_config,
-)
-from confluence_gateway.providers.embedding.factory import (
-    EmbeddingProvider,
-    get_embedding_provider,
-)
-from confluence_gateway.providers.embedding.sentence_transformer import (
-    SentenceTransformerProvider,
 )
 from confluence_gateway.services.embedding import EmbeddingService
 from confluence_gateway.services.search import SearchService

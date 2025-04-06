@@ -17,7 +17,7 @@ except ImportError:
     )
 
 
-from confluence_gateway.providers.embedding.base import (
+from confluence_gateway.adapters.embedding.base import (
     EmbeddingProvider,
     EmbeddingProviderError,
 )

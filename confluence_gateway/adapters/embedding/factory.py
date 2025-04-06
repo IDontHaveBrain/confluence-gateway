@@ -1,11 +1,11 @@
 import logging
 from typing import Optional
 
-from confluence_gateway.core.config import EmbeddingConfig
-from confluence_gateway.providers.embedding.base import (
+from confluence_gateway.adapters.embedding.base import (
     EmbeddingProvider,
     EmbeddingProviderError,
 )
+from confluence_gateway.core.config import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
 

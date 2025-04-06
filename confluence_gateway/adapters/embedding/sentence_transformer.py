@@ -2,7 +2,7 @@ import logging
 from types import ModuleType
 from typing import TYPE_CHECKING, Optional
 
-from confluence_gateway.providers.embedding.base import (
+from confluence_gateway.adapters.embedding.base import (
     EmbeddingProvider,
     EmbeddingProviderError,
 )
