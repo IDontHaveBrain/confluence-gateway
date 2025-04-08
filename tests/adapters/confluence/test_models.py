@@ -1,7 +1,9 @@
 from datetime import datetime
 
+import pytest
 from confluence_gateway.adapters.confluence.models import (
     BodyContent,
+    ConfluenceAttachment,
     ConfluenceObject,
     ConfluencePage,
     ConfluenceSpace,
@@ -10,6 +12,9 @@ from confluence_gateway.adapters.confluence.models import (
     SpaceType,
     Version,
 )
+from confluence_gateway.core.exceptions import ConfluenceAPIError
+
+from tests.conftest import REAL_CONFIG_SKIP_REASON
 
 
 class TestConfluenceObject:
@@ -200,3 +205,269 @@ class TestSearchResult:
         assert all(isinstance(item, ConfluencePage) for item in result.results)
         assert result.results[0].id == "123"
         assert result.results[1].id == "456"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestListAttachments:
+    @pytest.fixture(scope="class")
+    def page_attachments_info(self, confluence_client, existing_page_id):
+        try:
+            attachments = confluence_client.list_attachments(existing_page_id)
+            return {"page_id": existing_page_id, "attachments": attachments}
+        except Exception as e:
+            pytest.skip(f"Could not list attachments for page {existing_page_id}: {e}")
+            return None
+
+    def test_list_attachments_success(self, page_attachments_info):
+        attachments = page_attachments_info["attachments"]
+        if not attachments:
+            pytest.skip(
+                f"Page {page_attachments_info['page_id']} has no attachments to test."
+            )
+
+        assert isinstance(attachments, list)
+        assert all(isinstance(att, ConfluenceAttachment) for att in attachments)
+        first_att = attachments[0]
+        assert isinstance(first_att.id, str)
+        assert isinstance(first_att.title, str)
+        assert first_att.content_type == ContentType.ATTACHMENT
+
+    def test_list_attachments_empty(self, page_attachments_info):
+        attachments = page_attachments_info["attachments"]
+        if attachments:
+            pytest.skip(
+                f"Page {page_attachments_info['page_id']} has attachments, skipping empty test."
+            )
+
+        assert attachments == []
+
+    def test_list_attachments_pagination(
+        self, confluence_client, page_attachments_info
+    ):
+        page_id = page_attachments_info["page_id"]
+        attachments = page_attachments_info["attachments"]
+
+        if len(attachments) < 2:
+            pytest.skip(
+                f"Page {page_id} has fewer than 2 attachments, cannot test pagination."
+            )
+
+        results_limit_1_start_0 = confluence_client.list_attachments(
+            page_id, limit=1, start=0
+        )
+        assert len(results_limit_1_start_0) == 1
+        first_attachment_id = results_limit_1_start_0[0].id
+
+        results_limit_1_start_1 = confluence_client.list_attachments(
+            page_id, limit=1, start=1
+        )
+        assert len(results_limit_1_start_1) == 1
+        second_attachment_id = results_limit_1_start_1[0].id
+
+        assert first_attachment_id != second_attachment_id
+        assert first_attachment_id == attachments[0].id
+        assert second_attachment_id == attachments[1].id
+
+    def test_list_attachments_non_existent_page(self, confluence_client):
+        nonexistent_page_id = "0"
+        with pytest.raises(ConfluenceAPIError) as excinfo:
+            confluence_client.list_attachments(nonexistent_page_id)
+        error_message = str(excinfo.value).lower()
+        assert (
+            excinfo.value.status_code == 404
+            or "permission" in error_message
+            or "not found" in error_message
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestDownloadAttachment:
+    @pytest.fixture(scope="class")
+    def attachment_to_download(self, confluence_client, existing_page_id):
+        try:
+            attachments = confluence_client.list_attachments(existing_page_id, limit=5)
+            if not attachments:
+                pytest.skip(
+                    f"No attachments found on page {existing_page_id} to test download."
+                )
+                return None
+            return attachments[0]
+        except Exception as e:
+            pytest.skip(
+                f"Could not list attachments for page {existing_page_id} to find one for download: {e}"
+            )
+            return None
+
+    def test_download_attachment_success(
+        self, confluence_client, attachment_to_download
+    ):
+        if attachment_to_download is None:
+            pytest.skip("No attachment fixture available for download test.")
+
+        attachment_id = attachment_to_download.id
+        try:
+            content = confluence_client.download_attachment(attachment_id)
+            assert isinstance(content, bytes)
+            assert len(content) > 0
+            if (
+                attachment_to_download.file_size is not None
+                and attachment_to_download.file_size > 0
+            ):
+                assert len(content) == attachment_to_download.file_size
+
+        except ConfluenceAPIError as e:
+            pytest.fail(
+                f"Downloading attachment {attachment_id} failed unexpectedly: {e}"
+            )
+
+    def test_download_attachment_not_found(self, confluence_client):
+        nonexistent_attachment_id = "0"
+        with pytest.raises(ConfluenceAPIError) as excinfo:
+            confluence_client.download_attachment(nonexistent_attachment_id)
+        error_message = str(excinfo.value).lower()
+        assert (
+            excinfo.value.status_code == 404
+            or "permission" in error_message
+            or "not found" in error_message
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestListAttachments:
+    @pytest.fixture(scope="class")
+    def page_attachments_info(self, confluence_client, existing_page_id):
+        try:
+            attachments = confluence_client.list_attachments(existing_page_id)
+            return {"page_id": existing_page_id, "attachments": attachments}
+        except Exception as e:
+            pytest.skip(f"Could not list attachments for page {existing_page_id}: {e}")
+            return None
+
+    def test_list_attachments_success(self, page_attachments_info):
+        attachments = page_attachments_info["attachments"]
+        if not attachments:
+            pytest.skip(
+                f"Page {page_attachments_info['page_id']} has no attachments to test."
+            )
+
+        assert isinstance(attachments, list)
+        assert all(isinstance(att, ConfluenceAttachment) for att in attachments)
+        first_att = attachments[0]
+        assert isinstance(first_att.id, str)
+        assert isinstance(first_att.title, str)
+        assert first_att.content_type == ContentType.ATTACHMENT
+
+    def test_list_attachments_empty(self, page_attachments_info):
+        attachments = page_attachments_info["attachments"]
+        if attachments:
+            pytest.skip(
+                f"Page {page_attachments_info['page_id']} has attachments, skipping empty test."
+            )
+
+        assert attachments == []
+
+    def test_list_attachments_pagination(
+        self, confluence_client, page_attachments_info
+    ):
+        page_id = page_attachments_info["page_id"]
+        attachments = page_attachments_info["attachments"]
+
+        if len(attachments) < 2:
+            pytest.skip(
+                f"Page {page_id} has fewer than 2 attachments, cannot test pagination."
+            )
+
+        results_limit_1_start_0 = confluence_client.list_attachments(
+            page_id, limit=1, start=0
+        )
+        assert len(results_limit_1_start_0) == 1
+        first_attachment_id = results_limit_1_start_0[0].id
+
+        results_limit_1_start_1 = confluence_client.list_attachments(
+            page_id, limit=1, start=1
+        )
+        assert len(results_limit_1_start_1) == 1
+        second_attachment_id = results_limit_1_start_1[0].id
+
+        assert first_attachment_id != second_attachment_id
+        assert first_attachment_id == attachments[0].id
+        assert second_attachment_id == attachments[1].id
+
+    def test_list_attachments_non_existent_page(self, confluence_client):
+        nonexistent_page_id = "0"
+        with pytest.raises(ConfluenceAPIError) as excinfo:
+            confluence_client.list_attachments(nonexistent_page_id)
+        error_message = str(excinfo.value).lower()
+        assert (
+            excinfo.value.status_code == 404
+            or "permission" in error_message
+            or "not found" in error_message
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not pytest.lazy_fixture("is_real_config_available"),
+    reason=REAL_CONFIG_SKIP_REASON,
+)
+class TestDownloadAttachment:
+    @pytest.fixture(scope="class")
+    def attachment_to_download(self, confluence_client, existing_page_id):
+        try:
+            attachments = confluence_client.list_attachments(existing_page_id, limit=5)
+            if not attachments:
+                pytest.skip(
+                    f"No attachments found on page {existing_page_id} to test download."
+                )
+                return None
+            return attachments[0]
+        except Exception as e:
+            pytest.skip(
+                f"Could not list attachments for page {existing_page_id} to find one for download: {e}"
+            )
+            return None
+
+    def test_download_attachment_success(
+        self, confluence_client, attachment_to_download
+    ):
+        if attachment_to_download is None:
+            pytest.skip("No attachment fixture available for download test.")
+
+        attachment_id = attachment_to_download.id
+        try:
+            content = confluence_client.download_attachment(attachment_id)
+            assert isinstance(content, bytes)
+            assert len(content) > 0
+            if (
+                attachment_to_download.file_size is not None
+                and attachment_to_download.file_size > 0
+            ):
+                assert len(content) == attachment_to_download.file_size
+
+        except ConfluenceAPIError as e:
+            pytest.fail(
+                f"Downloading attachment {attachment_id} failed unexpectedly: {e}"
+            )
+
+    def test_download_attachment_not_found(self, confluence_client):
+        nonexistent_attachment_id = "0"
+        with pytest.raises(ConfluenceAPIError) as excinfo:
+            confluence_client.download_attachment(nonexistent_attachment_id)
+        error_message = str(excinfo.value).lower()
+        assert (
+            excinfo.value.status_code == 404
+            or "permission" in error_message
+            or "not found" in error_message
+        )

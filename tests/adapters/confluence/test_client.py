@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 from confluence_gateway.adapters.confluence.models import (
+    ConfluenceAttachment,
     ConfluencePage,
     ConfluenceSpace,
     ContentType,

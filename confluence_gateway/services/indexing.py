@@ -956,42 +956,8 @@ class IndexingService:
                             f"Failed to list attachments for page {page_id}: {attach_list_err}",
                             exc_info=True,
                         )
-                    continue
-
-                if page_details_full and self.indexing_config.include_attachments:
-                    logger.debug(f"Listing attachments for page {page_id}...")
-                    try:
-                        attachments = self.confluence_client.list_attachments(page_id)
-                        logger.info(
-                            f"Found {len(attachments)} attachments for page {page_id}."
-                        )
-
-                        for attachment in attachments:
-                            try:
-                                extracted_attachment_text = self._process_attachment(
-                                    attachment, page_id
-                                )
-                                if extracted_attachment_text:
-                                    logger.debug(
-                                        f"Attachment {attachment.id}: Text extracted, proceeding to index."
-                                    )
-                                    self.index_content(
-                                        attachment, extracted_attachment_text
-                                    )
-                                else:
-                                    logger.debug(
-                                        f"Attachment {attachment.id}: No text extracted or skipped by filters/parser."
-                                    )
-                            except Exception as attach_proc_err:
-                                logger.error(
-                                    f"Unexpected error processing attachment {attachment.id} for page {page_id}: {attach_proc_err}",
-                                    exc_info=True,
-                                )
-                    except Exception as attach_list_unexpected_err:
-                        logger.error(
-                            f"Unexpected error listing attachments for page {page_id}: {attach_list_unexpected_err}",
-                            exc_info=True,
-                        )
+                        # Decide if we should continue processing the space or stop
+                        continue  # Continue to the next page in the space
 
             logger.info(
                 f"--- Finished Processing Pages/Attachments for Space: {space_key} ---"
