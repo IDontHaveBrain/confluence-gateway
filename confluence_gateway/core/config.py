@@ -29,6 +29,11 @@ class SearchConfig(BaseModel):
     max_limit: int = 100
     default_expand: list[str] = ["body.view", "space"]
 
+    hybrid_search_enabled: bool = False
+    hybrid_keyword_fetch_limit: int = Field(default=50, gt=0)
+    hybrid_semantic_fetch_limit: int = Field(default=50, gt=0)
+    hybrid_rrf_k: int = Field(default=60, gt=0)
+
 
 class EmbeddingConfig(BaseModel):
     provider: Literal["sentence-transformers", "litellm", "none"] = "none"
@@ -227,6 +232,10 @@ def _load_raw_search_env() -> dict[str, Any]:
         "default_limit": int,
         "max_limit": int,
         "default_expand": "comma_list",
+        "hybrid_search_enabled": bool,
+        "hybrid_keyword_fetch_limit": int,
+        "hybrid_semantic_fetch_limit": int,
+        "hybrid_rrf_k": int,
     }
 
     return _load_env_with_validation("SEARCH_", validations)

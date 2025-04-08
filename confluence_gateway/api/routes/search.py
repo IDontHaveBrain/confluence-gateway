@@ -170,18 +170,34 @@ async def search_content(
     expand: Optional[list[str]] = Query(
         None, description="Fields to expand in the response"
     ),
+    use_hybrid: bool = Query(
+        False,
+        description="Enable hybrid search (keyword + semantic with RRF re-ranking)",
+    ),
     search_service: SearchService = Depends(get_search_service),
 ):
-    search_result = search_service.search_by_text(
-        text=query,
-        content_type=content_type,
-        space_key=space_key,
-        include_archived=include_archived,
-        limit=limit,
-        start=start,
-        expand=expand,
-        return_enhanced_result=True,
-    )
+    if use_hybrid:
+        search_result = search_service.search_hybrid(
+            text=query,
+            content_type=content_type,
+            space_key=space_key,
+            include_archived=include_archived,
+            limit=limit,
+            start=start,
+            expand=expand,
+            return_enhanced_result=True,
+        )
+    else:
+        search_result = search_service.search_by_text(
+            text=query,
+            content_type=content_type,
+            space_key=space_key,
+            include_archived=include_archived,
+            limit=limit,
+            start=start,
+            expand=expand,
+            return_enhanced_result=True,
+        )
 
     return _build_search_response(search_result, search_service, request)
 
@@ -237,22 +253,34 @@ async def advanced_search(
     search_request: AdvancedSearchRequest,
     search_service: SearchService = Depends(get_search_service),
 ):
-    search_result = search_service.search_by_text(
-        text=search_request.query,
-        content_type=search_request.content_type,
-        space_key=search_request.space_key,
-        include_archived=search_request.include_archived,
-        limit=search_request.limit,
-        start=search_request.start,
-        expand=search_request.expand,
-        get_all_results=search_request.get_all_results,
-        max_results=search_request.max_results,
-        min_relevance=search_request.min_relevance,
-        top_n=search_request.top_n,
-        sort_by=search_request.sort_by,
-        sort_direction=search_request.sort_direction,
-        return_enhanced_result=True,
-    )
+    if getattr(search_request, "use_hybrid", False):
+        search_result = search_service.search_hybrid(
+            text=search_request.query,
+            content_type=search_request.content_type,
+            space_key=search_request.space_key,
+            include_archived=search_request.include_archived,
+            limit=search_request.limit,
+            start=search_request.start,
+            expand=search_request.expand,
+            return_enhanced_result=True,
+        )
+    else:
+        search_result = search_service.search_by_text(
+            text=search_request.query,
+            content_type=search_request.content_type,
+            space_key=search_request.space_key,
+            include_archived=search_request.include_archived,
+            limit=search_request.limit,
+            start=search_request.start,
+            expand=search_request.expand,
+            get_all_results=search_request.get_all_results,
+            max_results=search_request.max_results,
+            min_relevance=search_request.min_relevance,
+            top_n=search_request.top_n,
+            sort_by=search_request.sort_by,
+            sort_direction=search_request.sort_direction,
+            return_enhanced_result=True,
+        )
 
     return _build_search_response(search_result, search_service, request)
 

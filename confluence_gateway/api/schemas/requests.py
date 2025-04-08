@@ -115,6 +115,10 @@ class AdvancedSearchRequest(BaseSearchRequest):
     top_n: Optional[int] = Field(None, gt=0)
     sort_by: Optional[list[str]] = None
     sort_direction: Optional[list[str]] = None
+    use_hybrid: Optional[bool] = Field(
+        False,
+        description="Enable hybrid search (keyword + semantic with RRF re-ranking)",
+    )
 
     @field_validator("query")
     def validate_query(cls, v):
@@ -180,6 +184,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
                     "top_n": 10,
                     "sort_by": ["updated_at", "title"],
                     "sort_direction": ["desc", "asc"],
+                    "use_hybrid": False,
                 }
             ]
         }
