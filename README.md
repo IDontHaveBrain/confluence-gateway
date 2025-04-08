@@ -133,10 +133,6 @@ Create a JSON file in your home directory with the following structure (only inc
 }
 ```
 
-## 개요
-
-## Testing
-
 ## Testing
 
 This project emphasizes **integration testing** against a real Confluence instance to ensure reliability. Mock-based tests for core Confluence interactions are generally avoided.
