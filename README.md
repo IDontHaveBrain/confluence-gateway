@@ -135,14 +135,14 @@ Create a JSON file in your home directory with the following structure (only inc
 
 ## Testing
 
-This project emphasizes **integration testing** against a real Confluence instance to ensure reliability. Mock-based tests for core Confluence interactions are generally avoided.
+This project emphasizes **integration testing** against a real Confluence instance to ensure reliability. Mock-based tests for core Confluence interactions are generally avoided. We prioritize testing the essential public interfaces of components. Private methods (those prefixed with `_`) are not tested directly; their behavior is verified implicitly through the tests of the public methods that utilize them.
 
 **Test Structure:**
 
 *   **Unit Tests (`tests/core/`, `tests/api/schemas/`):** Test isolated logic (configuration, exceptions, schemas) without external dependencies or mocks.
 *   **Adapter Tests (`tests/adapters/confluence/`):** Verify `ConfluenceClient` methods against a **real Confluence instance**. Ensure API calls are made correctly and responses are parsed into Pydantic models. Marked with `@pytest.mark.integration`.
-*   **Service Tests (`tests/services/`):** Verify `SearchService` logic built *on top* of the client (parameter validation, result enhancement, sorting, semantic search orchestration). Assumes the client works (tested separately). Uses a **real Confluence instance**. Marked with `@pytest.mark.integration`.
-*   **End-to-End (E2E) Tests (`tests/integration/`):** Verify API endpoints, request routing, service processing, and response schemas. Uses a **real Confluence instance** and potentially overrides for embedding/vector DB dependencies. Marked with `@pytest.mark.integration`.
+*   **Service Tests (`tests/services/`):** Verify the public methods of services (`SearchService`, `IndexingService`, etc.), focusing on their overall logic and integration with adapters. Assumes the underlying adapters work (tested separately). Uses a **real Confluence instance** where applicable. Marked with `@pytest.mark.integration`.
+*   **End-to-End (E2E) Tests (`tests/integration/`):** Verify public API endpoints, request routing, overall service processing flow, and response schemas. Uses a **real Confluence instance** and potentially overrides for embedding/vector DB dependencies for specific scenarios. Marked with `@pytest.mark.integration`.
 
 **Running Tests:**
 
