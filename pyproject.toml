@@ -12,10 +12,11 @@ dependencies = [
     "chromadb>=0.6.3",
     "fastapi>=0.115.12",
     "httpx>=0.28.1",
-    "litellm>=1.65.4.post1",
-    "llama-index-core>=0.12.28",
+    "litellm>=1.65.7",
+    "llama-index-core>=0.12.30",
     "markitdown>=0.1.1",
-    "pydantic>=2.11.2",
+    "multidict>=6.4.3",
+    "pydantic>=2.11.3",
     "python-dotenv>=1.1.0",
     "qdrant-client>=1.13.3",
     "requests>=2.32.3",
@@ -26,12 +27,13 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "black>=25.1.0",
     "mypy>=1.15.0",
     "pre-commit>=4.2.0",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
     "pytest-lazy-fixture>=0.6.3",
-    "ruff>=0.11.4",
+    "ruff>=0.11.5",
     "types-pyyaml>=6.0.12.20250402",
     "types-requests>=2.32.0",
 ]
