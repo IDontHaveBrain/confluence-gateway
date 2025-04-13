@@ -669,10 +669,130 @@ def index_semantic_test_data(
         print(f"\nERROR (pytest): Failed to index semantic test data: {e}")
 
 
+from confluence_gateway.api.app import app
+from confluence_gateway.api.dependencies import (
+    get_confluence_client,
+    get_embedding_provider_dependency,
+    get_vector_db_adapter,
+)
+
+
 @pytest.fixture(scope="session")
-def test_app_client() -> Generator[TestClient, Any, None]:
+def test_app_client(
+    confluence_client: Optional[ConfluenceClient],
+    vector_db_adapter: Optional[VectorDBAdapter],
+    embedding_provider: Optional[EmbeddingProvider],
+    search_config: SearchConfig,
+    vector_db_config: Optional[VectorDBConfig],
+    indexing_config: IndexingConfig,
+) -> Generator[TestClient, Any, None]:
+    def override_get_confluence_client():
+        return confluence_client
+
+    def override_get_vector_db_adapter():
+        return vector_db_adapter
+
+    def override_get_embedding_provider_dependency():
+        return embedding_provider
+
+    def override_get_search_config():
+        return search_config
+
+    def override_get_vector_db_config():
+        if vector_db_adapter and hasattr(vector_db_adapter, "config"):
+            adapter_config = getattr(vector_db_adapter, "config", None)
+            if adapter_config:
+                return adapter_config
+        return vector_db_config
+
+    def override_get_indexing_config():
+        return indexing_config
+
+    app.dependency_overrides[get_confluence_client] = override_get_confluence_client
+    app.dependency_overrides[get_vector_db_adapter] = override_get_vector_db_adapter
+    app.dependency_overrides[get_embedding_provider_dependency] = (
+        override_get_embedding_provider_dependency
+    )
+
+    import logging
+    from threading import Lock
+
+    from confluence_gateway.api.dependencies import get_indexing_service
+    from confluence_gateway.services.embedding import EmbeddingService
+    from confluence_gateway.services.indexing import IndexingService
+
+    _override_indexing_service_instance = None
+    _override_indexing_service_lock = Lock()
+
+    def override_get_indexing_service():
+        nonlocal _override_indexing_service_instance
+
+        if _override_indexing_service_instance is not None:
+            return _override_indexing_service_instance
+
+        with _override_indexing_service_lock:
+            if _override_indexing_service_instance is None:
+                effective_vdb_config = None
+                if vector_db_adapter and hasattr(vector_db_adapter, "config"):
+                    adapter_config = getattr(vector_db_adapter, "config", None)
+                    if adapter_config:
+                        effective_vdb_config = adapter_config
+                if effective_vdb_config is None:
+                    effective_vdb_config = vector_db_config
+
+                if not vector_db_adapter:
+                    logging.warning(
+                        "Override: Vector DB Adapter fixture not available."
+                    )
+                    return None
+                if not effective_vdb_config:
+                    logging.warning(
+                        "Override: Effective Vector DB Config not available."
+                    )
+                    return None
+
+                current_embedding_service = EmbeddingService(
+                    provider=embedding_provider
+                )
+
+                try:
+                    logging.info(
+                        "Override: Attempting to initialize IndexingService..."
+                    )
+                    instance = IndexingService(
+                        confluence_client=confluence_client,
+                        indexing_config=indexing_config,
+                        search_config=search_config,
+                        embedding_service=current_embedding_service,
+                        vector_db_adapter=vector_db_adapter,
+                    )
+                    if not instance.vector_db_adapter:
+                        logging.error("Override Error: Adapter became None post-init.")
+                        return None
+                    if not instance.text_splitter:
+                        logging.error(
+                            "Override Error: Text splitter not initialized post-init. Check VDB config access within IndexingService init."
+                        )
+                        return None
+
+                    _override_indexing_service_instance = instance
+                    logging.info("Override: IndexingService initialized successfully.")
+                except Exception as e:
+                    logging.error(
+                        f"Override Error: Failed to initialize IndexingService: {e}",
+                        exc_info=True,
+                    )
+                    _override_indexing_service_instance = None
+                    return None
+
+        return _override_indexing_service_instance
+
+    app.dependency_overrides[get_indexing_service] = override_get_indexing_service
+
     with TestClient(app) as client:
         yield client
+
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="function")

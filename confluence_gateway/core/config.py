@@ -35,7 +35,7 @@ class SearchConfig(BaseModel):
     max_limit: int = 100
     default_expand: list[str] = ["body.view", "space"]
 
-    hybrid_search_enabled: bool = False
+    hybrid_search_enabled: bool = True
     hybrid_keyword_fetch_limit: int = Field(default=50, gt=0)
     hybrid_semantic_fetch_limit: int = Field(default=50, gt=0)
     hybrid_rrf_k: int = Field(default=60, gt=0)

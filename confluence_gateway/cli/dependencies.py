@@ -100,7 +100,6 @@ def _get_indexing_service() -> Optional[IndexingService]:
             confluence_client=client,
             indexing_config=indexing_config,
             search_config=search_config,
-            vector_db_config=vector_db_config,
             embedding_service=embedding_service,
         )
         if not service.vector_db_adapter:
