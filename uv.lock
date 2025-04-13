@@ -615,8 +615,10 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "qdrant-client" },
     { name = "requests" },
+    { name = "rich" },
     { name = "sentence-transformers" },
     { name = "tiktoken" },
+    { name = "typer" },
     { name = "unstructured" },
 ]
 
@@ -647,8 +649,10 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "qdrant-client", specifier = ">=1.13.3" },
     { name = "requests", specifier = ">=2.32.3" },
+    { name = "rich", specifier = ">=14.0.0" },
     { name = "sentence-transformers", specifier = ">=4.0.2" },
     { name = "tiktoken", specifier = ">=0.9.0" },
+    { name = "typer", specifier = ">=0.15.2" },
     { name = "unstructured", specifier = ">=0.17.2" },
 ]
 
