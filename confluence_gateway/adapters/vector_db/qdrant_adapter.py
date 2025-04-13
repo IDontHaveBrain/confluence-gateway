@@ -382,6 +382,32 @@ class QdrantAdapter(VectorDBAdapter):
             logger.error(f"Qdrant count operation failed: {e}", exc_info=True)
             raise RuntimeError(f"Qdrant count failed: {e}") from e
 
+    def retrieve_by_ids(
+        self, ids: list[str], with_payload: bool = True, with_vector: bool = False
+    ) -> list[models.Record]:
+        client = self._ensure_client()
+        collection_name = self.config.collection_name
+        if not ids:
+            logger.warning("retrieve_by_ids called with empty ID list.")
+            return []
+        try:
+            logger.info(
+                f"Retrieving {len(ids)} points by ID from Qdrant collection '{collection_name}'"
+            )
+            records = client.retrieve(
+                collection_name=collection_name,
+                ids=ids,
+                with_payload=with_payload,
+                with_vectors=with_vector,
+            )
+            logger.info(f"Qdrant retrieve returned {len(records)} records.")
+            return records
+        except Exception as e:
+            logger.error(
+                f"Qdrant retrieve by ID operation failed: {e}", exc_info=True
+            )
+            raise RuntimeError(f"Qdrant retrieve by ID failed: {e}") from e
+
     def close(self) -> None:
         if self.client:
             try:

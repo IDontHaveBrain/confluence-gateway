@@ -33,6 +33,7 @@ from confluence_gateway.core.config import (
 from confluence_gateway.services.embedding import EmbeddingService
 from confluence_gateway.services.search import SearchService
 from fastapi.testclient import TestClient
+from typer.testing import CliRunner
 
 
 def pytest_configure(config):
@@ -444,15 +445,17 @@ def index_semantic_test_data(
     embed_svc = embedding_service
 
     try:
-        existing_doc = adapter.get_by_id(SEMANTIC_TEST_DOCS[0]["id"])
-        if existing_doc:
+        # Check if the first document exists using the new method
+        first_doc_id = SEMANTIC_TEST_DOCS[0]["id"]
+        existing_records = adapter.retrieve_by_ids(ids=[first_doc_id], with_payload=False, with_vector=False)
+        if existing_records:
             print(
-                f"\nINFO (pytest): Semantic test data (e.g., '{SEMANTIC_TEST_DOCS[0]['id']}') seems to exist. Skipping indexing."
+                f"\nINFO (pytest): Semantic test data (e.g., '{first_doc_id}') seems to exist. Skipping indexing."
             )
             return
-    except Exception as get_err:
+    except Exception as check_err:
         print(
-            f"\nWARN (pytest): Error checking for existing semantic test data: {get_err}. Attempting indexing."
+            f"\nWARN (pytest): Error checking for existing semantic test data using retrieve_by_ids: {check_err}. Attempting indexing."
         )
 
     print("\nINFO (pytest): Indexing semantic test data...")
@@ -490,3 +493,7 @@ def index_semantic_test_data(
 def test_app_client() -> Generator[TestClient, Any, None]:
     with TestClient(app) as client:
         yield client
+
+@pytest.fixture(scope="function")
+def runner() -> CliRunner:
+    return CliRunner()

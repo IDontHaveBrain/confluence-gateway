@@ -142,6 +142,7 @@ This project emphasizes **integration testing** against a real Confluence instan
 *   **Unit Tests (`tests/core/`, `tests/api/schemas/`):** Test isolated logic (configuration, exceptions, schemas) without external dependencies or mocks.
 *   **Adapter Tests (`tests/adapters/confluence/`):** Verify `ConfluenceClient` methods against a **real Confluence instance**. Ensure API calls are made correctly and responses are parsed into Pydantic models. Marked with `@pytest.mark.integration`.
 *   **Service Tests (`tests/services/`):** Verify the public methods of services (`SearchService`, `IndexingService`, etc.), focusing on their overall logic and integration with adapters. Assumes the underlying adapters work (tested separately). Uses a **real Confluence instance** where applicable. Marked with `@pytest.mark.integration`.
+*   **CLI Tests (`tests/cli/`):** Verify CLI command behavior, argument parsing, interaction with services, output formatting (`tests/cli/test_common.py`), dependency injection (`tests/cli/test_dependencies.py`), and error handling. Uses `typer.testing.CliRunner` and leverages integration fixtures where necessary.
 *   **End-to-End (E2E) Tests (`tests/integration/`):** Verify public API endpoints, request routing, overall service processing flow, and response schemas. Uses a **real Confluence instance** and potentially overrides for embedding/vector DB dependencies for specific scenarios. Marked with `@pytest.mark.integration`.
 
 **Running Tests:**
@@ -149,7 +150,7 @@ This project emphasizes **integration testing** against a real Confluence instan
 *   **Prerequisites for Integration Tests:**
     *   Valid Confluence credentials must be configured via environment variables or the `~/.confluence_gateway_config.json` file (see [Configuration](#configuration)).
     *   The target Confluence instance should have some content (spaces, pages) for tests to interact with.
-    *   For semantic search tests, appropriate embedding/vector DB configurations (or defaults) are needed.
+    *   For semantic search and RAG tests (including CLI commands like `search semantic`, `search text --hybrid`, `generate answer`), appropriate embedding/vector DB configurations (or defaults) are needed.
 *   **Run only Unit Tests:**
     ```bash
     pytest -m "not integration"
@@ -165,12 +166,12 @@ This project emphasizes **integration testing** against a real Confluence instan
 
 **Writing Tests:**
 
-*   Use Pytest classes (e.g., `TestGetPage`, `TestSearch`) to group related tests.
+*   Use Pytest classes (e.g., `TestGetPage`, `TestSearchCommands`) to group related tests.
 *   Use descriptive test method names.
-*   Mark all tests requiring a real Confluence connection with `@pytest.mark.integration`.
-*   Use the `skipif` marker based on configuration availability (e.g., `pytest.mark.skipif(not REAL_CREDENTIALS_AVAILABLE, ...)`).
+*   Mark all tests requiring a real Confluence connection or other external services with `@pytest.mark.integration`.
+*   Use the `skipif` marker based on configuration availability (e.g., `pytest.mark.skipif(not is_real_config_available, ...)`).
 *   Create robust and deterministic fixtures. Document any specific data prerequisites needed in the target Confluence instance.
-
+*   For CLI tests, use `typer.testing.CliRunner` to invoke commands and assert on `result.exit_code` and `result.stdout`.
 ---
 
 # Confluence Gateway <a name="한국어"></a>

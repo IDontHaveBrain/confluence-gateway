@@ -225,11 +225,11 @@ class SentenceTransformerProvider(EmbeddingProvider):
             raise
         except Exception as e:
             logger.error(
-                f"Error during batch text embedding with model '{self.config.model_name}': {e}",
+                f"Original error during batch text embedding with model '{self.config.model_name}': {type(e).__name__}: {e}",
                 exc_info=True,
             )
             raise EmbeddingProviderError(
-                f"Failed to embed batch of texts using model '{self.config.model_name}'"
+                f"Failed to embed batch of texts using model '{self.config.model_name}' due to provider error."
             ) from e
 
     def get_dimension(self) -> int:
