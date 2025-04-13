@@ -526,17 +526,16 @@ def indexing_service(
     vector_db_adapter: Optional[VectorDBAdapter],
     indexing_config: IndexingConfig,
     search_config: SearchConfig,
-    vector_db_config: Optional[VectorDBConfig],
     is_semantic_search_possible: bool,
 ) -> Optional[IndexingService]:
-    """
-    Provides an IndexingService instance with real dependencies.
-    Mocking of its internal confluence_client happens *within tests*.
-    Skips if VDB or Embedding Service is unavailable.
-    """
     if not is_semantic_search_possible or not confluence_client:
         pytest.skip(
             "IndexingService requires Confluence client, Vector DB, and Embedding Service."
+        )
+        return None
+    if not vector_db_adapter:
+        pytest.skip(
+            "IndexingService requires VectorDBAdapter, but it was not available."
         )
         return None
 
@@ -545,15 +544,20 @@ def indexing_service(
             confluence_client=confluence_client,
             indexing_config=indexing_config,
             search_config=search_config,
-            vector_db_config=vector_db_config,
             embedding_service=embedding_service,
+            vector_db_adapter=vector_db_adapter,
         )
-        # Ensure the internal adapter got set up correctly
         if not service.vector_db_adapter:
             pytest.skip(
-                "IndexingService could not initialize its VectorDBAdapter internally."
+                "IndexingService initialization failed: VectorDBAdapter became None post-init."
             )
             return None
+        if not service.text_splitter:
+            pytest.skip(
+                "IndexingService failed to initialize SentenceSplitter (adapter might be missing config internally, or another init error)."
+            )
+            return None
+
         return service
     except Exception as e:
         pytest.skip(f"Failed to initialize IndexingService fixture: {e}")

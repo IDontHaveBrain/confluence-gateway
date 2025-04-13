@@ -1,3 +1,4 @@
+import io
 import logging
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
@@ -8,6 +9,7 @@ markitdown_module: Optional[ModuleType] = None
 MarkItDownClass: Optional[Any] = None
 try:
     from markitdown import MarkItDown
+    from markitdown._stream_info import StreamInfo
 
     MarkItDownClass = MarkItDown
 except ImportError:
@@ -46,7 +48,10 @@ class MarkitdownHtmlParser(ContentParser):
 
         try:
             converter = MarkItDownClass()
-            result = converter.convert(content)
+            html_bytes = content.encode("utf-8")
+            html_stream = io.BytesIO(html_bytes)
+            stream_info = StreamInfo(mimetype="text/html", charset="utf-8")
+            result = converter.convert(html_stream, stream_info=stream_info)
             extracted_text = " ".join(result.markdown.split())
             logger.debug("Successfully extracted text using markitdown")
             return extracted_text if extracted_text else None

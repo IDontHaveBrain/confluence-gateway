@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional, Union
@@ -17,7 +18,6 @@ from confluence_gateway.adapters.vector_db import (
     Document,
     VectorDBAdapter,
 )
-from confluence_gateway.adapters.vector_db.factory import get_vector_db_adapter
 from confluence_gateway.core.config import (
     IndexingConfig,
     SearchConfig,
@@ -62,39 +62,41 @@ class IndexingService:
         confluence_client: ConfluenceClient,
         indexing_config: IndexingConfig,
         search_config: SearchConfig,
-        vector_db_config: Optional[VectorDBConfig],
         embedding_service: Optional[EmbeddingService] = None,
+        vector_db_adapter: Optional[VectorDBAdapter] = None,
     ):
         self.confluence_client = confluence_client
         self.indexing_config = indexing_config
         self.search_config = search_config
-        self.vector_db_config = vector_db_config
         self.embedding_service = embedding_service
-        self.vector_db_adapter: Optional[VectorDBAdapter] = None
+        self.vector_db_adapter: Optional[VectorDBAdapter] = vector_db_adapter
+        self.vector_db_config: Optional[VectorDBConfig] = None
         self.text_splitter: Optional[SentenceSplitter] = None
         self.html_parser: Optional[ContentParser] = None
         self.attachment_parser: Optional[ContentParser] = None
 
-        if self.vector_db_config and self.vector_db_config.type != "none":
-            self.vector_db_adapter = get_vector_db_adapter()
-            if self.vector_db_adapter:
+        if self.vector_db_adapter:
+            adapter_config = getattr(self.vector_db_adapter, "config", None)
+            if isinstance(adapter_config, VectorDBConfig):
+                self.vector_db_config = adapter_config
+                adapter_type = self.vector_db_config.type
                 logger.info(
-                    f"IndexingService initialized with Vector DB Adapter: {self.vector_db_config.type}"
+                    f"IndexingService initialized with provided Vector DB Adapter: Type='{adapter_type}'"
                 )
                 self.text_splitter = SentenceSplitter(
                     chunk_size=self.vector_db_config.chunk_size,
                     chunk_overlap=self.vector_db_config.chunk_overlap,
                 )
                 logger.info(
-                    f"Initialized SentenceSplitter with chunk_size={self.vector_db_config.chunk_size}, chunk_overlap={self.vector_db_config.chunk_overlap}"
+                    f"Initialized SentenceSplitter using adapter's config: chunk_size={self.vector_db_config.chunk_size}, chunk_overlap={self.vector_db_config.chunk_overlap}"
                 )
             else:
                 logger.warning(
-                    "Vector DB configured but adapter initialization failed. Indexing disabled."
+                    "Vector DB Adapter provided to IndexingService, but its configuration could not be accessed. Cannot initialize SentenceSplitter."
                 )
         else:
             logger.warning(
-                "IndexingService initialized WITHOUT Vector DB Adapter (disabled or config error)."
+                "IndexingService initialized WITHOUT Vector DB Adapter (adapter not provided)."
             )
 
         if self.embedding_service:
@@ -538,15 +540,17 @@ class IndexingService:
                 )
                 continue
 
-            chunk_id = f"{content_id}_chunk_{i}"
+            chunk_uuid = str(uuid.uuid4())
             chunk_metadata = self._create_chunk_metadata(
                 content_object=content_object,
                 document_type=document_type,
                 chunk_sequence_number=i,
             )
+            if "original_content_id" not in chunk_metadata:
+                chunk_metadata["original_content_id"] = content_id
 
             doc = Document(
-                id=chunk_id,
+                id=chunk_uuid,
                 text=chunk_text,
                 embedding=embedding,
                 metadata=chunk_metadata,

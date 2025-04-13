@@ -1,4 +1,5 @@
 import logging
+from threading import Lock
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -83,45 +84,60 @@ def get_embedding_service(
 _embedding_provider_instance: Optional[EmbeddingProvider] = None
 _embedding_provider_initialized: bool = False
 
+_indexing_service_instance: Optional[IndexingService] = None
+_indexing_service_lock = Lock()
+
 
 def get_indexing_service(
     client: ConfluenceClient = Depends(get_confluence_client),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
+    vector_db_adapter: Optional[VectorDBAdapter] = Depends(get_vector_db_adapter),
     idx_config: IndexingConfig = Depends(lambda: indexing_config),
     srch_config: SearchConfig = Depends(lambda: search_config),
     vdb_config: Optional[VectorDBConfig] = Depends(lambda: vector_db_config),
 ) -> Optional[IndexingService]:
-    if not vdb_config or vdb_config.type == "none":
-        if IndexingService._instance:
-            logger.warning(
-                "Vector DB config changed to 'none' after IndexingService was initialized. Returning existing instance, but it might not function correctly."
-            )
-            return IndexingService._instance
-        logger.warning(
-            "Vector DB not configured (type='none'). IndexingService cannot be provided."
-        )
-        return None
+    global _indexing_service_instance
 
-    try:
-        instance = IndexingService(
-            confluence_client=client,
-            indexing_config=idx_config,
-            search_config=srch_config,
-            vector_db_config=vdb_config,
-            embedding_service=embedding_service,
-        )
-        if not instance.vector_db_adapter or not instance.embedding_service:
-            logger.error(
-                "IndexingService initialization failed internally (missing adapter or embedding service)."
-            )
-            return None
-        return instance
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize IndexingService singleton: {e}", exc_info=True
-        )
-        IndexingService._instance = None
-        return None
+    if _indexing_service_instance is not None:
+        return _indexing_service_instance
+
+    with _indexing_service_lock:
+        if _indexing_service_instance is None:
+            if not vector_db_adapter:
+                logger.warning(
+                    "Vector DB Adapter not available. IndexingService cannot be provided."
+                )
+                return None
+            if not vdb_config:
+                logger.warning(
+                    "Vector DB Config not available (needed for chunk settings). IndexingService cannot be provided."
+                )
+                return None
+            try:
+                logger.info("Attempting to initialize IndexingService singleton...")
+                instance = IndexingService(
+                    confluence_client=client,
+                    indexing_config=idx_config,
+                    search_config=srch_config,
+                    vector_db_adapter=vector_db_adapter,
+                    embedding_service=embedding_service,
+                )
+                if not instance.vector_db_adapter:
+                    logger.error(
+                        "IndexingService initialization failed unexpectedly (adapter became None post-init)."
+                    )
+                    return None
+                _indexing_service_instance = instance
+                logger.info("IndexingService singleton initialized successfully.")
+            except Exception as e:
+                logger.error(
+                    f"Failed to initialize IndexingService singleton: {e}",
+                    exc_info=True,
+                )
+                _indexing_service_instance = None
+                return None
+
+    return _indexing_service_instance
 
 
 def get_search_service(

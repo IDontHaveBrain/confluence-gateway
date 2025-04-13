@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class QdrantAdapter(VectorDBAdapter):
-    def __init__(self, config: "VectorDBConfig") -> None:
+    def __init__(self, config: VectorDBConfig) -> None:
         self.config = config
         self.client: Optional[QdrantClient] = None
         logger.info(f"Initializing QdrantAdapter with config: {config.type}")
