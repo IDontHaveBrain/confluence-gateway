@@ -20,10 +20,15 @@ dependencies = [
     "python-dotenv>=1.1.0",
     "qdrant-client>=1.13.3",
     "requests>=2.32.3",
+    "rich>=14.0.0",
     "sentence-transformers>=4.0.2",
     "tiktoken>=0.9.0",
+    "typer>=0.15.2",
     "unstructured>=0.17.2",
 ]
+
+[project.scripts]
+confluence-gateway = "confluence_gateway.cli.main:app"
 
 [dependency-groups]
 dev = [
