@@ -57,6 +57,14 @@ def mock_config_file(mocker):
     return _set_content
 
 
+from confluence_gateway.core.config import (
+    DEFAULT_EMBEDDING_DEVICE,
+    DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL_NAME,
+    DEFAULT_EMBEDDING_PROVIDER_TYPE,
+)
+
+
 def test_load_defaults(mock_env, mock_config_file):
     mock_env({})
     mock_config_file({})
@@ -66,7 +74,11 @@ def test_load_defaults(mock_env, mock_config_file):
     assert isinstance(search_cfg, SearchConfig)
     assert search_cfg.default_limit == 20
     assert vdb_cfg is None
-    assert emb_cfg is None
+    assert isinstance(emb_cfg, EmbeddingConfig)
+    assert emb_cfg.provider == DEFAULT_EMBEDDING_PROVIDER_TYPE
+    assert emb_cfg.model_name == DEFAULT_EMBEDDING_MODEL_NAME
+    assert emb_cfg.dimension == DEFAULT_EMBEDDING_DIMENSION
+    assert emb_cfg.device == DEFAULT_EMBEDDING_DEVICE
     assert isinstance(idx_cfg, IndexingConfig)
     assert idx_cfg.html_parser == "markitdown"
     assert gen_cfg is None
@@ -351,7 +363,7 @@ def test_ollama_litellm_requires_api_base(mock_env, mock_config_file, caplog):
         (_, _, _, emb_cfg, _, _) = load_configurations()
 
     assert emb_cfg is None
-    assert "Invalid Embedding configuration" in caplog.text
+    assert "Invalid user-provided Embedding configuration" in caplog.text
     assert "LITELLM_API_BASE must be set" in caplog.text
 
 

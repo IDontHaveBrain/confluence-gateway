@@ -5,8 +5,6 @@ from collections.abc import Generator
 from typing import Any, Optional
 from unittest.mock import MagicMock
 
-import litellm
-import pytest
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.embedding.factory import (
     EmbeddingProvider,
@@ -67,7 +65,7 @@ DEFAULT_VECTOR_DB_TYPE = "qdrant"
 DEFAULT_VECTOR_DB_COLLECTION = "confluence_pytest_embeddings"
 DEFAULT_VECTOR_DB_URL = ":memory:"
 
-SEMANTIC_TEST_DOCS = [
+_SEMANTIC_TEST_DOCS = [
     {"id": str(uuid.uuid4()), "text": "This is the first test document about apples."},
     {
         "id": str(uuid.uuid4()),
@@ -75,6 +73,13 @@ SEMANTIC_TEST_DOCS = [
     },
     {"id": str(uuid.uuid4()), "text": "Finally, a document mentioning bananas."},
 ]
+
+import pytest
+
+
+@pytest.fixture(scope="session")
+def SEMANTIC_TEST_DOCS():
+    return _SEMANTIC_TEST_DOCS
 
 
 @pytest.fixture(scope="session")
@@ -261,6 +266,14 @@ def embedding_provider(embedding_config) -> Optional[EmbeddingProvider]:
         except Exception as e:
             pytest.skip(f"Failed to get/initialize configured embedding provider: {e}")
             return None
+
+        if effective_config.provider == "sentence-transformers" and not isinstance(
+            provider_instance, SentenceTransformerProvider
+        ):
+            pytest.skip(
+                f"Configured for sentence-transformers, but factory returned type {type(provider_instance)}. Skipping."
+            )
+            return None
     yield provider_instance
 
     if provider_instance and hasattr(provider_instance, "close"):
@@ -281,57 +294,47 @@ def is_embedding_available(embedding_provider) -> bool:
     return embedding_provider is not None
 
 
+import typing
+
+MockedProviderFixture = tuple[LiteLLMProvider, MagicMock]
+
+
 @pytest.fixture(scope="function")
 def mocked_litellm_provider(
     mocker: MockerFixture, embedding_config: Optional[EmbeddingConfig]
-) -> Optional[LiteLLMProvider]:
-    """Provides a LiteLLMProvider with mocked litellm.embedding."""
-    # Use a default config if none is provided or not litellm, just for instantiation
+) -> typing.Optional[MockedProviderFixture]:
     effective_config = embedding_config
     if not effective_config or effective_config.provider != "litellm":
-        # Create a minimal valid config for LiteLLM for the test
         effective_config = EmbeddingConfig(
             provider="litellm",
-            model_name="mock-embedding-model",  # Dummy model name
-            dimension=128,  # Dummy dimension
-            # No api_key or api_base needed as we mock the call
+            model_name="mock-embedding-model",
+            dimension=128,
         )
         print("\nINFO (pytest): Using dummy LiteLLM config for mocked provider.")
     else:
         print("\nINFO (pytest): Using provided LiteLLM config for mocked provider.")
 
-    # Mock the actual API call function within litellm
     mock_embedding_call = mocker.patch("litellm.embedding", autospec=True)
 
-    # Configure the mock to return a valid-looking response structure
-    dummy_embedding = [0.1] * (
-        effective_config.dimension or 128
-    )  # Use dimension from config or default
-    mock_response_data = [{"embedding": dummy_embedding}]
-    mock_response_obj = MagicMock()
-    # Simulate the structure litellm returns (e.g., a ModelResponse or similar)
-    mock_response_obj.data = mock_response_data
-    mock_embedding_call.return_value = mock_response_obj
-
     try:
-        # Instantiate the provider
         provider = LiteLLMProvider(config=effective_config)
-
-        # Mock internal methods called during initialize() to prevent real checks/errors
-        # Patch the methods *on the instance* after creation
+        _dummy_embedding_for_internal_mocks = [0.0] * (
+            effective_config.dimension or 128
+        )
+        _mock_response_data_for_internal_mocks = [
+            {"embedding": _dummy_embedding_for_internal_mocks}
+        ]
         mocker.patch.object(
-            provider, "_validate_embedding_response", return_value=mock_response_data
+            provider,
+            "_validate_embedding_response",
+            return_value=_mock_response_data_for_internal_mocks,
         )
         mocker.patch.object(
-            provider, "_extract_embedding_from_item", return_value=dummy_embedding
+            provider,
+            "_extract_embedding_from_item",
+            return_value=_dummy_embedding_for_internal_mocks,
         )
-
-        # We don't call provider.initialize() explicitly here,
-        # as the test using the fixture should call it if needed,
-        # and the underlying API call is already mocked.
-        # The internal validation mocks prevent initialize() from failing.
-
-        return provider
+        return provider, mock_embedding_call
     except Exception as e:
         pytest.skip(f"Skipping test: Could not instantiate mocked LiteLLMProvider: {e}")
         return None
@@ -593,6 +596,7 @@ def index_semantic_test_data(
     embedding_service,
     vector_db_adapter,
     is_semantic_search_possible,
+    SEMANTIC_TEST_DOCS,
 ):
     """
     Indexes the SEMANTIC_TEST_DOCS into the vector DB if semantic search is possible.

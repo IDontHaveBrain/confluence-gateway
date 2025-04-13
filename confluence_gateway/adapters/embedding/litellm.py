@@ -10,6 +10,7 @@ try:
         RateLimitError,
         ServiceUnavailableError,
     )
+    from litellm.utils import EmbeddingResponse
 except ImportError:
     raise ImportError(
         "The 'litellm' library is required for LiteLLMProvider. "
@@ -91,7 +92,9 @@ class LiteLLMProvider(EmbeddingProvider):
             logger.error(error_message, exc_info=True)
             raise EmbeddingProviderError(error_message) from e
 
-    def _validate_embedding_response(self, response, expected_count=1):
+    def _validate_embedding_response(
+        self, response: EmbeddingResponse, expected_count=1
+    ) -> list:
         """Validate embedding response format and structure."""
         if (
             not response.data
@@ -105,7 +108,7 @@ class LiteLLMProvider(EmbeddingProvider):
 
         return response.data
 
-    def _extract_embedding_from_item(self, item, index=None):
+    def _extract_embedding_from_item(self, item: dict, index=None) -> list[float]:
         """Extract and validate a single embedding from a response item."""
         index_info = f" at index {index}" if index is not None else ""
 

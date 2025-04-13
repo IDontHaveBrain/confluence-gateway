@@ -323,9 +323,17 @@ class ConfluenceClient:
                 ) from e
             if isinstance(e, requests.exceptions.RequestException):
                 raise ConfluenceConnectionError(cause=e)
-            if "404" in str(e):
+            error_str_lower = str(e).lower()
+            is_not_found_error = (
+                "404" in error_str_lower
+                or "no content with the given id" in error_str_lower
+                or "page not found" in error_str_lower
+                or "could not be found" in error_str_lower
+            )
+            if is_not_found_error:
                 raise ConfluenceAPIError(
-                    status_code=404, error_message=f"Page {page_id} not found"
+                    status_code=404,
+                    error_message=f"Page {page_id} not found or permission denied. (Original error: {e})",
                 ) from e
             raise ConfluenceAPIError(error_message=str(e)) from e
 

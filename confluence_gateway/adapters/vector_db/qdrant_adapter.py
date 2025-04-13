@@ -180,7 +180,7 @@ class QdrantAdapter(VectorDBAdapter):
         must_conditions = []
         for key, value in filters.items():
             condition = models.FieldCondition(
-                key=f"metadata.{key}",
+                key=key,
                 match=models.MatchValue(value=value),
             )
             must_conditions.append(condition)
@@ -250,9 +250,7 @@ class QdrantAdapter(VectorDBAdapter):
 
         payload_selector: Union[PayloadSelector, bool, None]
         if select:
-            payload_selector = models.PayloadSelectorInclude(
-                include=[f"metadata.{key}" for key in select]
-            )
+            payload_selector = models.PayloadSelectorInclude(include=select)
         else:
             payload_selector = True
 
@@ -282,16 +280,16 @@ class QdrantAdapter(VectorDBAdapter):
                 )
 
                 for point in points:
-                    metadata_payload = (
-                        point.payload.get("metadata", {}) if point.payload else {}
-                    )
+                    payload = point.payload or {}
                     doc_data = {"id": str(point.id)}
                     if select:
                         for key in select:
-                            if key in metadata_payload:
-                                doc_data[key] = metadata_payload[key]
+                            if key in payload:
+                                doc_data[key] = payload[key]
                     else:
-                        doc_data.update(metadata_payload)
+                        doc_data.update(
+                            {k: v for k, v in payload.items() if k != "text"}
+                        )
 
                     results.append(doc_data)
                     retrieved_count += 1
@@ -403,9 +401,7 @@ class QdrantAdapter(VectorDBAdapter):
             logger.info(f"Qdrant retrieve returned {len(records)} records.")
             return records
         except Exception as e:
-            logger.error(
-                f"Qdrant retrieve by ID operation failed: {e}", exc_info=True
-            )
+            logger.error(f"Qdrant retrieve by ID operation failed: {e}", exc_info=True)
             raise RuntimeError(f"Qdrant retrieve by ID failed: {e}") from e
 
     def close(self) -> None:

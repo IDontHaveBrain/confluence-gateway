@@ -16,6 +16,12 @@ from pydantic import (
 
 logger = logging.getLogger(__name__)
 
+# Default Embedding Configuration (used if no user config is provided)
+DEFAULT_EMBEDDING_PROVIDER_TYPE = "sentence-transformers"
+DEFAULT_EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+DEFAULT_EMBEDDING_DIMENSION = 384
+DEFAULT_EMBEDDING_DEVICE = "cpu"
+
 
 class ConfluenceConfig(BaseModel):
     url: HttpUrl
@@ -454,6 +460,8 @@ def load_configurations() -> tuple[
 
     final_embedding_config = file_embedding.copy()
     final_embedding_config.update(env_embedding_raw)
+    # Flag to track if the user provided *any* embedding config
+    user_embedding_config_provided = bool(final_embedding_config)
 
     final_indexing_config = file_indexing.copy()
     final_indexing_config.update(env_indexing_raw)
@@ -481,10 +489,15 @@ def load_configurations() -> tuple[
         loaded_search_config = SearchConfig()
 
     loaded_embedding_config: Optional[EmbeddingConfig] = None
-    if final_embedding_config:
+    embedding_load_error = False  # Track if user config failed validation
+
+    if user_embedding_config_provided:
+        # Attempt to load user-provided configuration
         if "provider" not in final_embedding_config:
             final_embedding_config["provider"] = "none"
-            logger.info("Embedding provider type missing, defaulting to 'none'.")
+            logger.info(
+                "Embedding provider type missing in provided config, defaulting to 'none'."
+            )
 
         try:
             filtered_emb_config = {
@@ -499,13 +512,47 @@ def load_configurations() -> tuple[
             config_instance = EmbeddingConfig(**filtered_emb_config)
             if config_instance.provider != "none":
                 loaded_embedding_config = config_instance
+                logger.info(
+                    f"Loaded user-provided Embedding configuration (Provider: {config_instance.provider})."
+                )
             else:
-                logger.info("Embedding provider is disabled (provider='none').")
+                logger.info(
+                    "User configuration explicitly disabled embeddings (provider='none')."
+                )
 
         except (ValidationError, ValueError) as e:
-            logger.error(f"Invalid Embedding configuration: {e}")
-    else:
-        logger.info("No Embedding configuration found. Embedding features disabled.")
+            logger.error(f"Invalid user-provided Embedding configuration: {e}")
+            embedding_load_error = True
+
+    # --- Apply Default Logic ---
+    if not user_embedding_config_provided and not embedding_load_error:
+        logger.info(
+            "No user Embedding configuration provided. Applying default: "
+            f"Provider='{DEFAULT_EMBEDDING_PROVIDER_TYPE}', Model='{DEFAULT_EMBEDDING_MODEL_NAME}'"
+        )
+        try:
+            loaded_embedding_config = EmbeddingConfig(
+                provider=DEFAULT_EMBEDDING_PROVIDER_TYPE,
+                model_name=DEFAULT_EMBEDDING_MODEL_NAME,
+                dimension=DEFAULT_EMBEDDING_DIMENSION,
+                device=DEFAULT_EMBEDDING_DEVICE,
+            )
+        except (ValidationError, ValueError) as e:
+            logger.error(f"Failed to create default Embedding configuration: {e}")
+            # loaded_embedding_config remains None
+
+    elif loaded_embedding_config is None:
+        if embedding_load_error:
+            logger.warning(
+                "Embedding features disabled due to invalid user configuration."
+            )
+        elif user_embedding_config_provided:
+            logger.info(
+                "Embedding features disabled as per user configuration (provider='none')."
+            )
+        # If !user_embedding_config_provided, the default logic above failed, error already logged.
+
+    # --- End Default Logic ---
 
     if loaded_embedding_config and loaded_embedding_config.dimension is not None:
         vdb_type = final_vector_db_config.get("type", "none")
