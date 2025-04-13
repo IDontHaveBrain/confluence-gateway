@@ -3,13 +3,16 @@ import re
 import uuid
 from collections.abc import Generator
 from typing import Any, Optional
+from unittest.mock import MagicMock
 
+import litellm
 import pytest
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.embedding.factory import (
     EmbeddingProvider,
     get_embedding_provider,
 )
+from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
 from confluence_gateway.adapters.embedding.sentence_transformer import (
     SentenceTransformerProvider,
 )
@@ -23,6 +26,8 @@ from confluence_gateway.api.app import app
 from confluence_gateway.core.config import (
     ConfluenceConfig,
     EmbeddingConfig,
+    GenerationConfig,
+    IndexingConfig,
     SearchConfig,
     VectorDBConfig,
     load_configurations,
@@ -31,8 +36,11 @@ from confluence_gateway.core.config import (
     embedding_config as global_embedding_config,
 )
 from confluence_gateway.services.embedding import EmbeddingService
+from confluence_gateway.services.generation import GenerationService
+from confluence_gateway.services.indexing import IndexingService
 from confluence_gateway.services.search import SearchService
 from fastapi.testclient import TestClient
+from pytest_mock import MockerFixture
 from typer.testing import CliRunner
 
 
@@ -60,12 +68,12 @@ DEFAULT_VECTOR_DB_COLLECTION = "confluence_pytest_embeddings"
 DEFAULT_VECTOR_DB_URL = ":memory:"
 
 SEMANTIC_TEST_DOCS = [
-    {"id": "sem_doc1", "text": "This is the first test document about apples."},
+    {"id": str(uuid.uuid4()), "text": "This is the first test document about apples."},
     {
-        "id": "sem_doc2",
+        "id": str(uuid.uuid4()),
         "text": "The second document discusses oranges and citrus fruits.",
     },
-    {"id": "sem_doc3", "text": "Finally, a document mentioning bananas."},
+    {"id": str(uuid.uuid4()), "text": "Finally, a document mentioning bananas."},
 ]
 
 
@@ -97,6 +105,21 @@ def vector_db_config(loaded_configs) -> Optional[VectorDBConfig]:
 @pytest.fixture(scope="session")
 def embedding_config(loaded_configs) -> Optional[EmbeddingConfig]:
     return loaded_configs[3]
+
+
+@pytest.fixture(scope="session")
+def indexing_config(loaded_configs) -> IndexingConfig:
+    return loaded_configs[4]
+
+
+@pytest.fixture(scope="session")
+def generation_config(loaded_configs) -> Optional[GenerationConfig]:
+    return loaded_configs[5]
+
+
+@pytest.fixture(scope="session")
+def is_generation_enabled(generation_config) -> bool:
+    return generation_config is not None and generation_config.enable
 
 
 @pytest.fixture(scope="session")
@@ -258,6 +281,62 @@ def is_embedding_available(embedding_provider) -> bool:
     return embedding_provider is not None
 
 
+@pytest.fixture(scope="function")
+def mocked_litellm_provider(
+    mocker: MockerFixture, embedding_config: Optional[EmbeddingConfig]
+) -> Optional[LiteLLMProvider]:
+    """Provides a LiteLLMProvider with mocked litellm.embedding."""
+    # Use a default config if none is provided or not litellm, just for instantiation
+    effective_config = embedding_config
+    if not effective_config or effective_config.provider != "litellm":
+        # Create a minimal valid config for LiteLLM for the test
+        effective_config = EmbeddingConfig(
+            provider="litellm",
+            model_name="mock-embedding-model",  # Dummy model name
+            dimension=128,  # Dummy dimension
+            # No api_key or api_base needed as we mock the call
+        )
+        print("\nINFO (pytest): Using dummy LiteLLM config for mocked provider.")
+    else:
+        print("\nINFO (pytest): Using provided LiteLLM config for mocked provider.")
+
+    # Mock the actual API call function within litellm
+    mock_embedding_call = mocker.patch("litellm.embedding", autospec=True)
+
+    # Configure the mock to return a valid-looking response structure
+    dummy_embedding = [0.1] * (
+        effective_config.dimension or 128
+    )  # Use dimension from config or default
+    mock_response_data = [{"embedding": dummy_embedding}]
+    mock_response_obj = MagicMock()
+    # Simulate the structure litellm returns (e.g., a ModelResponse or similar)
+    mock_response_obj.data = mock_response_data
+    mock_embedding_call.return_value = mock_response_obj
+
+    try:
+        # Instantiate the provider
+        provider = LiteLLMProvider(config=effective_config)
+
+        # Mock internal methods called during initialize() to prevent real checks/errors
+        # Patch the methods *on the instance* after creation
+        mocker.patch.object(
+            provider, "_validate_embedding_response", return_value=mock_response_data
+        )
+        mocker.patch.object(
+            provider, "_extract_embedding_from_item", return_value=dummy_embedding
+        )
+
+        # We don't call provider.initialize() explicitly here,
+        # as the test using the fixture should call it if needed,
+        # and the underlying API call is already mocked.
+        # The internal validation mocks prevent initialize() from failing.
+
+        return provider
+    except Exception as e:
+        pytest.skip(f"Skipping test: Could not instantiate mocked LiteLLMProvider: {e}")
+        return None
+
+
 @pytest.fixture(scope="session")
 def effective_embedding_dimension(embedding_provider) -> Optional[int]:
     if not embedding_provider:
@@ -391,6 +470,19 @@ def embedding_service(
     return EmbeddingService(provider=embedding_provider)
 
 
+@pytest.fixture(scope="function")
+def mocked_embedding_service(
+    mocked_litellm_provider: Optional[LiteLLMProvider],
+) -> Optional[EmbeddingService]:
+    """Provides an EmbeddingService using the mocked LiteLLMProvider."""
+    if not mocked_litellm_provider:
+        pytest.skip("Mocked LiteLLM provider not available.")
+        return None
+    # Ensure the provider appears initialized for the service
+    # (mocks above handle the actual initialization logic)
+    return EmbeddingService(provider=mocked_litellm_provider)
+
+
 @pytest.fixture(scope="session")
 def semantic_search_service(
     confluence_client, embedding_service, vector_db_adapter, is_semantic_search_possible
@@ -424,6 +516,77 @@ def standard_search_service(
     )
 
 
+@pytest.fixture(scope="function")
+def indexing_service(
+    confluence_client: Optional[ConfluenceClient],
+    embedding_service: Optional[EmbeddingService],
+    vector_db_adapter: Optional[VectorDBAdapter],
+    indexing_config: IndexingConfig,
+    search_config: SearchConfig,
+    vector_db_config: Optional[VectorDBConfig],
+    is_semantic_search_possible: bool,
+) -> Optional[IndexingService]:
+    """
+    Provides an IndexingService instance with real dependencies.
+    Mocking of its internal confluence_client happens *within tests*.
+    Skips if VDB or Embedding Service is unavailable.
+    """
+    if not is_semantic_search_possible or not confluence_client:
+        pytest.skip(
+            "IndexingService requires Confluence client, Vector DB, and Embedding Service."
+        )
+        return None
+
+    try:
+        service = IndexingService(
+            confluence_client=confluence_client,
+            indexing_config=indexing_config,
+            search_config=search_config,
+            vector_db_config=vector_db_config,
+            embedding_service=embedding_service,
+        )
+        # Ensure the internal adapter got set up correctly
+        if not service.vector_db_adapter:
+            pytest.skip(
+                "IndexingService could not initialize its VectorDBAdapter internally."
+            )
+            return None
+        return service
+    except Exception as e:
+        pytest.skip(f"Failed to initialize IndexingService fixture: {e}")
+        return None
+
+
+@pytest.fixture(scope="function")
+def generation_service(
+    semantic_search_service: Optional[SearchService],
+    generation_config: Optional[GenerationConfig],
+    is_generation_enabled: bool,
+) -> Optional[GenerationService]:
+    """
+    Provides a GenerationService instance.
+    Mocking of internal litellm.acompletion happens *within tests*.
+    Skips if generation is disabled or search service unavailable.
+    """
+    if not is_generation_enabled:
+        pytest.skip("Generation feature is disabled in configuration.")
+        return None
+    if not semantic_search_service:
+        pytest.skip(
+            "GenerationService requires SearchService (check semantic search prerequisites)."
+        )
+        return None
+
+    try:
+        service = GenerationService(
+            search_service=semantic_search_service, config=generation_config
+        )
+        return service
+    except Exception as e:
+        pytest.skip(f"Failed to initialize GenerationService fixture: {e}")
+        return None
+
+
 @pytest.fixture(scope="session", autouse=True)
 def index_semantic_test_data(
     semantic_search_service,
@@ -445,18 +608,27 @@ def index_semantic_test_data(
     embed_svc = embedding_service
 
     try:
-        # Check if the first document exists using the new method
+        # Check if the first document exists using retrieve_by_ids
         first_doc_id = SEMANTIC_TEST_DOCS[0]["id"]
-        existing_records = adapter.retrieve_by_ids(ids=[first_doc_id], with_payload=False, with_vector=False)
+        # Use retrieve_by_ids which is simpler for checking existence by ID
+        existing_records = adapter.retrieve_by_ids(
+            ids=[first_doc_id], with_payload=False, with_vector=False
+        )
         if existing_records:
             print(
-                f"\nINFO (pytest): Semantic test data (e.g., '{first_doc_id}') seems to exist. Skipping indexing."
+                f"\nINFO (pytest): Semantic test data (e.g., '{first_doc_id}') seems to exist via retrieve_by_ids. Skipping indexing."
             )
             return
+        else:
+            print(
+                f"\nINFO (pytest): Semantic test data (e.g., '{first_doc_id}') not found via retrieve_by_ids. Proceeding with indexing."
+            )
     except Exception as check_err:
+        # Catch specific expected errors if possible, otherwise broad Exception
         print(
-            f"\nWARN (pytest): Error checking for existing semantic test data using retrieve_by_ids: {check_err}. Attempting indexing."
+            f"\nWARN (pytest): Error checking for existing semantic test data using retrieve_by_ids: {check_err}. Attempting indexing anyway."
         )
+        # For robustness, we'll proceed with indexing attempt
 
     print("\nINFO (pytest): Indexing semantic test data...")
     try:
@@ -493,6 +665,7 @@ def index_semantic_test_data(
 def test_app_client() -> Generator[TestClient, Any, None]:
     with TestClient(app) as client:
         yield client
+
 
 @pytest.fixture(scope="function")
 def runner() -> CliRunner:

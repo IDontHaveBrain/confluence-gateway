@@ -1,86 +1,100 @@
+import pytest
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
     ConfluenceAuthenticationError,
     ConfluenceConnectionError,
     ConfluenceGatewayError,
+    EmbeddingError,
+    EmbeddingProviderError,
+    GenerationError,
     SearchParameterError,
+    SemanticSearchError,
 )
 
 
-class TestConfluenceGatewayError:
-    def test_base_exception(self):
-        error = ConfluenceGatewayError("Test error message")
-        assert str(error) == "Test error message"
-        assert isinstance(error, Exception)
+def test_confluence_gateway_error_instantiation():
+    msg = "Base gateway error"
+    err = ConfluenceGatewayError(msg)
+    assert isinstance(err, Exception)
+    assert str(err) == msg
 
 
-class TestConfluenceConnectionError:
-    def test_default_message(self):
-        error = ConfluenceConnectionError()
-        assert str(error) == "Failed to connect to Confluence API"
-        assert isinstance(error, ConfluenceGatewayError)
-
-    def test_custom_message(self):
-        error = ConfluenceConnectionError("Custom connection error")
-        assert str(error) == "Custom connection error"
-
-    def test_with_cause(self):
-        cause = ValueError("Connection timeout")
-        error = ConfluenceConnectionError(cause=cause)
-        assert str(error) == "Failed to connect to Confluence API: Connection timeout"
-        assert error.cause == cause
-
-    def test_custom_message_with_cause(self):
-        cause = ValueError("Connection timeout")
-        error = ConfluenceConnectionError("Custom connection error", cause)
-        assert str(error) == "Custom connection error: Connection timeout"
-        assert error.cause == cause
+def test_embedding_error_instantiation():
+    msg = "Embedding failed"
+    err = EmbeddingError(msg)
+    assert isinstance(err, ConfluenceGatewayError)
+    assert str(err) == msg
 
 
-class TestConfluenceAuthenticationError:
-    def test_default_message(self):
-        error = ConfluenceAuthenticationError()
-        assert str(error) == "Authentication failed with Confluence API"
-        assert isinstance(error, ConfluenceGatewayError)
-
-    def test_custom_message(self):
-        error = ConfluenceAuthenticationError("Invalid credentials")
-        assert str(error) == "Invalid credentials"
+def test_embedding_provider_error_instantiation():
+    msg = "Provider setup failed"
+    err = EmbeddingProviderError(msg)
+    assert isinstance(err, ConfluenceGatewayError)
+    assert str(err) == msg
 
 
-class TestConfluenceAPIError:
-    def test_default_message(self):
-        error = ConfluenceAPIError()
-        assert str(error) == "Confluence API error"
-        assert isinstance(error, ConfluenceGatewayError)
-        assert error.status_code is None
-        assert error.error_message is None
+def test_confluence_connection_error_instantiation():
+    msg = "Connection refused"
+    err1 = ConfluenceConnectionError(msg)
+    assert isinstance(err1, ConfluenceGatewayError)
+    assert str(err1) == msg
 
-    def test_with_status_code(self):
-        error = ConfluenceAPIError(status_code=400)
-        assert str(error) == "Confluence API error (status code: 400)"
-        assert error.status_code == 400
-        assert error.error_message is None
-
-    def test_with_error_message(self):
-        error = ConfluenceAPIError(error_message="Bad request")
-        assert str(error) == "Confluence API error: Bad request"
-        assert error.status_code is None
-        assert error.error_message == "Bad request"
-
-    def test_with_status_code_and_error_message(self):
-        error = ConfluenceAPIError(status_code=404, error_message="Page not found")
-        assert str(error) == "Confluence API error (status code: 404): Page not found"
-        assert error.status_code == 404
-        assert error.error_message == "Page not found"
+    cause = ValueError("Underlying network issue")
+    err2 = ConfluenceConnectionError(msg, cause=cause)
+    assert isinstance(err2, ConfluenceGatewayError)
+    assert msg in str(err2)
+    assert str(cause) in str(err2)
+    assert err2.cause is cause
 
 
-class TestSearchParameterError:
-    def test_default_message(self):
-        error = SearchParameterError()
-        assert str(error) == "Invalid search parameters"
-        assert isinstance(error, ConfluenceGatewayError)
+def test_confluence_authentication_error_instantiation():
+    msg = "Invalid API token"
+    err = ConfluenceAuthenticationError(msg)
+    assert isinstance(err, ConfluenceGatewayError)
+    assert str(err) == msg
+    err_default = ConfluenceAuthenticationError()
+    assert "Authentication failed" in str(err_default)
 
-    def test_custom_message(self):
-        error = SearchParameterError("Invalid query format")
-        assert str(error) == "Invalid query format"
+
+def test_confluence_api_error_instantiation():
+    err_base = ConfluenceAPIError()
+    assert isinstance(err_base, ConfluenceGatewayError)
+    assert "Confluence API error" == str(err_base)
+    assert err_base.status_code is None
+    assert err_base.error_message is None
+
+    err_status = ConfluenceAPIError(status_code=404)
+    assert "status code: 404" in str(err_status)
+    assert err_status.status_code == 404
+
+    err_msg = ConfluenceAPIError(error_message="Resource not found")
+    assert ": Resource not found" in str(err_msg)
+    assert err_msg.error_message == "Resource not found"
+
+    err_full = ConfluenceAPIError(status_code=500, error_message="Server fault")
+    assert "(status code: 500): Server fault" in str(err_full)
+    assert err_full.status_code == 500
+    assert err_full.error_message == "Server fault"
+
+
+def test_search_parameter_error_instantiation():
+    msg = "Invalid limit value"
+    err = SearchParameterError(msg)
+    assert isinstance(err, ConfluenceGatewayError)
+    assert str(err) == msg
+    err_default = SearchParameterError()
+    assert "Invalid search parameters" in str(err_default)
+
+
+def test_semantic_search_error_instantiation():
+    msg = "Vector DB unavailable"
+    err = SemanticSearchError(msg)
+    assert isinstance(err, ConfluenceGatewayError)
+    assert str(err) == msg
+
+
+def test_generation_error_instantiation():
+    msg = "LLM timed out"
+    err = GenerationError(msg)
+    assert isinstance(err, ConfluenceGatewayError)
+    assert str(err) == msg

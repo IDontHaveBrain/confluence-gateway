@@ -205,21 +205,33 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
 
         try:
-            embeddings = self.model.encode(
+            embedding_tensors = self.model.encode(
                 valid_texts,
                 convert_to_numpy=False,
                 show_progress_bar=False,
-            ).tolist()
+            )
 
-            if not isinstance(embeddings, list):
-                logger.error("Model returned non-list output for batch embedding.")
+            if not isinstance(embedding_tensors, list):
+                logger.error(
+                    f"Model returned non-list output ({type(embedding_tensors).__name__}) for batch embedding when expecting list[Tensor]."
+                )
                 raise EmbeddingProviderError(
                     "Unexpected batch embedding format received from model."
                 )
 
-            return [
-                self._validate_embedding(emb, i) for i, emb in enumerate(embeddings)
-            ]
+            validated_embeddings = []
+            for i, tensor in enumerate(embedding_tensors):
+                if not (hasattr(tensor, "tolist") and callable(tensor.tolist)):
+                    logger.error(
+                        f"Item at index {i} in embedding result is not a Tensor, but {type(tensor).__name__}."
+                    )
+                    raise EmbeddingProviderError(
+                        f"Unexpected item type in batch embedding result at index {i}."
+                    )
+                embedding_list = tensor.tolist()
+                validated_embeddings.append(self._validate_embedding(embedding_list, i))
+
+            return validated_embeddings
 
         except EmbeddingProviderError:
             raise

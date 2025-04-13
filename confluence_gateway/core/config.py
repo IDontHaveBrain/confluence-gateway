@@ -242,16 +242,10 @@ def _load_raw_search_env() -> dict[str, Any]:
 
 
 def _load_raw_confluence_env() -> dict[str, Any]:
-    confluence_env = _load_raw_env_vars("CONFLUENCE_")
-
-    if "timeout" in confluence_env and isinstance(confluence_env["timeout"], str):
-        try:
-            confluence_env["timeout"] = int(confluence_env["timeout"])
-        except ValueError:
-            logger.warning("Invalid CONFLUENCE_TIMEOUT value, using default.")
-            del confluence_env["timeout"]
-
-    return confluence_env
+    validations = {
+        "timeout": int,
+    }
+    return _load_env_with_validation("CONFLUENCE_", validations)
 
 
 def _load_raw_vector_db_env() -> dict[str, Any]:
@@ -310,30 +304,46 @@ def _load_env_with_validation(
     if not validations:
         return raw_config
 
-    for key, validator in validations.items():
-        if key not in raw_config:
+    keys_to_process = list(raw_config.keys())
+
+    for key in keys_to_process:
+        if key not in validations:
             continue
 
+        validator = validations[key]
         value = raw_config[key]
 
         if isinstance(validator, type):
             try:
                 if validator is int:
                     raw_config[key] = int(value)
+                elif validator is float:
+                    raw_config[key] = float(value)
                 elif validator is bool and isinstance(value, str):
                     raw_config[key] = value.lower() in ["true", "1", "t", "yes", "y"]
             except ValueError:
-                pass
+                logger.warning(
+                    f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
+                    f"Expected {validator.__name__}. Using default or ignoring."
+                )
+                del raw_config[key]
 
-        elif isinstance(validator, list):
+        elif isinstance(validator, tuple) and all(
+            isinstance(t, type) for t in validator
+        ):
             if isinstance(value, str) and value.lower() not in [
                 str(v).lower() for v in validator
             ]:
                 logger.warning(
-                    f"Invalid {prefix}{key} '{value}' in environment. Using default."
+                    f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
+                    f"Expected one of: {', '.join(map(str, validator))}. Using default or ignoring."
                 )
+                del raw_config[key]
             elif isinstance(value, str):
-                raw_config[key] = value.lower()
+                for literal_val in validator:
+                    if str(literal_val).lower() == value.lower():
+                        raw_config[key] = literal_val
+                        break
 
         elif validator == "comma_list" and isinstance(value, str):
             raw_config[key] = [s.strip() for s in value.split(",") if s.strip()]
@@ -414,7 +424,7 @@ def load_configurations() -> tuple[
     Optional[VectorDBConfig],
     Optional[EmbeddingConfig],
     IndexingConfig,
-    Optional["GenerationConfig"],
+    Optional[GenerationConfig],
 ]:
     user_config_path = get_user_config_path()
     file_config = _load_config_from_file(user_config_path)
@@ -433,23 +443,23 @@ def load_configurations() -> tuple[
     file_indexing = file_config.get("indexing", {})
     file_generation = file_config.get("generation", {})
 
-    final_confluence_config = env_confluence_raw.copy()
-    final_confluence_config.update(file_confluence)
+    final_confluence_config = file_confluence.copy()
+    final_confluence_config.update(env_confluence_raw)
 
-    final_search_config = env_search_raw.copy()
-    final_search_config.update(file_search)
+    final_search_config = file_search.copy()
+    final_search_config.update(env_search_raw)
 
-    final_vector_db_config = env_vector_db_raw.copy()
-    final_vector_db_config.update(file_vector_db)
+    final_vector_db_config = file_vector_db.copy()
+    final_vector_db_config.update(env_vector_db_raw)
 
-    final_embedding_config = env_embedding_raw.copy()
-    final_embedding_config.update(file_embedding)
+    final_embedding_config = file_embedding.copy()
+    final_embedding_config.update(env_embedding_raw)
 
-    final_indexing_config = env_indexing_raw.copy()
-    final_indexing_config.update(file_indexing)
+    final_indexing_config = file_indexing.copy()
+    final_indexing_config.update(env_indexing_raw)
 
-    final_generation_config = env_generation_raw.copy()
-    final_generation_config.update(file_generation)
+    final_generation_config = file_generation.copy()
+    final_generation_config.update(env_generation_raw)
 
     loaded_confluence_config: Optional[ConfluenceConfig] = None
     required_confluence_fields = ["url", "username", "api_token"]
