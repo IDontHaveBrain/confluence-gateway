@@ -9,21 +9,21 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "atlassian-python-api>=4.0.3",
-    "chromadb>=0.6.3",
-    "fastapi>=0.115.12",
+    "chromadb>=1.0.8",
+    "fastapi>=0.115.9",
     "httpx>=0.28.1",
-    "litellm>=1.65.7",
-    "llama-index-core>=0.12.30",
+    "litellm>=1.68.0",
+    "llama-index-core>=0.12.34.post1",
     "markitdown>=0.1.1",
     "multidict>=6.4.3",
-    "pydantic>=2.11.3",
+    "pydantic>=2.11.4",
     "python-dotenv>=1.1.0",
-    "qdrant-client>=1.13.3",
+    "qdrant-client>=1.14.2",
     "requests>=2.32.3",
     "rich>=14.0.0",
-    "sentence-transformers>=4.0.2",
+    "sentence-transformers>=4.1.0",
     "tiktoken>=0.9.0",
-    "typer>=0.15.2",
+    "typer>=0.15.3",
     "unstructured>=0.17.2",
 ]
 
@@ -39,8 +39,7 @@ dev = [
     "pytest-asyncio>=0.26.0",
     "pytest-lazy-fixture>=0.6.3",
     "pytest-mock>=3.14.0",
-    "ruff>=0.11.5",
-    "types-pyyaml>=6.0.12.20250402",
+    "ruff>=0.11.8",
     "types-requests>=2.32.0",
 ]
 
@@ -55,7 +54,7 @@ lint.ignore = [
     "E501",  # line too long
 ]
 lint.fixable = ["E", "F", "I", "UP"]
-target-version = "py39"
+target-version = "py310"
 src = [
     "confluence_gateway",
     "tests",
