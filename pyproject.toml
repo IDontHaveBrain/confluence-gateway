@@ -8,23 +8,23 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "atlassian-python-api>=4.0.3",
-    "chromadb>=1.0.8",
-    "fastapi>=0.115.9",
+    "atlassian-python-api>=4.0.4",
+    "chromadb>=1.0.15",
+    "fastapi>=0.115.14",
     "httpx>=0.28.1",
-    "litellm>=1.68.0",
+    "litellm>=1.73.6",
     "llama-index-core>=0.12.34.post1",
-    "markitdown>=0.1.1",
-    "multidict>=6.4.3",
-    "pydantic>=2.11.4",
-    "python-dotenv>=1.1.0",
-    "qdrant-client>=1.14.2",
-    "requests>=2.32.3",
+    "markitdown>=0.1.2",
+    "multidict>=6.6.3",
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.1.1",
+    "qdrant-client>=1.14.3",
+    "requests>=2.32.4",
     "rich>=14.0.0",
     "sentence-transformers>=4.1.0",
     "tiktoken>=0.9.0",
-    "typer>=0.15.3",
-    "unstructured>=0.17.2",
+    "typer>=0.15.4",
+    "unstructured>=0.18.2",
 ]
 
 [project.scripts]
@@ -33,14 +33,14 @@ confluence-gateway = "confluence_gateway.cli.main:app"
 [dependency-groups]
 dev = [
     "black>=25.1.0",
-    "mypy>=1.15.0",
+    "mypy>=1.16.1",
     "pre-commit>=4.2.0",
-    "pytest>=8.3.5",
+    "pytest>=8.4.1",
     "pytest-asyncio>=0.26.0",
     "pytest-lazy-fixture>=0.6.3",
-    "pytest-mock>=3.14.0",
-    "ruff>=0.11.8",
-    "types-requests>=2.32.0",
+    "pytest-mock>=3.14.1",
+    "ruff>=0.12.1",
+    "types-requests>=2.32.4.20250611",
 ]
 
 [tool.ruff]
