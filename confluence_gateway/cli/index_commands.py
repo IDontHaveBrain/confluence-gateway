@@ -2,10 +2,9 @@ import logging
 from typing import Optional
 
 import typer
-from rich import print as rich_print
 
 from confluence_gateway.api.schemas.responses import IndexingStatusResponse
-from confluence_gateway.cli.common import handle_cli_errors, print_indexing_status
+from confluence_gateway.cli.common import handle_cli_errors, print_indexing_status, print_status
 from confluence_gateway.cli.dependencies import _get_indexing_service
 from confluence_gateway.services.indexing import IndexingService
 
@@ -35,19 +34,18 @@ def trigger_indexing(
 
     current_status = indexing_service.status["status"]
     if current_status == "running":
-        rich_print("[yellow]Indexing process is already running.[/yellow]")
+        print_status("Indexing process is already running.", "warning")
         raise typer.Exit(code=0)
 
-    rich_print(
-        f"[cyan]Starting synchronous indexing... Target spaces: {space_keys or 'Configured'}[/cyan]"
+    print_status(
+        f"Starting synchronous indexing... Target spaces: {space_keys or 'Configured'}",
+        "info"
     )
-    rich_print("[dim](This may take a while depending on the content size)[/dim]")
+    print_status("(This may take a while depending on the content size)", "dim")
 
     try:
         indexing_service._run_indexing_sync(space_keys=space_keys)
-        rich_print(
-            "[bold green]Synchronous indexing completed successfully.[/bold green]"
-        )
+        print_status("Synchronous indexing completed successfully.", "success")
     except Exception as e:
         logger.error(f"Synchronous indexing failed: {e}", exc_info=True)
         raise

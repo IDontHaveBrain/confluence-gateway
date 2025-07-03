@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Any, Optional, cast
 
 import typer
-from rich import print as rich_print
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.confluence.models import ConfluencePage
@@ -13,6 +12,7 @@ from confluence_gateway.cli.common import (
     handle_cli_errors,
     print_search_results,
     print_semantic_search_results,
+    print_status,
 )
 from confluence_gateway.cli.dependencies import _get_search_service
 from confluence_gateway.core.exceptions import SearchParameterError
@@ -109,7 +109,7 @@ def text_search(
     enhanced_result: EnhancedSearchResult
 
     if use_hybrid:
-        rich_print("[cyan]Performing Hybrid Search...[/cyan]")
+        print_status("Performing Hybrid Search...", "info")
         enhanced_result = cast(
             EnhancedSearchResult,
             search_service.search_hybrid(
@@ -124,7 +124,7 @@ def text_search(
             ),
         )
     else:
-        rich_print("[cyan]Performing Text Search...[/cyan]")
+        print_status("Performing Text Search...", "info")
         enhanced_result = cast(
             EnhancedSearchResult,
             search_service.search_by_text(
@@ -171,7 +171,7 @@ def cql_search(
     ),
 ):
     search_service: SearchService = _get_search_service()
-    rich_print(f"[cyan]Performing CQL Search: '{cql_query}'[/cyan]")
+    print_status(f"Performing CQL Search: '{cql_query}'", "info")
 
     enhanced_result: EnhancedSearchResult = cast(
         EnhancedSearchResult,
@@ -210,7 +210,7 @@ def semantic_search(
     ),
 ):
     search_service: SearchService = _get_search_service()
-    rich_print("[cyan]Performing Semantic Search...[/cyan]")
+    print_status("Performing Semantic Search...", "info")
 
     parsed_filters: Optional[dict[str, Any]] = None
     if filters:
@@ -220,7 +220,7 @@ def semantic_search(
                 raise SearchParameterError(
                     "Filters must be a valid JSON object string."
                 )
-            rich_print(f"Applying filters: {parsed_filters}")
+            print(f"Applying filters: {parsed_filters}")
         except json.JSONDecodeError as e:
             raise SearchParameterError(f"Invalid JSON in filters string: {e}")
 

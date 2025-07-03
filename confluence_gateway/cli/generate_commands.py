@@ -4,10 +4,9 @@ import logging
 from typing import Any, Optional
 
 import typer
-from rich import print as rich_print
 
 from confluence_gateway.api.schemas.responses import SourceDocument
-from confluence_gateway.cli.common import handle_cli_errors, print_generated_answer
+from confluence_gateway.cli.common import handle_cli_errors, print_generated_answer, print_status
 from confluence_gateway.cli.dependencies import _get_generation_service
 from confluence_gateway.core.exceptions import (
     GenerationError,
@@ -45,7 +44,7 @@ def generate_answer_command(
 ):
     generation_service: GenerationService = _get_generation_service()
 
-    rich_print("[cyan]Generating answer using RAG...[/cyan]")
+    print_status("Generating answer using RAG...", "info")
 
     parsed_filters: Optional[dict[str, Any]] = None
     if filters:
@@ -55,7 +54,7 @@ def generate_answer_command(
                 raise SearchParameterError(
                     "Filters must be a valid JSON object string."
                 )
-            rich_print(f"Applying retrieval filters: {parsed_filters}")
+            print(f"Applying retrieval filters: {parsed_filters}")
         except json.JSONDecodeError as e:
             raise SearchParameterError(f"Invalid JSON in filters string: {e}")
 
