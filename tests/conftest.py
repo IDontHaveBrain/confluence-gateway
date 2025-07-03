@@ -1,9 +1,15 @@
+import logging
 import random
 import re
 import uuid
 from collections.abc import Generator
 from typing import Any, Optional
 from unittest.mock import MagicMock
+
+import pytest
+
+# Register custom pytest plugin
+# pytest_plugins = ["tests.pytest_plugins"]
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.embedding.factory import (
@@ -42,10 +48,33 @@ from pytest_mock import MockerFixture
 from typer.testing import CliRunner
 
 
+class SuppressSpecificLogFilter(logging.Filter):
+    """Filter to suppress logs from specific loggers."""
+    def filter(self, record):
+        # Block ERROR logs from these specific loggers
+        if record.levelno == logging.ERROR and record.name in [
+            "confluence_gateway.adapters.embedding.litellm",
+            "confluence_gateway.core.config"
+        ]:
+            return False
+        return True
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "integration: mark tests that require a real Confluence connection"
     )
+
+
+def pytest_sessionstart(session):
+    """Add filter to CLI handler after pytest sets up logging."""
+    # Get all handlers from root logger
+    root_logger = logging.getLogger()
+    
+    # Add our filter to all handlers (CLI handler will be one of them)
+    log_filter = SuppressSpecificLogFilter()
+    for handler in root_logger.handlers:
+        handler.addFilter(log_filter)
 
 
 REAL_CONFIG_SKIP_REASON = (
