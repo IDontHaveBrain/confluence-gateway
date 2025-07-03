@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 import chromadb
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
-from chromadb.api.types import IncludeEnum, Metadata, Metadatas, Where
+from chromadb.api.types import Include, Metadata, Metadatas, Where
 
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import (
@@ -109,9 +109,9 @@ class ChromaDBAdapter(VectorDBAdapter):
                 n_results=top_k,
                 where=chroma_where_filter,
                 include=[
-                    IncludeEnum.metadatas,
-                    IncludeEnum.distances,
-                    IncludeEnum.documents,
+                    Include.metadatas,
+                    Include.distances,
+                    Include.documents,
                 ],
             )
             logger.info(
@@ -193,7 +193,7 @@ class ChromaDBAdapter(VectorDBAdapter):
             get_results = collection.get(
                 where=chroma_where_filter,
                 limit=limit,
-                include=[IncludeEnum.metadatas],
+                include=[Include.metadatas],
             )
 
             output_results = []
