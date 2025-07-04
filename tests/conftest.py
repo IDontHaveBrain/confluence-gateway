@@ -568,6 +568,14 @@ def indexing_service(
         )
         return None
 
+    # Reset singleton state before creating/getting instance
+    IndexingService._instance = None
+    IndexingService._is_running = False
+    IndexingService._last_run_start_time = None
+    IndexingService._last_run_end_time = None
+    IndexingService._last_run_status = "idle"
+    IndexingService._last_error_message = None
+
     try:
         service = IndexingService(
             confluence_client=confluence_client,
@@ -587,7 +595,16 @@ def indexing_service(
             )
             return None
 
-        return service
+        yield service
+        
+        # Clean up singleton state after test
+        IndexingService._instance = None
+        IndexingService._is_running = False
+        IndexingService._last_run_start_time = None
+        IndexingService._last_run_end_time = None
+        IndexingService._last_run_status = "idle"
+        IndexingService._last_error_message = None
+        
     except Exception as e:
         pytest.skip(f"Failed to initialize IndexingService fixture: {e}")
         return None
@@ -827,3 +844,15 @@ def test_app_client(
 @pytest.fixture(scope="function")
 def runner() -> CliRunner:
     return CliRunner()
+# Fixture aliases for backward compatibility
+
+@pytest.fixture(scope="session")
+def search_service(standard_search_service):
+    """Alias for standard_search_service for backward compatibility."""
+    return standard_search_service
+
+@pytest.fixture(scope="session")
+def api_client(test_app_client):
+    """Alias for test_app_client for backward compatibility."""
+    return test_app_client
+

@@ -1,7 +1,7 @@
 [project]
 name = "confluence-gateway"
 version = "0.1.0"
-description = ""
+description = "AI-powered Confluence search with RAG integration (Beta)"
 authors = [
     {name = "nj.jo",email = "jonamjun.dev@gmail.com"}
 ]
