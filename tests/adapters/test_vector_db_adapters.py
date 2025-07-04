@@ -11,7 +11,7 @@ from confluence_gateway.adapters.vector_db.models import (
 from confluence_gateway.adapters.vector_db.qdrant_adapter import QdrantAdapter
 from confluence_gateway.services.embedding import EmbeddingService
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.semantic]
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +47,7 @@ def test_adapter_initialization(adapter: VectorDBAdapter):
 
 
 def test_adapter_count_initial(
-    adapter: VectorDBAdapter, SEMANTIC_TEST_DOCS: list[dict]
+    adapter: VectorDBAdapter, SEMANTIC_TEST_DOCS: list[dict], index_semantic_test_data
 ):
     initial_count = adapter.count()
     print(f"\nINFO: Initial document count: {initial_count}")
@@ -93,6 +93,7 @@ def test_adapter_search(
     adapter: VectorDBAdapter,
     embed_svc: EmbeddingService,
     SEMANTIC_TEST_DOCS: list[dict],
+    index_semantic_test_data,
 ):
     search_text = "apples"
     query_embedding = embed_svc.embed_text(search_text)

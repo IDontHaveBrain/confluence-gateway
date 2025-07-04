@@ -9,6 +9,7 @@ from litellm.exceptions import APIConnectionError, Timeout
 
 
 @pytest.mark.integration
+@pytest.mark.semantic
 class TestGenerationServiceLogic:
     @pytest.fixture
     def mock_search_results(self) -> list[VectorSearchResultItem]:

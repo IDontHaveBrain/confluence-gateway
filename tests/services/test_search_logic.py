@@ -16,6 +16,7 @@ def create_mock_search_page(page_id: str, title: str) -> MagicMock:
 
 
 @pytest.mark.integration
+@pytest.mark.semantic
 class TestSearchServiceHybridLogic:
     @pytest.fixture(autouse=True)
     def enable_hybrid_search(self):

@@ -12,6 +12,9 @@ from confluence_gateway.core.exceptions import (
 )
 
 
+pytestmark = pytest.mark.unit
+
+
 def test_confluence_gateway_error_instantiation():
     msg = "Base gateway error"
     err = ConfluenceGatewayError(msg)

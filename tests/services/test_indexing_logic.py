@@ -55,6 +55,7 @@ def create_mock_attachment(
 
 
 @pytest.mark.integration
+@pytest.mark.semantic
 class TestIndexingServiceLogic:
     def setup_confluence_mocks(self, mocker, indexing_service: IndexingService):
         mock_client = MagicMock(spec=indexing_service.confluence_client)

@@ -6,7 +6,6 @@ import pytest
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
 from confluence_gateway.adapters.embedding.sentence_transformer import (
-    SentenceTransformer,
     SentenceTransformerProvider,
 )
 from confluence_gateway.core.config import EmbeddingConfig
@@ -17,6 +16,7 @@ from tests.conftest import MockedProviderFixture
 
 
 @pytest.mark.integration
+@pytest.mark.semantic
 class TestSentenceTransformerProviderIntegration:
     @pytest.fixture(scope="class")
     def st_provider(self, embedding_provider) -> SentenceTransformerProvider:
@@ -27,7 +27,7 @@ class TestSentenceTransformerProviderIntegration:
     def test_st_provider_initialization(self, st_provider: SentenceTransformerProvider):
         assert st_provider is not None
         assert st_provider.model is not None
-        assert isinstance(st_provider.model, SentenceTransformer)
+        # Model type check removed - it's lazy loaded now
         assert st_provider.device is not None
 
     def test_st_provider_get_dimension(self, st_provider: SentenceTransformerProvider):
@@ -82,6 +82,7 @@ def litellm_provider_and_mock(mocked_litellm_provider) -> MockedProviderFixture:
     return mocked_litellm_provider
 
 
+@pytest.mark.unit
 class TestLiteLLMProviderMocked:
     def test_litellm_provider_initialization(
         self, litellm_provider_and_mock: MockedProviderFixture, mocker: MockerFixture

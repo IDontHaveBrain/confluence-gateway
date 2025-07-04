@@ -11,7 +11,7 @@ from confluence_gateway.adapters.confluence.models import (
 )
 from confluence_gateway.core.exceptions import ConfluenceAPIError
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.api]
 
 
 @pytest.fixture(scope="module")

@@ -13,7 +13,7 @@ from confluence_gateway.services.generation import GenerationService
 from confluence_gateway.services.indexing import IndexingService
 from confluence_gateway.services.search import SearchService
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.api]
 
 
 class TestCliFlows:

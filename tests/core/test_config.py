@@ -22,7 +22,7 @@ def mock_path_home(mocker, tmp_path):
     return mocker.patch.object(pathlib.Path, "home", return_value=tmp_path)
 
 
-pytestmark = pytest.mark.usefixtures("mock_path_home")
+pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("mock_path_home")]
 
 
 @pytest.fixture

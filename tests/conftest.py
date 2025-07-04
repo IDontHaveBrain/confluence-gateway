@@ -10,23 +10,20 @@ import pytest
 
 # Register custom pytest plugin
 # pytest_plugins = ["tests.pytest_plugins"]
-
+# Light imports - keep at module level
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.embedding.factory import (
     EmbeddingProvider,
     get_embedding_provider,
-)
-from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
-from confluence_gateway.adapters.embedding.sentence_transformer import (
-    SentenceTransformerProvider,
 )
 from confluence_gateway.adapters.vector_db.factory import (
     VectorDBAdapter,
     get_vector_db_adapter,
 )
 from confluence_gateway.adapters.vector_db.models import Document
-from confluence_gateway.adapters.vector_db.qdrant_adapter import QdrantAdapter
-from confluence_gateway.api.app import app
+
+# Heavy import - will be imported lazily in fixtures
+# from confluence_gateway.api.app import app
 from confluence_gateway.core.config import (
     ConfluenceConfig,
     EmbeddingConfig,
@@ -39,13 +36,22 @@ from confluence_gateway.core.config import (
 from confluence_gateway.core.config import (
     embedding_config as global_embedding_config,
 )
-from confluence_gateway.services.embedding import EmbeddingService
-from confluence_gateway.services.generation import GenerationService
-from confluence_gateway.services.indexing import IndexingService
-from confluence_gateway.services.search import SearchService
+
+# Heavy imports - will be imported lazily in fixtures
+# from confluence_gateway.services.embedding import EmbeddingService
+# from confluence_gateway.services.generation import GenerationService
+# from confluence_gateway.services.indexing import IndexingService
+# from confluence_gateway.services.search import SearchService
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 from typer.testing import CliRunner
+
+# Heavy imports - will be imported lazily in fixtures
+# from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
+# from confluence_gateway.adapters.embedding.sentence_transformer import (
+#     SentenceTransformerProvider,
+# )
+# from confluence_gateway.adapters.vector_db.qdrant_adapter import QdrantAdapter
 
 
 class SuppressSpecificLogFilter(logging.Filter):
@@ -64,6 +70,16 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "integration: mark tests that require a real Confluence connection"
     )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip tests based on environment."""
+    import os
+    if not os.environ.get("CONFLUENCE_URL"):
+        skip_integration = pytest.mark.skip(reason="No Confluence config - set CONFLUENCE_URL env var")
+        for item in items:
+            if "integration" in item.keywords:
+                item.add_marker(skip_integration)
 
 
 def pytest_sessionstart(session):
@@ -113,16 +129,16 @@ def SEMANTIC_TEST_DOCS():
 
 @pytest.fixture(scope="session")
 def loaded_configs() -> tuple[
-    Optional[ConfluenceConfig],
+    ConfluenceConfig | None,
     SearchConfig,
-    Optional[VectorDBConfig],
-    Optional[EmbeddingConfig],
+    VectorDBConfig | None,
+    EmbeddingConfig | None,
 ]:
     return load_configurations()
 
 
 @pytest.fixture(scope="session")
-def confluence_config(loaded_configs) -> Optional[ConfluenceConfig]:
+def confluence_config(loaded_configs) -> ConfluenceConfig | None:
     return loaded_configs[0]
 
 
@@ -132,12 +148,12 @@ def search_config(loaded_configs) -> SearchConfig:
 
 
 @pytest.fixture(scope="session")
-def vector_db_config(loaded_configs) -> Optional[VectorDBConfig]:
+def vector_db_config(loaded_configs) -> VectorDBConfig | None:
     return loaded_configs[2]
 
 
 @pytest.fixture(scope="session")
-def embedding_config(loaded_configs) -> Optional[EmbeddingConfig]:
+def embedding_config(loaded_configs) -> EmbeddingConfig | None:
     return loaded_configs[3]
 
 
@@ -147,7 +163,7 @@ def indexing_config(loaded_configs) -> IndexingConfig:
 
 
 @pytest.fixture(scope="session")
-def generation_config(loaded_configs) -> Optional[GenerationConfig]:
+def generation_config(loaded_configs) -> GenerationConfig | None:
     return loaded_configs[5]
 
 
@@ -164,100 +180,31 @@ def is_real_config_available(confluence_config) -> bool:
 @pytest.fixture(scope="session")
 def confluence_client(
     confluence_config, is_real_config_available
-) -> Optional[ConfluenceClient]:
+) -> ConfluenceClient | None:
     if not is_real_config_available:
         pytest.skip(REAL_CONFIG_SKIP_REASON)
         return None
 
     client = ConfluenceClient(config=confluence_config)
-    try:
-        client.test_connection()
-    except Exception as e:
-        pytest.skip(f"Could not connect to Confluence during client setup: {e}")
-        return None
+    # Remove automatic test_connection() call - let individual tests call it if needed
     return client
 
 
 @pytest.fixture(scope="session")
-def real_search_term(confluence_client) -> str:
-    if not confluence_client:
-        pytest.skip("Confluence client not available for finding search term.")
-        return "skip"
-
-    def extract_content_tokens(text, min_length=2, max_length=20):
-        if not text:
-            return []
-        tokens = re.findall(r"\b\w+\b", text, re.UNICODE)
-        return [t for t in tokens if min_length <= len(t) <= max_length]
-
-    token_candidates = []
-    try:
-        spaces_response = confluence_client.atlassian_api.get_all_spaces(limit=5)
-        if spaces_response and spaces_response.get("results"):
-            spaces = random.sample(
-                spaces_response["results"], min(len(spaces_response["results"]), 3)
-            )
-            for space in spaces:
-                if space.get("name"):
-                    token_candidates.extend(extract_content_tokens(space["name"]))
-                if space.get("key"):
-                    try:
-                        cql = f'space = "{space["key"]}" AND type in (page, blogpost) ORDER BY lastmodified DESC'
-                        page_resp = confluence_client.search_by_cql(
-                            cql, limit=2, expand=["title"]
-                        )
-                        if page_resp and page_resp.results:
-                            for page in page_resp.results:
-                                token_candidates.extend(
-                                    extract_content_tokens(page.title)
-                                )
-                    except Exception:
-                        pass
-
-        if len(set(token_candidates)) < 10:
-            cql = "type in (page, blogpost) ORDER BY lastmodified DESC"
-            page_resp = confluence_client.search_by_cql(cql, limit=5, expand=["title"])
-            if page_resp and page_resp.results:
-                for page in page_resp.results:
-                    token_candidates.extend(extract_content_tokens(page.title))
-
-        unique_candidates = list(set(t for t in token_candidates if t))
-        random.shuffle(unique_candidates)
-        for term in unique_candidates[:15]:
-            try:
-                search_result = confluence_client.search(query=term, limit=1)
-                if search_result.total_size > 0:
-                    print(f"\nINFO: Using real search term: '{term}'")
-                    return term
-            except Exception:
-                continue
-
-    except Exception as e:
-        print(f"\nWARN: Error finding dynamic search term: {e}. Falling back.")
-        pytest.skip("Could not dynamically find a working search term.")
-        return "skip"
-
-    for term in ["the", "and", "is", "in"]:
-        try:
-            search_result = confluence_client.search(query=term, limit=1)
-            if search_result.total_size > 0:
-                print(f"\nINFO: Using fallback search term: '{term}'")
-                return term
-        except Exception:
-            continue
-
-    pytest.skip("Could not find any search term yielding results.")
-    return "skip"
+def real_search_term() -> str:
+    """Fast search term without API calls."""
+    import os
+    return os.environ.get("CONFLUENCE_TEST_SEARCH_TERM", "confluence")
 
 
 @pytest.fixture(scope="session")
-def embedding_provider(embedding_config) -> Optional[EmbeddingProvider]:
+def embedding_provider(embedding_config) -> EmbeddingProvider | None:
     """
     Provides an initialized EmbeddingProvider instance.
     Uses global config or defaults to a lightweight sentence-transformer.
     Includes teardown. Skips if initialization fails.
     """
-    provider_instance: Optional[EmbeddingProvider] = None
+    provider_instance: EmbeddingProvider | None = None
     effective_config = embedding_config
 
     if effective_config is None or effective_config.provider == "none":
@@ -272,9 +219,20 @@ def embedding_provider(embedding_config) -> Optional[EmbeddingProvider]:
             device=DEFAULT_EMBEDDING_DEVICE,
         )
         try:
+            # Check if model is already cached
+            from pathlib import Path
+            cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
+            model_path = cache_dir / f"sentence-transformers_{DEFAULT_EMBEDDING_MODEL}"
+            if model_path.exists():
+                print(f"INFO (pytest): Model cache found at {model_path}")
+            
+            # Lazy import of SentenceTransformerProvider
+            from confluence_gateway.adapters.embedding.sentence_transformer import (
+                SentenceTransformerProvider,
+            )
             provider_instance = SentenceTransformerProvider(effective_config)
             provider_instance.initialize()
-            print("INFO (pytest): Default SentenceTransformerProvider initialized.")
+            print("INFO (pytest): Default SentenceTransformerProvider initialized with caching.")
         except Exception as e:
             pytest.skip(
                 f"Failed to initialize default embedding provider ({DEFAULT_EMBEDDING_MODEL}): {e}"
@@ -296,13 +254,16 @@ def embedding_provider(embedding_config) -> Optional[EmbeddingProvider]:
             pytest.skip(f"Failed to get/initialize configured embedding provider: {e}")
             return None
 
-        if effective_config.provider == "sentence-transformers" and not isinstance(
-            provider_instance, SentenceTransformerProvider
-        ):
-            pytest.skip(
-                f"Configured for sentence-transformers, but factory returned type {type(provider_instance)}. Skipping."
+        if effective_config.provider == "sentence-transformers":
+            # Lazy import for type checking
+            from confluence_gateway.adapters.embedding.sentence_transformer import (
+                SentenceTransformerProvider,
             )
-            return None
+            if not isinstance(provider_instance, SentenceTransformerProvider):
+                pytest.skip(
+                    f"Configured for sentence-transformers, but factory returned type {type(provider_instance)}. Skipping."
+                )
+                return None
     yield provider_instance
 
     if provider_instance and hasattr(provider_instance, "close"):
@@ -324,14 +285,19 @@ def is_embedding_available(embedding_provider) -> bool:
 
 
 import typing
+from typing import TYPE_CHECKING
 
-MockedProviderFixture = tuple[LiteLLMProvider, MagicMock]
+if TYPE_CHECKING:
+    from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
+    MockedProviderFixture = tuple[LiteLLMProvider, MagicMock]
+else:
+    MockedProviderFixture = tuple[Any, MagicMock]
 
 
 @pytest.fixture(scope="function")
 def mocked_litellm_provider(
-    mocker: MockerFixture, embedding_config: Optional[EmbeddingConfig]
-) -> typing.Optional[MockedProviderFixture]:
+    mocker: MockerFixture, embedding_config: EmbeddingConfig | None
+) -> MockedProviderFixture | None:
     effective_config = embedding_config
     if not effective_config or effective_config.provider != "litellm":
         effective_config = EmbeddingConfig(
@@ -346,6 +312,8 @@ def mocked_litellm_provider(
     mock_embedding_call = mocker.patch("litellm.embedding", autospec=True)
 
     try:
+        # Lazy import of LiteLLMProvider
+        from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
         provider = LiteLLMProvider(config=effective_config)
         _dummy_embedding_for_internal_mocks = [0.0] * (
             effective_config.dimension or 128
@@ -370,7 +338,7 @@ def mocked_litellm_provider(
 
 
 @pytest.fixture(scope="session")
-def effective_embedding_dimension(embedding_provider) -> Optional[int]:
+def effective_embedding_dimension(embedding_provider) -> int | None:
     if not embedding_provider:
         if global_embedding_config and global_embedding_config.dimension:
             return global_embedding_config.dimension
@@ -389,13 +357,13 @@ def effective_embedding_dimension(embedding_provider) -> Optional[int]:
 @pytest.fixture(scope="session")
 def vector_db_adapter(
     vector_db_config, effective_embedding_dimension
-) -> Optional[VectorDBAdapter]:
+) -> VectorDBAdapter | None:
     """
     Provides an initialized VectorDBAdapter instance.
     Uses global config or defaults to in-memory Qdrant.
     Requires an effective_embedding_dimension. Includes teardown. Skips if initialization fails.
     """
-    adapter_instance: Optional[VectorDBAdapter] = None
+    adapter_instance: VectorDBAdapter | None = None
     effective_vdb_config = vector_db_config
 
     if effective_embedding_dimension is None:
@@ -415,6 +383,10 @@ def vector_db_adapter(
         )
         try:
             if effective_vdb_config.type == "qdrant":
+                # Lazy import of QdrantAdapter
+                from confluence_gateway.adapters.vector_db.qdrant_adapter import (
+                    QdrantAdapter,
+                )
                 adapter_instance = QdrantAdapter(effective_vdb_config)
                 adapter_instance.initialize()
                 print("INFO (pytest): Default in-memory Qdrant adapter initialized.")
@@ -457,7 +429,7 @@ def vector_db_adapter(
         try:
             if (
                 effective_vdb_config.qdrant_url == ":memory:"
-                and isinstance(adapter_instance, QdrantAdapter)
+                and effective_vdb_config.type == "qdrant"
                 and hasattr(adapter_instance, "client")
                 and adapter_instance.client
             ):
@@ -496,29 +468,34 @@ def is_semantic_search_possible(
 @pytest.fixture(scope="session")
 def embedding_service(
     embedding_provider, is_embedding_available
-) -> Optional[EmbeddingService]:
+) -> Any | None:  # Will be EmbeddingService when imported
     if not is_embedding_available:
         return None
+    # Lazy import
+    from confluence_gateway.services.embedding import EmbeddingService
     return EmbeddingService(provider=embedding_provider)
 
 
 @pytest.fixture(scope="function")
 def mocked_embedding_service(
-    mocked_litellm_provider: Optional[LiteLLMProvider],
-) -> Optional[EmbeddingService]:
+    mocked_litellm_provider: MockedProviderFixture | None,
+) -> Any | None:  # Will be EmbeddingService when imported
     """Provides an EmbeddingService using the mocked LiteLLMProvider."""
     if not mocked_litellm_provider:
         pytest.skip("Mocked LiteLLM provider not available.")
         return None
     # Ensure the provider appears initialized for the service
     # (mocks above handle the actual initialization logic)
-    return EmbeddingService(provider=mocked_litellm_provider)
+    provider, _ = mocked_litellm_provider
+    # Lazy import
+    from confluence_gateway.services.embedding import EmbeddingService
+    return EmbeddingService(provider=provider)
 
 
 @pytest.fixture(scope="session")
 def semantic_search_service(
     confluence_client, embedding_service, vector_db_adapter, is_semantic_search_possible
-) -> Optional[SearchService]:
+) -> Any | None:  # Will be SearchService when imported
     """
     Provides a SearchService instance fully configured for semantic search.
     Returns None if semantic search is not possible.
@@ -526,6 +503,8 @@ def semantic_search_service(
     if not is_semantic_search_possible:
         return None
 
+    # Lazy import
+    from confluence_gateway.services.search import SearchService
     return SearchService(
         client=confluence_client,
         indexing_service=None,
@@ -537,9 +516,11 @@ def semantic_search_service(
 @pytest.fixture(scope="session")
 def standard_search_service(
     confluence_client, is_real_config_available
-) -> Optional[SearchService]:
+) -> Any | None:  # Will be SearchService when imported
     if not is_real_config_available:
         return None
+    # Lazy import
+    from confluence_gateway.services.search import SearchService
     return SearchService(
         client=confluence_client,
         indexing_service=None,
@@ -550,13 +531,13 @@ def standard_search_service(
 
 @pytest.fixture(scope="function")
 def indexing_service(
-    confluence_client: Optional[ConfluenceClient],
-    embedding_service: Optional[EmbeddingService],
-    vector_db_adapter: Optional[VectorDBAdapter],
+    confluence_client: ConfluenceClient | None,
+    embedding_service: Any | None,  # Will be EmbeddingService
+    vector_db_adapter: VectorDBAdapter | None,
     indexing_config: IndexingConfig,
     search_config: SearchConfig,
     is_semantic_search_possible: bool,
-) -> Optional[IndexingService]:
+) -> Any | None:  # Will be IndexingService when imported
     if not is_semantic_search_possible or not confluence_client:
         pytest.skip(
             "IndexingService requires Confluence client, Vector DB, and Embedding Service."
@@ -568,6 +549,9 @@ def indexing_service(
         )
         return None
 
+    # Lazy import
+    from confluence_gateway.services.indexing import IndexingService
+    
     # Reset singleton state before creating/getting instance
     IndexingService._instance = None
     IndexingService._is_running = False
@@ -612,10 +596,10 @@ def indexing_service(
 
 @pytest.fixture(scope="function")
 def generation_service(
-    semantic_search_service: Optional[SearchService],
-    generation_config: Optional[GenerationConfig],
+    semantic_search_service: Any | None,  # Will be SearchService
+    generation_config: GenerationConfig | None,
     is_generation_enabled: bool,
-) -> Optional[GenerationService]:
+) -> Any | None:  # Will be GenerationService when imported
     """
     Provides a GenerationService instance.
     Mocking of internal litellm.acompletion happens *within tests*.
@@ -631,6 +615,8 @@ def generation_service(
         return None
 
     try:
+        # Lazy import
+        from confluence_gateway.services.generation import GenerationService
         service = GenerationService(
             search_service=semantic_search_service, config=generation_config
         )
@@ -640,7 +626,7 @@ def generation_service(
         return None
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session", autouse=False)
 def index_semantic_test_data(
     semantic_search_service,
     embedding_service,
@@ -715,23 +701,32 @@ def index_semantic_test_data(
         print(f"\nERROR (pytest): Failed to index semantic test data: {e}")
 
 
-from confluence_gateway.api.app import app
-from confluence_gateway.api.dependencies import (
-    get_confluence_client,
-    get_embedding_provider_dependency,
-    get_vector_db_adapter,
-)
+# Imports moved into test_app_client fixture to avoid heavy imports at module level
+# from confluence_gateway.api.app import app
+# from confluence_gateway.api.dependencies import (
+#     get_confluence_client,
+#     get_embedding_provider_dependency,
+#     get_vector_db_adapter,
+# )
 
 
 @pytest.fixture(scope="session")
 def test_app_client(
-    confluence_client: Optional[ConfluenceClient],
-    vector_db_adapter: Optional[VectorDBAdapter],
-    embedding_provider: Optional[EmbeddingProvider],
+    confluence_client: ConfluenceClient | None,
+    vector_db_adapter: VectorDBAdapter | None,
+    embedding_provider: EmbeddingProvider | None,
     search_config: SearchConfig,
-    vector_db_config: Optional[VectorDBConfig],
+    vector_db_config: VectorDBConfig | None,
     indexing_config: IndexingConfig,
 ) -> Generator[TestClient, Any, None]:
+    # Lazy import to avoid heavy imports at module level
+    from confluence_gateway.api.app import app
+    from confluence_gateway.api.dependencies import (
+        get_confluence_client,
+        get_embedding_provider_dependency,
+        get_vector_db_adapter,
+    )
+    
     def override_get_confluence_client():
         return confluence_client
 
@@ -764,8 +759,6 @@ def test_app_client(
     from threading import Lock
 
     from confluence_gateway.api.dependencies import get_indexing_service
-    from confluence_gateway.services.embedding import EmbeddingService
-    from confluence_gateway.services.indexing import IndexingService
 
     _override_indexing_service_instance = None
     _override_indexing_service_lock = Lock()
@@ -797,6 +790,10 @@ def test_app_client(
                     )
                     return None
 
+                # Lazy imports
+                from confluence_gateway.services.embedding import EmbeddingService
+                from confluence_gateway.services.indexing import IndexingService
+                
                 current_embedding_service = EmbeddingService(
                     provider=embedding_provider
                 )
@@ -855,4 +852,64 @@ def search_service(standard_search_service):
 def api_client(test_app_client):
     """Alias for test_app_client for backward compatibility."""
     return test_app_client
+
+
+# Lazy loading fixture variants for better performance
+
+@pytest.fixture(scope="session")
+def minimal_confluence_client(confluence_config) -> ConfluenceClient | None:
+    """Client without connection test for unit tests."""
+    if not confluence_config:
+        return None
+    return ConfluenceClient(config=confluence_config)
+
+
+@pytest.fixture(scope="session")
+def validated_confluence_client(minimal_confluence_client) -> ConfluenceClient | None:
+    """Client with validated connection for integration tests."""
+    if minimal_confluence_client:
+        try:
+            minimal_confluence_client.test_connection()
+        except Exception as e:
+            pytest.skip(f"Could not connect to Confluence: {e}")
+            return None
+    return minimal_confluence_client
+
+
+@pytest.fixture
+def semantic_test_setup(request):
+    """Load semantic search fixtures only when needed."""
+    if "semantic" in request.node.name:
+        return request.getfixturevalue("index_semantic_test_data")
+    return None
+
+
+@pytest.fixture(scope="session")
+def lazy_embedding_provider():
+    """Lazy embedding provider that only initializes when accessed."""
+    _provider = None
+    
+    def get_provider():
+        nonlocal _provider
+        if _provider is None:
+            print("\nINFO (pytest): Lazy loading embedding provider...")
+            config = EmbeddingConfig(
+                provider=DEFAULT_EMBEDDING_PROVIDER_TYPE,
+                model_name=DEFAULT_EMBEDDING_MODEL,
+                dimension=DEFAULT_EMBEDDING_DIMENSION,
+                device=DEFAULT_EMBEDDING_DEVICE,
+            )
+            # Lazy import of SentenceTransformerProvider
+            from confluence_gateway.adapters.embedding.sentence_transformer import (
+                SentenceTransformerProvider,
+            )
+            _provider = SentenceTransformerProvider(config)
+            _provider.initialize()
+            print("INFO (pytest): Embedding provider loaded.")
+        return _provider
+    
+    yield get_provider
+    
+    if _provider and hasattr(_provider, "close"):
+        _provider.close()
 

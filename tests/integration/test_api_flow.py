@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.api]
 
 
 class TestApiFlows:

@@ -24,6 +24,9 @@ from confluence_gateway.core.config import search_config
 from pydantic import ValidationError
 
 
+pytestmark = pytest.mark.unit
+
+
 def test_base_search_request_validation():
     BaseSearchRequest(limit=10, start=0)
     BaseSearchRequest(limit=search_config.max_limit, start=100)
