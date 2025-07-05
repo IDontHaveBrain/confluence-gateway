@@ -1,0 +1,56 @@
+# Confluence Dummy Data Generation Configuration
+
+generation:
+  prefix: "TESTDUM"
+  spaces:
+    - key: "TECH"
+      name: "Technical Documentation Test"
+      pages_count: 50
+      categories: ["installation", "architecture", "troubleshooting"]
+    - key: "API"
+      name: "API Documentation Test"  
+      pages_count: 30
+      categories: ["rest", "graphql", "webhooks"]
+    - key: "KB"
+      name: "Knowledge Base Test"
+      pages_count: 40
+      categories: ["how-to", "faq", "best-practices"]
+    - key: "PROJECT"
+      name: "Project Documentation Test"
+      pages_count: 30
+      categories: ["planning", "meeting-notes", "releases"]
+    - key: "MULTILANG"
+      name: "Multilingual Test"
+      pages_count: 20
+      categories: ["english", "korean", "mixed"]
+  
+  content:
+    languages: ["en", "ko", "mixed"]
+    min_words: 200
+    max_words: 2000
+    include_code_blocks: true
+    include_tables: true
+    include_lists: true
+  
+  attachments:
+    enabled: true
+    types: ["pdf", "docx", "xlsx", "png"]
+    max_per_page: 3
+    total_size_limit_mb: 100
+  
+  search_optimization:
+    semantic_pairs: true
+    cql_friendly_metadata: true
+    hybrid_optimized_content: true
+
+safety:
+  dry_run: false
+  confirm_before_create: true
+  auto_cleanup_on_error: true
+
+# Advanced settings (optional)
+advanced:
+  rate_limit_delay_seconds: 0.5  # Delay between API calls
+  parallel_uploads: false         # Upload attachments in parallel
+  max_retries: 3                 # Max retries for failed operations
+  retry_delay_seconds: 2         # Delay between retries
