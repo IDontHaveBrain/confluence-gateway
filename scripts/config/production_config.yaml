@@ -1,0 +1,25 @@
+generation:
+  prefix: "TESTDUM"
+  spaces:
+    - key: "TECH"
+      name: "Technical Documentation Test"
+      pages_count: 10
+      categories: ["technical"]
+    - key: "API"
+      name: "API Documentation Test"
+      pages_count: 8
+      categories: ["api_docs", "technical"]
+    - key: "KB"
+      name: "Knowledge Base Test"
+      pages_count: 8
+      categories: ["knowledge_base"]
+  attachments:
+    enabled: true
+    types: ["pdf", "png", "docx", "xlsx", "txt", "json"]
+    max_per_page: 2
+    total_size_limit_mb: 100
+  safety:
+    dry_run: false
+    confirm_before_create: false
+    enable_tracking: true
+    auto_cleanup_on_error: true

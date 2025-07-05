@@ -1,0 +1,78 @@
+# Real Data Sources Configuration
+# Define sources for collecting real technical documentation
+
+sources:
+  github:
+    - name: "Python Documentation"
+      type: "github_repo"
+      url: "https://github.com/python/cpython/tree/main/Doc"
+      categories: ["technical", "api_docs"]
+      languages: ["en"]
+      file_patterns: ["*.rst", "*.md"]
+      
+    - name: "FastAPI Documentation"
+      type: "github_repo"
+      url: "https://github.com/tiangolo/fastapi/tree/master/docs"
+      categories: ["api_docs", "technical"]
+      languages: ["en"]
+      file_patterns: ["*.md"]
+      
+    - name: "Django Documentation"
+      type: "github_repo"
+      url: "https://github.com/django/django/tree/main/docs"
+      categories: ["technical", "api_docs"]
+      languages: ["en"]
+      file_patterns: ["*.txt", "*.rst"]
+      
+  web_docs:
+    - name: "MDN Web Docs"
+      type: "web_scrape"
+      base_url: "https://developer.mozilla.org/en-US/docs/Web"
+      categories: ["technical", "api_docs"]
+      languages: ["en"]
+      max_pages: 50
+      
+    - name: "PostgreSQL Documentation"
+      type: "web_scrape"
+      base_url: "https://www.postgresql.org/docs/current/"
+      categories: ["technical", "knowledge_base"]
+      languages: ["en"]
+      max_pages: 30
+      
+  open_datasets:
+    - name: "Awesome Lists"
+      type: "github_repo"
+      url: "https://github.com/sindresorhus/awesome"
+      categories: ["knowledge_base", "project_docs"]
+      languages: ["en"]
+      file_patterns: ["*.md"]
+      
+    - name: "TensorFlow Tutorials"
+      type: "github_repo"
+      url: "https://github.com/tensorflow/docs/tree/master/site/en"
+      categories: ["technical", "knowledge_base"]
+      languages: ["en"]
+      file_patterns: ["*.md", "*.ipynb"]
+
+collection_settings:
+  max_content_size_mb: 10
+  min_content_length: 500
+  max_content_length: 50000
+  quality_threshold: 0.7
+  respect_robots_txt: true
+  user_agent: "ConfluenceGatewayTestDataCollector/1.0"
+  rate_limit_seconds: 2
+  cache_expiry_days: 30
+
+content_filters:
+  exclude_patterns:
+    - "*test*"
+    - "*example*"
+    - "*.min.js"
+    - "*.min.css"
+  include_mime_types:
+    - "text/plain"
+    - "text/markdown"
+    - "text/x-rst"
+    - "text/html"
+    - "application/json"
