@@ -6,23 +6,15 @@ generation:
     - key: "TECH"
       name: "Technical Documentation Test"
       pages_count: 50
-      categories: ["installation", "architecture", "troubleshooting"]
+      categories: ["technical"]
     - key: "API"
       name: "API Documentation Test"  
       pages_count: 30
-      categories: ["rest", "graphql", "webhooks"]
+      categories: ["api_docs", "technical"]
     - key: "KB"
       name: "Knowledge Base Test"
       pages_count: 40
-      categories: ["how-to", "faq", "best-practices"]
-    - key: "PROJECT"
-      name: "Project Documentation Test"
-      pages_count: 30
-      categories: ["planning", "meeting-notes", "releases"]
-    - key: "MULTILANG"
-      name: "Multilingual Test"
-      pages_count: 20
-      categories: ["english", "korean", "mixed"]
+      categories: ["knowledge_base"]
   
   content:
     languages: ["en", "ko", "mixed"]

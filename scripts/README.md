@@ -65,8 +65,10 @@ Define sources for collecting real documentation:
 - Web documentation sites (MDN, PostgreSQL)
 - Open datasets and tutorials
 
-### Generation Settings (`config/dummy_data_config.yaml`)
+### Generation Settings
 Configure space creation and content generation:
+- `config/dummy_data_config.yaml`: Default configuration with full feature set
+- `config/production_config.yaml`: Streamlined configuration for production testing
 - Space prefixes and categories
 - Page counts and attachment settings
 - Safety features and quality thresholds
@@ -78,8 +80,6 @@ Configure space creation and content generation:
 | TECH | Technical Documentation | Installation guides, architecture docs, troubleshooting |
 | API | API Documentation | REST/GraphQL references, webhooks, authentication |
 | KB | Knowledge Base | How-to guides, FAQs, best practices |
-| PROJECT | Project Documentation | Planning docs, meeting notes, release notes |
-| MULTILANG | Multilingual Content | Documentation in multiple languages |
 
 ## Features
 
