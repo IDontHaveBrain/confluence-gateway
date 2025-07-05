@@ -1,6 +1,5 @@
 import logging
 from functools import wraps
-from typing import List, Tuple, Optional
 
 import typer
 
@@ -16,51 +15,53 @@ logger = logging.getLogger(__name__)
 
 
 # Utility functions for text formatting
-def create_table(title: str, columns: List[Tuple[str, int]], rows: List[List[str]]) -> str:
+def create_table(
+    title: str, columns: list[tuple[str, int]], rows: list[list[str]]
+) -> str:
     """Create a simple text-based table."""
     lines = []
-    
+
     # Title
     if title:
         lines.append(f"\n{title}")
         lines.append("=" * len(title))
-    
+
     # Calculate column widths
     col_names = [col[0] for col in columns]
     col_widths = [col[1] for col in columns]
-    
+
     # Adjust widths based on content if needed
     for i, name in enumerate(col_names):
         col_widths[i] = max(col_widths[i], len(name))
-    
+
     # Header
     header = " | ".join(name.ljust(width) for name, width in zip(col_names, col_widths))
     lines.append(header)
     lines.append("-" * len(header))
-    
+
     # Rows
     for row in rows:
         formatted_row = []
         for i, cell in enumerate(row):
             # Truncate if needed
             if len(cell) > col_widths[i]:
-                cell = cell[:col_widths[i]-3] + "..."
+                cell = cell[: col_widths[i] - 3] + "..."
             formatted_row.append(cell.ljust(col_widths[i]))
         lines.append(" | ".join(formatted_row))
-    
+
     return "\n".join(lines)
 
 
-def create_panel(content: str, title: Optional[str] = None) -> str:
+def create_panel(content: str, title: str | None = None) -> str:
     """Create a simple bordered panel."""
-    lines = content.split('\n')
+    lines = content.split("\n")
     max_width = max(len(line) for line in lines) if lines else 0
-    
+
     if title:
         max_width = max(max_width, len(title) + 4)
-    
+
     result = []
-    
+
     # Top border
     if title:
         padding = max_width - len(title) - 2
@@ -69,15 +70,15 @@ def create_panel(content: str, title: Optional[str] = None) -> str:
         result.append("┌" + "─" * left_pad + f" {title} " + "─" * right_pad + "┐")
     else:
         result.append("┌" + "─" * (max_width + 2) + "┐")
-    
+
     # Content
     for line in lines:
         padding = max_width - len(line)
         result.append(f"│ {line}{' ' * padding} │")
-    
+
     # Bottom border
     result.append("└" + "─" * (max_width + 2) + "┘")
-    
+
     return "\n".join(result)
 
 
@@ -88,7 +89,7 @@ def print_status(message: str, status_type: str = "info"):
         "warning": "[WARN]",
         "error": "[ERROR]",
         "success": "[OK]",
-        "dim": ""
+        "dim": "",
     }
     prefix = prefix_map.get(status_type, "")
     if prefix:
@@ -111,9 +112,9 @@ def print_search_results(
         ("Type", 10),
         ("Space", 20),
         ("Last Modified", 20),
-        ("URL", 40)
+        ("URL", 40),
     ]
-    
+
     rows = []
     for item in results:
         last_modified_str = (
@@ -122,20 +123,22 @@ def print_search_results(
             else "N/A"
         )
         space_display = f"{item.space_name or ''} ({item.space_key or ''})"
-        
-        rows.append([
-            item.id,
-            item.title,
-            item.type,
-            space_display,
-            last_modified_str,
-            item.url or "N/A"
-        ])
-    
+
+        rows.append(
+            [
+                item.id,
+                item.title,
+                item.type,
+                space_display,
+                last_modified_str,
+                item.url or "N/A",
+            ]
+        )
+
     # Print table
     table_str = create_table("Search Results", columns, rows)
     print(table_str)
-    
+
     # Print summary
     start_num = start + 1
     end_num = start + len(results)
@@ -156,9 +159,9 @@ def print_semantic_search_results(
         ("Title", 30),
         ("Space", 15),
         ("URL", 40),
-        ("Text Snippet", 60)
+        ("Text Snippet", 60),
     ]
-    
+
     rows = []
     for item in results:
         metadata = item.metadata or {}
@@ -168,19 +171,12 @@ def print_semantic_search_results(
         snippet = (item.text or "").replace("\n", " ").strip()
         snippet = snippet[:150] + "..." if len(snippet) > 150 else snippet
 
-        rows.append([
-            item.id,
-            f"{item.score:.3f}",
-            title,
-            space_key,
-            url,
-            snippet
-        ])
+        rows.append([item.id, f"{item.score:.3f}", title, space_key, url, snippet])
 
     # Print table
     table_str = create_table(f"Semantic Search Results for: '{query}'", columns, rows)
     print(table_str)
-    
+
     # Print summary
     print(f"\nSemantic search returned {len(results)} results. Took {took_ms:.2f} ms.")
 
@@ -223,23 +219,19 @@ def print_generated_answer(answer: str, sources: list[SourceDocument]):
         return
 
     # Prepare sources table
-    columns = [
-        ("ID", 20),
-        ("Score", 8),
-        ("Title", 30),
-        ("Space", 15),
-        ("URL", 40)
-    ]
-    
+    columns = [("ID", 20), ("Score", 8), ("Title", 30), ("Space", 15), ("URL", 40)]
+
     rows = []
     for source in sources:
-        rows.append([
-            source.id,
-            f"{source.score:.3f}",
-            source.title or "N/A",
-            source.space_key or "N/A",
-            source.url or "N/A"
-        ])
+        rows.append(
+            [
+                source.id,
+                f"{source.score:.3f}",
+                source.title or "N/A",
+                source.space_key or "N/A",
+                source.url or "N/A",
+            ]
+        )
 
     # Print sources table
     table_str = create_table("Sources", columns, rows)

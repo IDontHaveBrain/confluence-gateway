@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -20,8 +20,8 @@ class SpaceType(str, Enum):
 class ConfluenceObject(BaseModel):
     id: str
     title: str
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = {
         "populate_by_name": True,
@@ -46,9 +46,9 @@ class ConfluenceObject(BaseModel):
 
 class ConfluenceSpace(ConfluenceObject):
     key: str
-    name: Optional[str] = None
-    description: Optional[dict[str, Any]] = None
-    type: Optional[SpaceType] = None
+    name: str | None = None
+    description: dict[str, Any] | None = None
+    type: SpaceType | None = None
 
     def __init__(self, **data):
         if "name" in data and "title" not in data:
@@ -64,9 +64,9 @@ class ConfluenceSpace(ConfluenceObject):
 
 
 class BodyContent(BaseModel):
-    view: Optional[dict[str, Any]] = None
-    storage: Optional[dict[str, Any]] = None
-    plain: Optional[dict[str, Any]] = None
+    view: dict[str, Any] | None = None
+    storage: dict[str, Any] | None = None
+    plain: dict[str, Any] | None = None
 
     model_config = {
         "populate_by_name": True,
@@ -75,7 +75,7 @@ class BodyContent(BaseModel):
 
 class Version(BaseModel):
     number: int
-    when: Optional[datetime] = None
+    when: datetime | None = None
 
     model_config = {
         "populate_by_name": True,
@@ -83,11 +83,11 @@ class Version(BaseModel):
 
 
 class ConfluencePage(ConfluenceObject):
-    space: Optional[Union[ConfluenceSpace, dict[str, Any]]] = None
+    space: ConfluenceSpace | dict[str, Any] | None = None
     content_type: ContentType = ContentType.PAGE
-    body: Optional[BodyContent] = None
-    version: Optional[Version] = None
-    status: Optional[str] = None
+    body: BodyContent | None = None
+    version: Version | None = None
+    status: str | None = None
 
     model_config = {
         "populate_by_name": True,
@@ -123,42 +123,42 @@ class ConfluencePage(ConfluenceObject):
         return data
 
     @property
-    def html_content(self) -> Optional[str]:
+    def html_content(self) -> str | None:
         if self.body and self.body.view and "value" in self.body.view:
             return self.body.view["value"]
         return None
 
     @property
-    def storage_content(self) -> Optional[str]:
+    def storage_content(self) -> str | None:
         if self.body and self.body.storage and "value" in self.body.storage:
             return self.body.storage["value"]
         return None
 
     @property
-    def plain_content(self) -> Optional[str]:
+    def plain_content(self) -> str | None:
         if self.body and self.body.plain and "value" in self.body.plain:
             return self.body.plain["value"]
         return None
 
 
 class ConfluenceAttachmentLinks(BaseModel):
-    download: Optional[str] = None
-    webui: Optional[str] = None
-    self: Optional[str] = None
+    download: str | None = None
+    webui: str | None = None
+    self: str | None = None
 
 
 class ConfluenceAttachmentExtensions(BaseModel):
-    mediaType: Optional[str] = Field(None, alias="media-type")
-    fileSize: Optional[int] = Field(None, alias="file-size")
-    comment: Optional[str] = None
+    mediaType: str | None = Field(None, alias="media-type")
+    fileSize: int | None = Field(None, alias="file-size")
+    comment: str | None = None
 
 
 class ConfluenceAttachment(ConfluenceObject):
     content_type: ContentType = ContentType.ATTACHMENT
-    status: Optional[str] = None
-    extensions: Optional[ConfluenceAttachmentExtensions] = None
-    _links: Optional[ConfluenceAttachmentLinks] = None
-    version: Optional[Version] = None
+    status: str | None = None
+    extensions: ConfluenceAttachmentExtensions | None = None
+    _links: ConfluenceAttachmentLinks | None = None
+    version: Version | None = None
 
     def __init__(self, **data):
         if "type" in data and "content_type" not in data:
@@ -185,15 +185,15 @@ class ConfluenceAttachment(ConfluenceObject):
         super().__init__(**data)
 
     @property
-    def download_url(self) -> Optional[str]:
+    def download_url(self) -> str | None:
         return self._links.download if self._links else None
 
     @property
-    def media_type(self) -> Optional[str]:
+    def media_type(self) -> str | None:
         return self.extensions.mediaType if self.extensions else None
 
     @property
-    def file_size(self) -> Optional[int]:
+    def file_size(self) -> int | None:
         return self.extensions.fileSize if self.extensions else None
 
 
@@ -231,7 +231,7 @@ class SearchResult(BaseModel):
                         transformed_results.append(ConfluenceAttachment(**item_data))
                     else:
                         transformed_results.append(ConfluencePage(**item_data))
-                elif isinstance(item_data, (ConfluencePage, ConfluenceAttachment)):
+                elif isinstance(item_data, ConfluencePage | ConfluenceAttachment):
                     transformed_results.append(item_data)
             data["results"] = transformed_results
 

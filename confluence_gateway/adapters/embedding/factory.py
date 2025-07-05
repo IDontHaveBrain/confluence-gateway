@@ -1,6 +1,5 @@
 import importlib
 import logging
-from typing import Optional
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.config import EmbeddingConfig
@@ -10,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_embedding_provider(
-    config: Optional[EmbeddingConfig],
-) -> Optional[EmbeddingProvider]:
+    config: EmbeddingConfig | None,
+) -> EmbeddingProvider | None:
     if config is None:
         logger.info(
             "Embedding configuration not loaded. Embedding provider cannot be created."

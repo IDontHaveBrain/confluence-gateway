@@ -1,10 +1,13 @@
 import logging
-from typing import Optional
 
 import typer
 
 from confluence_gateway.api.schemas.responses import IndexingStatusResponse
-from confluence_gateway.cli.common import handle_cli_errors, print_indexing_status, print_status
+from confluence_gateway.cli.common import (
+    handle_cli_errors,
+    print_indexing_status,
+    print_status,
+)
 from confluence_gateway.cli.dependencies import _get_indexing_service
 from confluence_gateway.services.indexing import IndexingService
 
@@ -19,7 +22,7 @@ app = typer.Typer(
 @app.command("trigger", help="Trigger indexing process (runs synchronously).")
 @handle_cli_errors
 def trigger_indexing(
-    space_keys: Optional[list[str]] = typer.Option(
+    space_keys: list[str] | None = typer.Option(
         None,
         "--space",
         "-s",
@@ -27,7 +30,7 @@ def trigger_indexing(
         show_default=False,
     ),
 ):
-    indexing_service: Optional[IndexingService] = _get_indexing_service()
+    indexing_service: IndexingService | None = _get_indexing_service()
 
     if indexing_service is None:
         raise typer.Exit(code=1)
@@ -39,7 +42,7 @@ def trigger_indexing(
 
     print_status(
         f"Starting synchronous indexing... Target spaces: {space_keys or 'Configured'}",
-        "info"
+        "info",
     )
     print_status("(This may take a while depending on the content size)", "dim")
 
@@ -54,7 +57,7 @@ def trigger_indexing(
 @app.command("status", help="Get the current status of the indexing service.")
 @handle_cli_errors
 def get_status():
-    indexing_service: Optional[IndexingService] = _get_indexing_service()
+    indexing_service: IndexingService | None = _get_indexing_service()
 
     if indexing_service is None:
         status_response = IndexingStatusResponse(

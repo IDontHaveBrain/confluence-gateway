@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.exceptions import (
@@ -11,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    def __init__(self, provider: Optional[EmbeddingProvider]):
+    def __init__(self, provider: EmbeddingProvider | None):
         self.provider = provider
         if self.provider:
             logger.info(
@@ -76,7 +75,7 @@ class EmbeddingService:
                 "An unexpected error occurred during batch text embedding."
             ) from e
 
-    def get_dimension(self) -> Optional[int]:
+    def get_dimension(self) -> int | None:
         if not self.provider:
             logger.warning(
                 "Attempted to get embedding dimension, but no provider is configured."

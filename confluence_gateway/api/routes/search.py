@@ -1,6 +1,5 @@
 from datetime import datetime
 from functools import wraps
-from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -82,7 +81,7 @@ def handle_search_exceptions(func):
 
 
 def _build_search_response(
-    search_result, search_service, request: Optional[Request] = None
+    search_result, search_service, request: Request | None = None
 ) -> SearchResponse:
     search_items = [
         SearchResultItem(
@@ -158,16 +157,16 @@ def _build_search_response(
 async def search_content(
     request: Request,
     query: str = Query(..., description="Text to search for", min_length=2),
-    space_key: Optional[str] = Query(None, description="Filter by space key"),
-    content_type: Optional[str] = Query(
+    space_key: str | None = Query(None, description="Filter by space key"),
+    content_type: str | None = Query(
         None, description="Filter by content type (page, blogpost, attachment, comment)"
     ),
     include_archived: bool = Query(False, description="Include archived content"),
-    limit: Optional[int] = Query(
+    limit: int | None = Query(
         None, description="Maximum number of results to return"
     ),
-    start: Optional[int] = Query(0, description="Starting position for pagination"),
-    expand: Optional[list[str]] = Query(
+    start: int | None = Query(0, description="Starting position for pagination"),
+    expand: list[str] | None = Query(
         None, description="Fields to expand in the response"
     ),
     use_hybrid: bool = Query(

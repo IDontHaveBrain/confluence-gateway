@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 import typer
 
@@ -29,27 +28,23 @@ def _get_confluence_client() -> ConfluenceClient:
     if not confluence_config:
         print_status(
             "Error: Confluence configuration (CONFLUENCE_URL, CONFLUENCE_USERNAME, CONFLUENCE_API_TOKEN) is missing or invalid.",
-            "error"
+            "error",
         )
         raise typer.Exit(code=1)
     try:
         return ConfluenceClient(config=confluence_config)
     except Exception as e:
-        print_status(
-            f"Error: Failed to initialize Confluence client: {e}",
-            "error"
-        )
+        print_status(f"Error: Failed to initialize Confluence client: {e}", "error")
         logger.error("Failed to initialize Confluence client", exc_info=True)
         raise typer.Exit(code=1)
 
 
-def _get_embedding_provider() -> Optional[EmbeddingProvider]:
+def _get_embedding_provider() -> EmbeddingProvider | None:
     try:
         return get_embedding_provider(embedding_config)
     except Exception as e:
         print_status(
-            f"Error: Unexpected error getting embedding provider: {e}",
-            "error"
+            f"Error: Unexpected error getting embedding provider: {e}", "error"
         )
         logger.error("Unexpected error getting embedding provider", exc_info=True)
         return None
@@ -60,14 +55,11 @@ def _get_embedding_service() -> EmbeddingService:
     return EmbeddingService(provider=provider)
 
 
-def _get_vector_db_adapter() -> Optional[VectorDBAdapter]:
+def _get_vector_db_adapter() -> VectorDBAdapter | None:
     try:
         return get_vector_db_adapter()
     except Exception as e:
-        print_status(
-            f"Error: Unexpected error getting vector DB adapter: {e}",
-            "error"
-        )
+        print_status(f"Error: Unexpected error getting vector DB adapter: {e}", "error")
         logger.error("Unexpected error getting vector DB adapter", exc_info=True)
         return None
 
@@ -83,11 +75,11 @@ def _get_search_service() -> SearchService:
     )
 
 
-def _get_indexing_service() -> Optional[IndexingService]:
+def _get_indexing_service() -> IndexingService | None:
     if not vector_db_config or vector_db_config.type == "none":
         print_status(
             "Warning: Vector DB is not configured (VECTOR_DB_TYPE=none). Indexing service is unavailable.",
-            "warning"
+            "warning",
         )
         return None
 
@@ -97,7 +89,7 @@ def _get_indexing_service() -> Optional[IndexingService]:
     if not embedding_service.provider:
         print_status(
             "Warning: Embedding provider is not configured or failed to initialize. Indexing service is unavailable as it requires embeddings.",
-            "warning"
+            "warning",
         )
         return None
 
@@ -111,16 +103,13 @@ def _get_indexing_service() -> Optional[IndexingService]:
         if not service.vector_db_adapter:
             print_status(
                 "Error: IndexingService initialized, but Vector DB Adapter failed to set up internally.",
-                "error"
+                "error",
             )
             logger.error("IndexingService vector_db_adapter is None after init.")
             return None
         return service
     except Exception as e:
-        print_status(
-            f"Error: Failed to initialize Indexing service: {e}",
-            "error"
-        )
+        print_status(f"Error: Failed to initialize Indexing service: {e}", "error")
         logger.error("Failed to initialize Indexing service", exc_info=True)
         return None
 
@@ -129,7 +118,7 @@ def _get_generation_service() -> GenerationService:
     if not generation_config or not generation_config.enable:
         print_status(
             "Error: RAG Generation is disabled in configuration (GENERATION_ENABLE=False).",
-            "error"
+            "error",
         )
         raise typer.Exit(code=1)
 
@@ -142,15 +131,12 @@ def _get_generation_service() -> GenerationService:
         if not service.config or not service.config.enable:
             print_status(
                 "Error: Generation service could not be properly initialized (e.g., missing dependencies). Check logs.",
-                "error"
+                "error",
             )
             logger.error("GenerationService config is None or disabled after init.")
             raise typer.Exit(code=1)
         return service
     except Exception as e:
-        print_status(
-            f"Error: Failed to initialize Generation service: {e}",
-            "error"
-        )
+        print_status(f"Error: Failed to initialize Generation service: {e}", "error")
         logger.error("Failed to initialize Generation service", exc_info=True)
         raise typer.Exit(code=1)

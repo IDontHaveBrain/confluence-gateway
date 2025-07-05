@@ -11,7 +11,6 @@ from confluence_gateway.core.exceptions import (
     SemanticSearchError,
 )
 
-
 pytestmark = pytest.mark.unit
 
 

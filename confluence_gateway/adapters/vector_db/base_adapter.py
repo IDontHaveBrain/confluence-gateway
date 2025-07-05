@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from confluence_gateway.core.config import VectorDBConfig
 
@@ -24,7 +24,7 @@ class VectorDBAdapter(ABC):
         self,
         query_embedding: list[float],
         top_k: int,
-        filters: Optional[dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[VectorSearchResultItem]:
         pass
 
@@ -40,8 +40,8 @@ class VectorDBAdapter(ABC):
     def search_by_metadata(
         self,
         filters: dict[str, Any],
-        select: Optional[list[str]] = None,
-        limit: Optional[int] = None,
+        select: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         pass
 

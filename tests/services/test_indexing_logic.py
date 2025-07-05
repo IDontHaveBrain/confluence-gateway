@@ -109,8 +109,8 @@ class TestIndexingServiceLogic:
         mock_confluence_client.list_attachments.return_value = []
         search_meta_spy = mocker.spy(vector_db_adapter, "search_by_metadata")
         search_meta_spy.side_effect = [
-            [],  # _should_index_content (timestamp check)
-            [],  # _cleanup_deleted_content_for_space
+            [],
+            [],
         ]
         mock_confluence_client.get_space.return_value = MagicMock(
             spec=ConfluenceSpace, key=space_key, title="New Space"
@@ -184,8 +184,8 @@ class TestIndexingServiceLogic:
                     "original_content_id": page_updated.id,
                     "last_modified": "2024-01-01T10:00:00Z",
                 }
-            ],  # _should_index_content
-            [],  # _cleanup_deleted_content_for_space
+            ],
+            [],
         ]
         mock_confluence_client.get_space.return_value = MagicMock(
             spec=ConfluenceSpace, key=space_key, title="Update Space"
@@ -237,8 +237,8 @@ class TestIndexingServiceLogic:
                     "original_content_id": page_unchanged.id,
                     "last_modified": "2024-01-01T10:00:00Z",
                 }
-            ],  # _should_index_content
-            [],  # _cleanup_deleted_content_for_space
+            ],
+            [],
         ]
         mock_confluence_client.get_space.return_value = MagicMock(
             spec=ConfluenceSpace, key=space_key, title="Skip Space"
@@ -327,9 +327,9 @@ class TestIndexingServiceLogic:
         )
         search_meta_spy = mocker.spy(vector_db_adapter, "search_by_metadata")
         search_meta_spy.side_effect = [
-            [],  # Timestamp check for page
-            [],  # Timestamp check for attachment
-            [],  # Cleanup check
+            [],
+            [],
+            [],
         ]
         mock_confluence_client.get_space.return_value = MagicMock(
             spec=ConfluenceSpace, key=space_key, title="Attachment Space"

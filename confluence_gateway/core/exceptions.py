@@ -1,4 +1,3 @@
-from typing import Optional
 
 
 class ConfluenceGatewayError(Exception):
@@ -17,7 +16,7 @@ class ConfluenceConnectionError(ConfluenceGatewayError):
     def __init__(
         self,
         message: str = "Failed to connect to Confluence API",
-        cause: Optional[Exception] = None,
+        cause: Exception | None = None,
     ):
         self.cause = cause
         super().__init__(f"{message}: {str(cause)}" if cause else message)
@@ -30,7 +29,7 @@ class ConfluenceAuthenticationError(ConfluenceGatewayError):
 
 class ConfluenceAPIError(ConfluenceGatewayError):
     def __init__(
-        self, status_code: Optional[int] = None, error_message: Optional[str] = None
+        self, status_code: int | None = None, error_message: str | None = None
     ):
         message = "Confluence API error"
         if status_code:

@@ -5,14 +5,12 @@ from typing import TYPE_CHECKING, Any
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.exceptions import EmbeddingProviderError
 
-# Lazy loading globals
 _torch: ModuleType | None = None
 _torch_available: bool | None = None
 _sentence_transformers_available: bool | None = None
 _SentenceTransformer: Any | None = None
 
 if TYPE_CHECKING:
-
     from confluence_gateway.core.config import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
@@ -24,6 +22,7 @@ def _check_torch_available() -> bool:
     if _torch_available is None:
         try:
             import torch
+
             _torch = torch
             _torch_available = True
         except ImportError:
@@ -38,6 +37,7 @@ def _get_sentence_transformer_class():
     if _SentenceTransformer is None:
         try:
             from sentence_transformers import SentenceTransformer
+
             _SentenceTransformer = SentenceTransformer
             _sentence_transformers_available = True
         except ImportError:
@@ -52,7 +52,7 @@ def _get_sentence_transformer_class():
 class SentenceTransformerProvider(EmbeddingProvider):
     def __init__(self, config: "EmbeddingConfig") -> None:
         super().__init__(config)
-        self.model: Any | None = None  # Will be SentenceTransformer when loaded
+        self.model: Any | None = None
         self.device: str | None = None
         logger.info(
             f"SentenceTransformerProvider initialized with config: "
@@ -138,12 +138,13 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
 
         self.device = self._determine_device()
-        
+
         # Set up cache directory for model storage
         from pathlib import Path
+
         cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         logger.info(
             f"Attempting to load sentence-transformer model '{self.config.model_name}' onto device '{self.device}' "
             f"with cache directory: {cache_dir}"
@@ -153,9 +154,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
             # Lazy load SentenceTransformer class
             SentenceTransformer = _get_sentence_transformer_class()
             self.model = SentenceTransformer(
-                self.config.model_name, 
-                device=self.device,
-                cache_folder=str(cache_dir)
+                self.config.model_name, device=self.device, cache_folder=str(cache_dir)
             )
             logger.info(
                 f"Successfully loaded sentence-transformer model '{self.config.model_name}'."

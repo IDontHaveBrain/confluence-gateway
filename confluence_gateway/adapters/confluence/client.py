@@ -1,8 +1,9 @@
 import logging
 import random
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Optional, TypeVar, Union
+from typing import Any, TypeVar
 
 import requests
 from atlassian import Confluence
@@ -62,9 +63,9 @@ class ConfluenceClient:
     API_PATHS = ["wiki/rest/api", "rest/api"]
 
     config: ConfluenceConfig
-    _working_api_path: Optional[str] = None
+    _working_api_path: str | None = None
 
-    def __init__(self, config: Optional[ConfluenceConfig] = None):
+    def __init__(self, config: ConfluenceConfig | None = None):
         config_to_use = config or confluence_config
         if not config_to_use:
             raise ValueError("Confluence configuration is missing")
@@ -94,12 +95,12 @@ class ConfluenceClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[dict[str, Any]] = None,
-        data: Optional[dict[str, Any]] = None,
-        model_class: Optional[type[T]] = None,
-        api_version: Optional[str] = None,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        model_class: type[T] | None = None,
+        api_version: str | None = None,
         use_transformer: bool = True,
-    ) -> Union[dict[str, Any], T, None]:
+    ) -> dict[str, Any] | T | None:
         api_path_to_use = api_version or self._working_api_path
 
         if not api_path_to_use:
@@ -133,11 +134,11 @@ class ConfluenceClient:
     def _discover_working_api_path(
         self,
         endpoint: str,
-        params: Optional[dict[str, Any]],
-        data: Optional[dict[str, Any]],
+        params: dict[str, Any] | None,
+        data: dict[str, Any] | None,
         method: str,
-    ) -> Optional[str]:
-        last_exception: Optional[requests.exceptions.RequestException] = None
+    ) -> str | None:
+        last_exception: requests.exceptions.RequestException | None = None
 
         for api_path in self.API_PATHS:
             try:
@@ -167,8 +168,8 @@ class ConfluenceClient:
         self,
         method: str,
         url: str,
-        params: Optional[dict[str, Any]],
-        data: Optional[dict[str, Any]],
+        params: dict[str, Any] | None,
+        data: dict[str, Any] | None,
     ) -> requests.Response:
         try:
             response = getattr(self.session, method.lower())(
@@ -194,7 +195,7 @@ class ConfluenceClient:
 
     def _get_transformer_for_model(
         self, model_class: type[T]
-    ) -> Optional[Callable[[dict[str, Any]], T]]:
+    ) -> Callable[[dict[str, Any]], T] | None:
         if model_class == ConfluenceSpace:
             return self._parse_space
         elif model_class == ConfluencePage:
@@ -306,7 +307,7 @@ class ConfluenceClient:
             raise ConfluenceAPIError(error_message=str(e)) from e
 
     def get_page(
-        self, page_id: str, expand: Optional[list[str]] = None
+        self, page_id: str, expand: list[str] | None = None
     ) -> ConfluencePage:
         expand_str = "body.view,body.storage,space,version,metadata,children.page,children.attachment,history,ancestors"
         if expand:
@@ -419,7 +420,7 @@ class ConfluenceClient:
         return SearchResult(**data)
 
     def extract_content_fields(
-        self, content: Union[ConfluencePage, ConfluenceAttachment]
+        self, content: ConfluencePage | ConfluenceAttachment
     ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "id": content.id,
@@ -501,8 +502,8 @@ class ConfluenceClient:
     def _build_search_cql(
         self,
         query: str,
-        content_type: Optional[Union[ContentType, str]] = None,
-        space_key: Optional[str] = None,
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
         include_archived: bool = False,
     ) -> str:
         # Consistently use manual CQL building for robustness
@@ -523,11 +524,11 @@ class ConfluenceClient:
     def search_by_cql(
         self,
         cql: str,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
         include_archived: bool = False,
     ) -> SearchResult:
         if not cql:
@@ -663,14 +664,14 @@ class ConfluenceClient:
     def search(
         self,
         query: str,
-        content_type: Optional[Union[ContentType, str]] = None,
-        space_key: Optional[str] = None,
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
         include_archived: bool = False,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
     ) -> SearchResult:
         if not query:
             raise SearchParameterError("Query cannot be empty")

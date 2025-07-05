@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -14,4 +14,4 @@ class VectorSearchResultItem(BaseModel):
     id: str
     score: float
     metadata: dict[str, Any] = Field(default_factory=dict)
-    text: Optional[str] = None
+    text: str | None = None

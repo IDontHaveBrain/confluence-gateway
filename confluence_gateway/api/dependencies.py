@@ -1,6 +1,5 @@
 import logging
 from threading import Lock
-from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 
@@ -38,7 +37,7 @@ def get_confluence_client():
     return ConfluenceClient(config=confluence_config)
 
 
-def get_embedding_provider_dependency() -> Optional[EmbeddingProvider]:
+def get_embedding_provider_dependency() -> EmbeddingProvider | None:
     global _embedding_provider_instance
     global _embedding_provider_initialized
 
@@ -76,26 +75,26 @@ def get_embedding_provider_dependency() -> Optional[EmbeddingProvider]:
 
 
 def get_embedding_service(
-    provider: Optional[EmbeddingProvider] = Depends(get_embedding_provider_dependency),
+    provider: EmbeddingProvider | None = Depends(get_embedding_provider_dependency),
 ) -> EmbeddingService:
     return EmbeddingService(provider=provider)
 
 
-_embedding_provider_instance: Optional[EmbeddingProvider] = None
+_embedding_provider_instance: EmbeddingProvider | None = None
 _embedding_provider_initialized: bool = False
 
-_indexing_service_instance: Optional[IndexingService] = None
+_indexing_service_instance: IndexingService | None = None
 _indexing_service_lock = Lock()
 
 
 def get_indexing_service(
     client: ConfluenceClient = Depends(get_confluence_client),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
-    vector_db_adapter: Optional[VectorDBAdapter] = Depends(get_vector_db_adapter),
+    vector_db_adapter: VectorDBAdapter | None = Depends(get_vector_db_adapter),
     idx_config: IndexingConfig = Depends(lambda: indexing_config),
     srch_config: SearchConfig = Depends(lambda: search_config),
-    vdb_config: Optional[VectorDBConfig] = Depends(lambda: vector_db_config),
-) -> Optional[IndexingService]:
+    vdb_config: VectorDBConfig | None = Depends(lambda: vector_db_config),
+) -> IndexingService | None:
     global _indexing_service_instance
 
     if _indexing_service_instance is not None:
@@ -142,9 +141,9 @@ def get_indexing_service(
 
 def get_search_service(
     client: ConfluenceClient = Depends(get_confluence_client),
-    indexing_service: Optional[IndexingService] = Depends(get_indexing_service),
+    indexing_service: IndexingService | None = Depends(get_indexing_service),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
-    vector_db_adapter: Optional[VectorDBAdapter] = Depends(get_vector_db_adapter),
+    vector_db_adapter: VectorDBAdapter | None = Depends(get_vector_db_adapter),
 ) -> SearchService:
     return SearchService(
         client=client,
@@ -156,7 +155,7 @@ def get_search_service(
 
 def get_generation_service(
     search_service: SearchService = Depends(get_search_service),
-    gen_config: Optional[GenerationConfig] = Depends(lambda: generation_config),
+    gen_config: GenerationConfig | None = Depends(lambda: generation_config),
 ) -> GenerationService:
     if not gen_config or not gen_config.enable:
         raise HTTPException(

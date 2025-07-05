@@ -7,10 +7,6 @@ from typing import Any, Optional
 from unittest.mock import MagicMock
 
 import pytest
-
-# Register custom pytest plugin
-# pytest_plugins = ["tests.pytest_plugins"]
-# Light imports - keep at module level
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.adapters.embedding.factory import (
     EmbeddingProvider,
@@ -21,9 +17,6 @@ from confluence_gateway.adapters.vector_db.factory import (
     get_vector_db_adapter,
 )
 from confluence_gateway.adapters.vector_db.models import Document
-
-# Heavy import - will be imported lazily in fixtures
-# from confluence_gateway.api.app import app
 from confluence_gateway.core.config import (
     ConfluenceConfig,
     EmbeddingConfig,
@@ -36,31 +29,18 @@ from confluence_gateway.core.config import (
 from confluence_gateway.core.config import (
     embedding_config as global_embedding_config,
 )
-
-# Heavy imports - will be imported lazily in fixtures
-# from confluence_gateway.services.embedding import EmbeddingService
-# from confluence_gateway.services.generation import GenerationService
-# from confluence_gateway.services.indexing import IndexingService
-# from confluence_gateway.services.search import SearchService
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 from typer.testing import CliRunner
 
-# Heavy imports - will be imported lazily in fixtures
-# from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
-# from confluence_gateway.adapters.embedding.sentence_transformer import (
-#     SentenceTransformerProvider,
-# )
-# from confluence_gateway.adapters.vector_db.qdrant_adapter import QdrantAdapter
-
 
 class SuppressSpecificLogFilter(logging.Filter):
     """Filter to suppress logs from specific loggers."""
+
     def filter(self, record):
-        # Block ERROR logs from these specific loggers
         if record.levelno == logging.ERROR and record.name in [
             "confluence_gateway.adapters.embedding.litellm",
-            "confluence_gateway.core.config"
+            "confluence_gateway.core.config",
         ]:
             return False
         return True
@@ -73,10 +53,12 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip tests based on environment."""
     import os
+
     if not os.environ.get("CONFLUENCE_URL"):
-        skip_integration = pytest.mark.skip(reason="No Confluence config - set CONFLUENCE_URL env var")
+        skip_integration = pytest.mark.skip(
+            reason="No Confluence config - set CONFLUENCE_URL env var"
+        )
         for item in items:
             if "integration" in item.keywords:
                 item.add_marker(skip_integration)
@@ -84,10 +66,8 @@ def pytest_collection_modifyitems(config, items):
 
 def pytest_sessionstart(session):
     """Add filter to CLI handler after pytest sets up logging."""
-    # Get all handlers from root logger
     root_logger = logging.getLogger()
-    
-    # Add our filter to all handlers (CLI handler will be one of them)
+
     log_filter = SuppressSpecificLogFilter()
     for handler in root_logger.handlers:
         handler.addFilter(log_filter)
@@ -194,6 +174,7 @@ def confluence_client(
 def real_search_term() -> str:
     """Fast search term without API calls."""
     import os
+
     return os.environ.get("CONFLUENCE_TEST_SEARCH_TERM", "confluence")
 
 
@@ -221,18 +202,22 @@ def embedding_provider(embedding_config) -> EmbeddingProvider | None:
         try:
             # Check if model is already cached
             from pathlib import Path
+
             cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
             model_path = cache_dir / f"sentence-transformers_{DEFAULT_EMBEDDING_MODEL}"
             if model_path.exists():
                 print(f"INFO (pytest): Model cache found at {model_path}")
-            
+
             # Lazy import of SentenceTransformerProvider
             from confluence_gateway.adapters.embedding.sentence_transformer import (
                 SentenceTransformerProvider,
             )
+
             provider_instance = SentenceTransformerProvider(effective_config)
             provider_instance.initialize()
-            print("INFO (pytest): Default SentenceTransformerProvider initialized with caching.")
+            print(
+                "INFO (pytest): Default SentenceTransformerProvider initialized with caching."
+            )
         except Exception as e:
             pytest.skip(
                 f"Failed to initialize default embedding provider ({DEFAULT_EMBEDDING_MODEL}): {e}"
@@ -259,6 +244,7 @@ def embedding_provider(embedding_config) -> EmbeddingProvider | None:
             from confluence_gateway.adapters.embedding.sentence_transformer import (
                 SentenceTransformerProvider,
             )
+
             if not isinstance(provider_instance, SentenceTransformerProvider):
                 pytest.skip(
                     f"Configured for sentence-transformers, but factory returned type {type(provider_instance)}. Skipping."
@@ -289,6 +275,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
+
     MockedProviderFixture = tuple[LiteLLMProvider, MagicMock]
 else:
     MockedProviderFixture = tuple[Any, MagicMock]
@@ -314,6 +301,7 @@ def mocked_litellm_provider(
     try:
         # Lazy import of LiteLLMProvider
         from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
+
         provider = LiteLLMProvider(config=effective_config)
         _dummy_embedding_for_internal_mocks = [0.0] * (
             effective_config.dimension or 128
@@ -387,6 +375,7 @@ def vector_db_adapter(
                 from confluence_gateway.adapters.vector_db.qdrant_adapter import (
                     QdrantAdapter,
                 )
+
                 adapter_instance = QdrantAdapter(effective_vdb_config)
                 adapter_instance.initialize()
                 print("INFO (pytest): Default in-memory Qdrant adapter initialized.")
@@ -473,6 +462,7 @@ def embedding_service(
         return None
     # Lazy import
     from confluence_gateway.services.embedding import EmbeddingService
+
     return EmbeddingService(provider=embedding_provider)
 
 
@@ -489,6 +479,7 @@ def mocked_embedding_service(
     provider, _ = mocked_litellm_provider
     # Lazy import
     from confluence_gateway.services.embedding import EmbeddingService
+
     return EmbeddingService(provider=provider)
 
 
@@ -505,6 +496,7 @@ def semantic_search_service(
 
     # Lazy import
     from confluence_gateway.services.search import SearchService
+
     return SearchService(
         client=confluence_client,
         indexing_service=None,
@@ -521,6 +513,7 @@ def standard_search_service(
         return None
     # Lazy import
     from confluence_gateway.services.search import SearchService
+
     return SearchService(
         client=confluence_client,
         indexing_service=None,
@@ -551,7 +544,7 @@ def indexing_service(
 
     # Lazy import
     from confluence_gateway.services.indexing import IndexingService
-    
+
     # Reset singleton state before creating/getting instance
     IndexingService._instance = None
     IndexingService._is_running = False
@@ -580,7 +573,7 @@ def indexing_service(
             return None
 
         yield service
-        
+
         # Clean up singleton state after test
         IndexingService._instance = None
         IndexingService._is_running = False
@@ -588,7 +581,7 @@ def indexing_service(
         IndexingService._last_run_end_time = None
         IndexingService._last_run_status = "idle"
         IndexingService._last_error_message = None
-        
+
     except Exception as e:
         pytest.skip(f"Failed to initialize IndexingService fixture: {e}")
         return None
@@ -617,6 +610,7 @@ def generation_service(
     try:
         # Lazy import
         from confluence_gateway.services.generation import GenerationService
+
         service = GenerationService(
             search_service=semantic_search_service, config=generation_config
         )
@@ -726,7 +720,7 @@ def test_app_client(
         get_embedding_provider_dependency,
         get_vector_db_adapter,
     )
-    
+
     def override_get_confluence_client():
         return confluence_client
 
@@ -793,7 +787,7 @@ def test_app_client(
                 # Lazy imports
                 from confluence_gateway.services.embedding import EmbeddingService
                 from confluence_gateway.services.indexing import IndexingService
-                
+
                 current_embedding_service = EmbeddingService(
                     provider=embedding_provider
                 )
@@ -841,12 +835,16 @@ def test_app_client(
 @pytest.fixture(scope="function")
 def runner() -> CliRunner:
     return CliRunner()
+
+
 # Fixture aliases for backward compatibility
+
 
 @pytest.fixture(scope="session")
 def search_service(standard_search_service):
     """Alias for standard_search_service for backward compatibility."""
     return standard_search_service
+
 
 @pytest.fixture(scope="session")
 def api_client(test_app_client):
@@ -855,6 +853,7 @@ def api_client(test_app_client):
 
 
 # Lazy loading fixture variants for better performance
+
 
 @pytest.fixture(scope="session")
 def minimal_confluence_client(confluence_config) -> ConfluenceClient | None:
@@ -888,7 +887,7 @@ def semantic_test_setup(request):
 def lazy_embedding_provider():
     """Lazy embedding provider that only initializes when accessed."""
     _provider = None
-    
+
     def get_provider():
         nonlocal _provider
         if _provider is None:
@@ -903,13 +902,13 @@ def lazy_embedding_provider():
             from confluence_gateway.adapters.embedding.sentence_transformer import (
                 SentenceTransformerProvider,
             )
+
             _provider = SentenceTransformerProvider(config)
             _provider.initialize()
             print("INFO (pytest): Embedding provider loaded.")
         return _provider
-    
+
     yield get_provider
-    
+
     if _provider and hasattr(_provider, "close"):
         _provider.close()
-

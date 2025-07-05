@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Union
+from typing import Any
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class QdrantAdapter(VectorDBAdapter):
     def __init__(self, config: VectorDBConfig) -> None:
         self.config = config
-        self.client: Optional[QdrantClient] = None
+        self.client: QdrantClient | None = None
         logger.info(f"Initializing QdrantAdapter with config: {config.type}")
 
     def initialize(self) -> None:
@@ -151,8 +151,8 @@ class QdrantAdapter(VectorDBAdapter):
             raise RuntimeError(f"Qdrant upsert failed: {e}") from e
 
     def _translate_filters(
-        self, filters: Optional[dict[str, Any]]
-    ) -> Optional[models.Filter]:
+        self, filters: dict[str, Any] | None
+    ) -> models.Filter | None:
         if not filters:
             return None
 
@@ -172,8 +172,8 @@ class QdrantAdapter(VectorDBAdapter):
         return QdrantFilter(must=must_conditions)
 
     def _build_qdrant_filter(
-        self, filters: Optional[dict[str, Any]]
-    ) -> Optional[QdrantFilter]:
+        self, filters: dict[str, Any] | None
+    ) -> QdrantFilter | None:
         if not filters:
             return None
 
@@ -194,7 +194,7 @@ class QdrantAdapter(VectorDBAdapter):
         self,
         query_embedding: list[float],
         top_k: int,
-        filters: Optional[dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[VectorSearchResultItem]:
         client = self._ensure_client()
         collection_name = self.config.collection_name
@@ -237,8 +237,8 @@ class QdrantAdapter(VectorDBAdapter):
     def search_by_metadata(
         self,
         filters: dict[str, Any],
-        select: Optional[list[str]] = None,
-        limit: Optional[int] = None,
+        select: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         client = self._ensure_client()
         collection_name = self.config.collection_name
@@ -248,7 +248,7 @@ class QdrantAdapter(VectorDBAdapter):
             logger.warning("search_by_metadata called with empty or invalid filters.")
             return []
 
-        payload_selector: Union[PayloadSelector, bool, None]
+        payload_selector: PayloadSelector | bool | None
         if select:
             payload_selector = models.PayloadSelectorInclude(include=select)
         else:

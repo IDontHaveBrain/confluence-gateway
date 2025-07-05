@@ -4,14 +4,12 @@ from typing import TYPE_CHECKING, Any
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.exceptions import EmbeddingProviderError
 
-# Lazy loading globals
 _litellm: Any | None = None
 _litellm_available: bool | None = None
 _litellm_exceptions: Any | None = None
 _EmbeddingResponse: Any | None = None
 
 if TYPE_CHECKING:
-
     from confluence_gateway.core.config import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
@@ -31,14 +29,14 @@ def _get_litellm():
                 ServiceUnavailableError,
             )
             from litellm.utils import EmbeddingResponse
-            
+
             _litellm = litellm
             _litellm_exceptions = {
-                'APIConnectionError': APIConnectionError,
-                'AuthenticationError': AuthenticationError,
-                'BadRequestError': BadRequestError,
-                'RateLimitError': RateLimitError,
-                'ServiceUnavailableError': ServiceUnavailableError,
+                "APIConnectionError": APIConnectionError,
+                "AuthenticationError": AuthenticationError,
+                "BadRequestError": BadRequestError,
+                "RateLimitError": RateLimitError,
+                "ServiceUnavailableError": ServiceUnavailableError,
             }
             _EmbeddingResponse = EmbeddingResponse
             _litellm_available = True
@@ -75,9 +73,8 @@ class LiteLLMProvider(EmbeddingProvider):
         )
 
         try:
-            # Lazy load litellm
             litellm, litellm_exceptions, EmbeddingResponse = _get_litellm()
-            
+
             test_text = "validate provider initialization"
             logger.debug(
                 f"Performing test embedding call with model '{self.config.model_name}'..."
@@ -113,9 +110,7 @@ class LiteLLMProvider(EmbeddingProvider):
             logger.error(error_message, exc_info=True)
             raise EmbeddingProviderError(error_message) from e
 
-    def _validate_embedding_response(
-        self, response: Any, expected_count=1
-    ) -> list:
+    def _validate_embedding_response(self, response: Any, expected_count=1) -> list:
         """Validate embedding response format and structure."""
         if (
             not response.data
@@ -171,9 +166,8 @@ class LiteLLMProvider(EmbeddingProvider):
         self._check_configuration()
 
         try:
-            # Lazy load litellm
             litellm, _, _ = _get_litellm()
-            
+
             response = litellm.embedding(
                 model=self.config.model_name,
                 input=[text],
@@ -220,9 +214,8 @@ class LiteLLMProvider(EmbeddingProvider):
             )
 
         try:
-            # Lazy load litellm
             litellm, _, _ = _get_litellm()
-            
+
             response = litellm.embedding(
                 model=self.config.model_name,
                 input=valid_texts,

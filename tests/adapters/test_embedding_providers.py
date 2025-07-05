@@ -27,7 +27,6 @@ class TestSentenceTransformerProviderIntegration:
     def test_st_provider_initialization(self, st_provider: SentenceTransformerProvider):
         assert st_provider is not None
         assert st_provider.model is not None
-        # Model type check removed - it's lazy loaded now
         assert st_provider.device is not None
 
     def test_st_provider_get_dimension(self, st_provider: SentenceTransformerProvider):

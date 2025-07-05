@@ -1,12 +1,16 @@
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import typer
 
 from confluence_gateway.api.schemas.responses import SourceDocument
-from confluence_gateway.cli.common import handle_cli_errors, print_generated_answer, print_status
+from confluence_gateway.cli.common import (
+    handle_cli_errors,
+    print_generated_answer,
+    print_status,
+)
 from confluence_gateway.cli.dependencies import _get_generation_service
 from confluence_gateway.core.exceptions import (
     GenerationError,
@@ -27,14 +31,14 @@ app = typer.Typer(
 @handle_cli_errors
 def generate_answer_command(
     query: str = typer.Argument(..., help="The question to ask."),
-    top_k_retrieval: Optional[int] = typer.Option(
+    top_k_retrieval: int | None = typer.Option(
         5,
         "--top-k",
         "-k",
         help="Number of context documents to retrieve.",
         show_default=True,
     ),
-    filters: Optional[str] = typer.Option(
+    filters: str | None = typer.Option(
         None,
         "--filters",
         "-f",
@@ -46,7 +50,7 @@ def generate_answer_command(
 
     print_status("Generating answer using RAG...", "info")
 
-    parsed_filters: Optional[dict[str, Any]] = None
+    parsed_filters: dict[str, Any] | None = None
     if filters:
         try:
             parsed_filters = json.loads(filters)

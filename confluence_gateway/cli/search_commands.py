@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import typer
 
@@ -63,10 +63,10 @@ def _convert_to_search_result_items(
 @handle_cli_errors
 def text_search(
     query: str = typer.Argument(..., help="Text to search for (min 2 chars)."),
-    space_key: Optional[str] = typer.Option(
+    space_key: str | None = typer.Option(
         None, "--space", "-s", help="Filter by space key."
     ),
-    content_type: Optional[str] = typer.Option(
+    content_type: str | None = typer.Option(
         None,
         "--type",
         "-t",
@@ -75,32 +75,32 @@ def text_search(
     include_archived: bool = typer.Option(
         False, "--archived", help="Include archived content."
     ),
-    limit: Optional[int] = typer.Option(
+    limit: int | None = typer.Option(
         None, "--limit", "-l", help="Maximum number of results."
     ),
-    start: Optional[int] = typer.Option(
+    start: int | None = typer.Option(
         0, "--start", help="Starting position for pagination."
     ),
-    expand: Optional[list[str]] = typer.Option(
+    expand: list[str] | None = typer.Option(
         None, "--expand", help="Fields to expand (repeatable)."
     ),
     use_hybrid: bool = typer.Option(
         False, "--hybrid", help="Enable hybrid search (keyword + semantic + RRF)."
     ),
-    sort_by: Optional[list[str]] = typer.Option(
+    sort_by: list[str] | None = typer.Option(
         None,
         "--sort-by",
         help="Field(s) to sort by. Valid fields: title, created_at, updated_at, score, space_key. Repeatable.",
     ),
-    sort_direction: Optional[list[str]] = typer.Option(
+    sort_direction: list[str] | None = typer.Option(
         None,
         "--sort-dir",
         help="Sort direction(s) (asc, desc). Must match --sort-by count.",
     ),
-    min_relevance: Optional[float] = typer.Option(
+    min_relevance: float | None = typer.Option(
         None, "--min-relevance", help="Minimum relevance score (0.0-1.0)."
     ),
-    top_n: Optional[int] = typer.Option(
+    top_n: int | None = typer.Option(
         None, "--top-n", help="Return only the top N results after fetching."
     ),
 ):
@@ -160,13 +160,13 @@ def text_search(
 @handle_cli_errors
 def cql_search(
     cql_query: str = typer.Argument(..., help="The CQL query string."),
-    limit: Optional[int] = typer.Option(
+    limit: int | None = typer.Option(
         None, "--limit", "-l", help="Maximum number of results."
     ),
-    start: Optional[int] = typer.Option(
+    start: int | None = typer.Option(
         0, "--start", help="Starting position for pagination."
     ),
-    expand: Optional[list[str]] = typer.Option(
+    expand: list[str] | None = typer.Option(
         None, "--expand", help="Fields to expand (repeatable)."
     ),
 ):
@@ -202,7 +202,7 @@ def cql_search(
 def semantic_search(
     query: str = typer.Argument(..., help="Text query for semantic matching."),
     top_k: int = typer.Option(10, "--top-k", "-k", help="Number of results to return."),
-    filters: Optional[str] = typer.Option(
+    filters: str | None = typer.Option(
         None,
         "--filters",
         "-f",
@@ -212,7 +212,7 @@ def semantic_search(
     search_service: SearchService = _get_search_service()
     print_status("Performing Semantic Search...", "info")
 
-    parsed_filters: Optional[dict[str, Any]] = None
+    parsed_filters: dict[str, Any] | None = None
     if filters:
         try:
             parsed_filters = json.loads(filters)

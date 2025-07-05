@@ -23,7 +23,6 @@ from confluence_gateway.api.schemas.responses import (
 from confluence_gateway.core.config import search_config
 from pydantic import ValidationError
 
-
 pytestmark = pytest.mark.unit
 
 
