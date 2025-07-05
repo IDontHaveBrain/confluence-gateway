@@ -1,68 +1,90 @@
-# Confluence Dummy Data Generator
+# Confluence Test Data Generator
 
-Generate test data in Confluence for testing search capabilities (keyword, semantic, CQL, hybrid) of Confluence Gateway.
+Generate realistic test data in Confluence using real documentation from public sources or dummy content.
 
-## Installation
-
-```bash
-# From confluence-gateway root
-uv pip install -e .
-
-# Install script dependencies
-cd scripts
-uv pip install -r requirements.txt
-```
-
-## Configuration
-
-Set Confluence credentials via environment variables or `~/.confluence_gateway_config.json`:
+## Quick Start
 
 ```bash
+# 1. Setup (from confluence-gateway root)
+cd scripts && uv pip install -r requirements.txt
+
+# 2. Configure Confluence credentials
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
-export CONFLUENCE_USERNAME="your-email@example.com"
+export CONFLUENCE_USERNAME="your-email@example.com"  
 export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
+
+# 3. Collect real documentation
+python real_data_collector.py collect
+
+# 4. Generate test data in Confluence (uses real data by default)
+python generate_dummy_data.py create
 ```
 
-## Usage
+## Core Commands
 
-### Generate Test Data
+### Data Collection
 ```bash
-# Create new test data
+# Collect from all configured sources
+python real_data_collector.py collect
+
+# Collect from specific sources
+python real_data_collector.py collect --sources github,web_docs
+
+# Search collected content
+python real_data_collector.py search --category technical --min-quality 0.7
+```
+
+### Data Generation
+```bash
+# Use real documentation (default)
 python generate_dummy_data.py create
 
-# Force recreate (cleanup existing first)
-python generate_dummy_data.py create --recreate
+# Force dummy content (not recommended)
+python generate_dummy_data.py create --dummy-data
 
-# Create alongside existing data
-python generate_dummy_data.py create --no-reuse-if-exists
-
-# Dry run mode
-python generate_dummy_data.py create --dry-run
+# Additional options
+--recreate              # Clean up existing data first
+--dry-run              # Preview without creating
+--no-reuse-if-exists   # Don't reuse existing test data
 ```
 
 ### Cleanup
 ```bash
-# Clean up all spaces matching a pattern (queries Confluence directly)
+# Clean up test spaces by pattern
 python generate_dummy_data.py cleanup --pattern TESTDUM --confirm
 
 # Clean up specific space
 python generate_dummy_data.py cleanup --space-key TESTDUMTECH01011234
 ```
 
-## Generated Content
-
-- **Spaces**: TECH, API, KB, PROJECT, MULTILANG
-- **Content Types**: Technical docs, API docs, Knowledge base, Project docs, Multilingual content
-- **Attachments**: PDF, DOCX, XLSX, PNG/JPG files
-- **Search Optimization**: Content optimized for keyword, semantic, CQL, and hybrid search
-
-## Key Features
-
-- **Smart Data Reuse**: Prevents duplicate generation, reuses existing valid test data
-- **Pattern-Based Cleanup**: Query and clean up spaces directly from Confluence by pattern matching
-- **Safety Features**: Unique prefix protection, timestamp suffixes for uniqueness
-- **Flexible Configuration**: Customize page counts, content types, and attachment settings
-
 ## Configuration
 
-Customize generation in `config/dummy_data_config.yaml` - adjust page counts, content settings, attachment types, and safety options.
+### Real Data Sources (`config/real_data/sources.yaml`)
+Define sources for collecting real documentation:
+- GitHub repositories (Python, FastAPI, Django docs)
+- Web documentation sites (MDN, PostgreSQL)
+- Open datasets and tutorials
+
+### Generation Settings (`config/dummy_data_config.yaml`)
+Configure space creation and content generation:
+- Space prefixes and categories
+- Page counts and attachment settings
+- Safety features and quality thresholds
+
+## Generated Content Structure
+
+| Space | Category | Content Type |
+|-------|----------|--------------|
+| TECH | Technical Documentation | Installation guides, architecture docs, troubleshooting |
+| API | API Documentation | REST/GraphQL references, webhooks, authentication |
+| KB | Knowledge Base | How-to guides, FAQs, best practices |
+| PROJECT | Project Documentation | Planning docs, meeting notes, release notes |
+| MULTILANG | Multilingual Content | Documentation in multiple languages |
+
+## Features
+
+- **Real Data Mode**: Uses actual documentation from public sources for realistic testing
+- **Quality Scoring**: Filters content based on readability and technical depth
+- **Smart Reuse**: Detects and reuses existing test data to save time
+- **Safe Cleanup**: Pattern-based deletion with prefix protection
+- **Attachment Support**: Generates PDF, DOCX, XLSX, and image files

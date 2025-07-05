@@ -6,6 +6,7 @@ This script generates test data in Confluence for testing search capabilities
 (keyword, semantic, CQL, hybrid) of Confluence Gateway.
 """
 
+import json
 import logging
 import random
 import time
@@ -214,10 +215,16 @@ def create(
         True,
         "--reuse-if-exists/--no-reuse-if-exists",
         help="Reuse existing test data if found (default: True)"
+    ),
+    use_real_data: bool = typer.Option(
+        True,
+        "--real-data/--dummy-data",
+        help="Use real collected data instead of dummy content (default: True)"
     )
 ):
-    """Generate dummy data in Confluence"""
-    console.print("\n[bold blue]Confluence Dummy Data Generator[/bold blue]\n")
+    """Generate data in Confluence using real or dummy content"""
+    title = "Confluence Real Data Generator" if use_real_data else "Confluence Dummy Data Generator"
+    console.print(f"\n[bold blue]{title}[/bold blue]\n")
 
     config = DummyDataConfig()
     if config_file.exists():
@@ -278,6 +285,7 @@ def create(
 
     if not no_confirm and not config.safety["dry_run"]:
         console.print("\n[bold]Generation Summary:[/bold]")
+        console.print(f"• Mode: {'REAL DATA' if use_real_data else 'DUMMY DATA'}")
         console.print(f"• Prefix: {config.prefix}-{timestamp}")
         console.print(f"• Spaces: {len(config.spaces)}")
         total_pages = sum(space["pages_count"] for space in config.spaces)
@@ -290,11 +298,27 @@ def create(
     
     if config.safety["dry_run"]:
         console.print("\n[yellow]DRY RUN MODE - No data will be created[/yellow]\n")
+    
+    if use_real_data:
+        console.print("[yellow]Using REAL DATA mode - content will be sourced from collected documentation[/yellow]\n")
+        # Check if real data is available
+        real_data_index = Path("scripts/config/real_data/content_index.json")
+        if real_data_index.exists():
+            with open(real_data_index, 'r') as f:
+                index_data = json.load(f)
+                if index_data.get('total_entries', 0) == 0:
+                    console.print("[red]No real data found! Run 'python real_data_collector.py collect' first.[/red]")
+                    return
+                console.print(f"[green]Found {index_data['total_entries']} real content entries[/green]\n")
+        else:
+            console.print("[red]Real data index not found! Run 'python real_data_collector.py collect' first.[/red]")
+            return
 
-    from content_generators import ContentGenerator
-    from attachment_generators import AttachmentGenerator
+    # Import from renamed modules to avoid conflicts with directories
+    from real_content_generators import ContentGenerator, RealDataContentGenerator, DummyContentGenerator
+    from real_attachment_generators import AttachmentGenerator
 
-    content_gen = ContentGenerator(client, config)
+    content_gen = RealDataContentGenerator(client, config) if use_real_data else ContentGenerator(client, config)
     attachment_gen = AttachmentGenerator(client, config) if config.attachments["enabled"] else None
 
     stats = {
@@ -339,9 +363,17 @@ def create(
 
                             if attachment_gen and random.random() < 0.3:
                                 num_attachments = random.randint(1, config.attachments["max_per_page"])
-                                for _ in range(num_attachments):
-                                    if attachment_gen.create_attachment(page["id"], category):
-                                        stats["attachments_created"] += 1
+                                console.print(f"[dim]Creating {num_attachments} attachment(s) for page {page['title']}...[/dim]")
+                                for j in range(num_attachments):
+                                    try:
+                                        if attachment_gen.create_attachment(page["id"], category):
+                                            stats["attachments_created"] += 1
+                                            console.print(f"[green]  ✓ Attachment {j+1}/{num_attachments} uploaded successfully[/green]")
+                                        else:
+                                            console.print(f"[red]  ✗ Failed to upload attachment {j+1}/{num_attachments}[/red]")
+                                    except Exception as e:
+                                        console.print(f"[red]  ✗ Error uploading attachment {j+1}/{num_attachments}: {e}[/red]")
+                                        logger.error(f"Attachment upload error: {e}", exc_info=True)
 
                         time.sleep(0.5)
                         

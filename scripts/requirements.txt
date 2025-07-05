@@ -18,6 +18,10 @@ pillow>=10.0.0
 matplotlib>=3.7.0
 numpy>=1.24.0
 
+# Web scraping and content collection
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+
 # The following are already part of the main project:
 # atlassian-python-api
 # python-dotenv
