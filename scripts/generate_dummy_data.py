@@ -465,7 +465,7 @@ def cleanup_space(space_key: str, confirm: bool = True, force: bool = False):
                         
                     all_pages.extend(pages)
                     
-                            if len(pages) < limit:
+                    if len(pages) < limit:
                         break
                     start += limit
                     
