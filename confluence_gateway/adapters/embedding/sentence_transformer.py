@@ -1,26 +1,14 @@
 import logging
 from types import ModuleType
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.exceptions import EmbeddingProviderError
 
-torch: Optional[ModuleType] = None
-try:
-    import torch
-
-    _torch_available = True
-except ImportError:
-    _torch_available = False
-    torch = None
-
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:
-    raise ImportError(
-        "The 'sentence-transformers' library is required for SentenceTransformerProvider. "
-        "Please install it using 'pip install sentence-transformers'."
-    )
+_torch: ModuleType | None = None
+_torch_available: bool | None = None
+_sentence_transformers_available: bool | None = None
+_SentenceTransformer: Any | None = None
 
 if TYPE_CHECKING:
     from confluence_gateway.core.config import EmbeddingConfig
@@ -28,11 +16,44 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _check_torch_available() -> bool:
+    """Check if torch is available, loading it if needed."""
+    global _torch, _torch_available
+    if _torch_available is None:
+        try:
+            import torch
+
+            _torch = torch
+            _torch_available = True
+        except ImportError:
+            _torch_available = False
+            _torch = None
+    return _torch_available
+
+
+def _get_sentence_transformer_class():
+    """Get SentenceTransformer class, loading it if needed."""
+    global _SentenceTransformer, _sentence_transformers_available
+    if _SentenceTransformer is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            _SentenceTransformer = SentenceTransformer
+            _sentence_transformers_available = True
+        except ImportError:
+            _sentence_transformers_available = False
+            raise ImportError(
+                "The 'sentence-transformers' library is required for SentenceTransformerProvider. "
+                "Please install it using 'pip install sentence-transformers'."
+            )
+    return _SentenceTransformer
+
+
 class SentenceTransformerProvider(EmbeddingProvider):
     def __init__(self, config: "EmbeddingConfig") -> None:
         super().__init__(config)
-        self.model: Optional[SentenceTransformer] = None
-        self.device: Optional[str] = None
+        self.model: Any | None = None
+        self.device: str | None = None
         logger.info(
             f"SentenceTransformerProvider initialized with config: "
             f"Model='{self.config.model_name}', Dimension='{self.config.dimension}', "
@@ -41,22 +62,24 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
     def _determine_device(self) -> str:
         if not self.config.device:
-            if _torch_available and torch and torch.cuda.is_available():
-                logger.info("Auto-detected CUDA availability. Using CUDA.")
-                return "cuda"
-            else:
-                logger.info(
-                    "Auto-detection: CUDA not available or torch not installed. Using CPU."
-                )
-                return "cpu"
+            if _check_torch_available():
+                torch = _torch
+                if torch and torch.cuda.is_available():
+                    logger.info("Auto-detected CUDA availability. Using CUDA.")
+                    return "cuda"
+            logger.info(
+                "Auto-detection: CUDA not available or torch not installed. Using CPU."
+            )
+            return "cpu"
 
         if self.config.device == "cuda":
-            if not _torch_available:
+            if not _check_torch_available():
                 logger.warning(
                     "Torch library not found. Cannot use CUDA. Falling back to CPU."
                 )
                 return "cpu"
 
+            torch = _torch
             if not torch or not torch.cuda.is_available():
                 logger.warning("CUDA requested but not available. Falling back to CPU.")
                 return "cpu"
@@ -115,12 +138,24 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
 
         self.device = self._determine_device()
+
+        # Set up cache directory for model storage
+        from pathlib import Path
+
+        cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
         logger.info(
-            f"Attempting to load sentence-transformer model '{self.config.model_name}' onto device '{self.device}'..."
+            f"Attempting to load sentence-transformer model '{self.config.model_name}' onto device '{self.device}' "
+            f"with cache directory: {cache_dir}"
         )
 
         try:
-            self.model = SentenceTransformer(self.config.model_name, device=self.device)
+            # Lazy load SentenceTransformer class
+            SentenceTransformer = _get_sentence_transformer_class()
+            self.model = SentenceTransformer(
+                self.config.model_name, device=self.device, cache_folder=str(cache_dir)
+            )
             logger.info(
                 f"Successfully loaded sentence-transformer model '{self.config.model_name}'."
             )
@@ -205,21 +240,33 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
 
         try:
-            embeddings = self.model.encode(
+            embedding_tensors = self.model.encode(
                 valid_texts,
                 convert_to_numpy=False,
                 show_progress_bar=False,
-            ).tolist()
+            )
 
-            if not isinstance(embeddings, list):
-                logger.error("Model returned non-list output for batch embedding.")
+            if not isinstance(embedding_tensors, list):
+                logger.error(
+                    f"Model returned non-list output ({type(embedding_tensors).__name__}) for batch embedding when expecting list[Tensor]."
+                )
                 raise EmbeddingProviderError(
                     "Unexpected batch embedding format received from model."
                 )
 
-            return [
-                self._validate_embedding(emb, i) for i, emb in enumerate(embeddings)
-            ]
+            validated_embeddings = []
+            for i, tensor in enumerate(embedding_tensors):
+                if not (hasattr(tensor, "tolist") and callable(tensor.tolist)):
+                    logger.error(
+                        f"Item at index {i} in embedding result is not a Tensor, but {type(tensor).__name__}."
+                    )
+                    raise EmbeddingProviderError(
+                        f"Unexpected item type in batch embedding result at index {i}."
+                    )
+                embedding_list = tensor.tolist()
+                validated_embeddings.append(self._validate_embedding(embedding_list, i))
+
+            return validated_embeddings
 
         except EmbeddingProviderError:
             raise
@@ -251,11 +298,11 @@ class SentenceTransformerProvider(EmbeddingProvider):
             if (
                 self.device == "cuda"
                 and _torch_available
-                and torch
-                and hasattr(torch.cuda, "empty_cache")
+                and _torch
+                and hasattr(_torch.cuda, "empty_cache")
             ):
                 try:
-                    torch.cuda.empty_cache()
+                    _torch.cuda.empty_cache()
                     logger.debug("Cleared PyTorch CUDA cache.")
                 except Exception as e:
                     logger.warning(

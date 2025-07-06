@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Union
+from typing import Any
 
 
 class ContentParser(ABC):
     @abstractmethod
-    def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]: ...
+    def parse(self, content: str | bytes, **kwargs: Any) -> str | None: ...

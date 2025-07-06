@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import litellm
 from litellm.exceptions import (
@@ -33,7 +33,7 @@ class GenerationService:
     def __init__(
         self,
         search_service: SearchService,
-        config: Optional[GenerationConfig],
+        config: GenerationConfig | None,
     ):
         self.search_service = search_service
         self.config = config
@@ -138,7 +138,7 @@ class GenerationService:
         self,
         query: str,
         top_k_retrieval: int = 5,
-        filters: Optional[dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
     ) -> tuple[str, list[VectorSearchResultItem]]:
         if not self.config or not self.config.enable:
             logger.error(

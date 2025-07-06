@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -6,9 +6,9 @@ from confluence_gateway.core.config import search_config
 
 
 class BaseSearchRequest(BaseModel):
-    limit: Optional[int] = None
-    start: Optional[int] = None
-    expand: Optional[list[str]] = None
+    limit: int | None = None
+    start: int | None = None
+    expand: list[str] | None = None
 
     @field_validator("limit")
     def validate_limit(cls, v):
@@ -28,9 +28,9 @@ class BaseSearchRequest(BaseModel):
 
 class TextSearchRequest(BaseSearchRequest):
     query: str
-    space_key: Optional[str] = None
-    content_type: Optional[str] = None
-    include_archived: Optional[bool] = False
+    space_key: str | None = None
+    content_type: str | None = None
+    include_archived: bool | None = False
 
     @field_validator("query")
     def validate_query(cls, v):
@@ -65,7 +65,7 @@ class TextSearchRequest(BaseSearchRequest):
 
 
 class IndexingTriggerRequest(BaseModel):
-    space_keys: Optional[list[str]] = Field(
+    space_keys: list[str] | None = Field(
         None,
     )
 
@@ -106,16 +106,16 @@ class CQLSearchRequest(BaseSearchRequest):
 
 class AdvancedSearchRequest(BaseSearchRequest):
     query: str
-    space_key: Optional[str] = None
-    content_type: Optional[str] = None
-    include_archived: Optional[bool] = False
-    get_all_results: Optional[bool] = False
-    max_results: Optional[int] = None
-    min_relevance: Optional[float] = Field(None, ge=0.0, le=1.0)
-    top_n: Optional[int] = Field(None, gt=0)
-    sort_by: Optional[list[str]] = None
-    sort_direction: Optional[list[str]] = None
-    use_hybrid: Optional[bool] = Field(
+    space_key: str | None = None
+    content_type: str | None = None
+    include_archived: bool | None = False
+    get_all_results: bool | None = False
+    max_results: int | None = None
+    min_relevance: float | None = Field(None, ge=0.0, le=1.0)
+    top_n: int | None = Field(None, gt=0)
+    sort_by: list[str] | None = None
+    sort_direction: list[str] | None = None
+    use_hybrid: bool | None = Field(
         False,
         description="Enable hybrid search (keyword + semantic with RRF re-ranking)",
     )
@@ -194,7 +194,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
 class SemanticSearchRequest(BaseModel):
     query: str
     top_k: int = Field(default=10, gt=0)
-    filters: Optional[dict[str, Any]] = None
+    filters: dict[str, Any] | None = None
 
     @field_validator("query")
     def validate_query(cls, v):
@@ -217,11 +217,11 @@ class SemanticSearchRequest(BaseModel):
 
 class GenerateAnswerRequest(BaseModel):
     query: str = Field(...)
-    top_k_retrieval: Optional[int] = Field(
+    top_k_retrieval: int | None = Field(
         default=5,
         gt=0,
     )
-    filters: Optional[dict[str, Any]] = Field(
+    filters: dict[str, Any] | None = Field(
         default=None,
     )
 

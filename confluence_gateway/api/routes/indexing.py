@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
@@ -31,7 +30,7 @@ router = APIRouter()
 async def trigger_indexing(
     request: IndexingTriggerRequest,
     background_tasks: BackgroundTasks,
-    indexing_service: Optional[IndexingService] = Depends(get_indexing_service),
+    indexing_service: IndexingService | None = Depends(get_indexing_service),
 ):
     if indexing_service is None:
         logger.error("Indexing trigger failed: IndexingService is not available.")
@@ -79,7 +78,7 @@ async def trigger_indexing(
     },
 )
 async def get_indexing_status(
-    indexing_service: Optional[IndexingService] = Depends(get_indexing_service),
+    indexing_service: IndexingService | None = Depends(get_indexing_service),
 ):
     if indexing_service is None:
         return IndexingStatusResponse(

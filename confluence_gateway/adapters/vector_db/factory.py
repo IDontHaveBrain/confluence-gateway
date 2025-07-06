@@ -12,7 +12,7 @@ def get_vector_db_adapter() -> Optional["VectorDBAdapter"]:
         logger.warning("Vector DB configuration is not loaded. Cannot get adapter.")
         return None
 
-    adapter: Optional[VectorDBAdapter] = None
+    adapter: VectorDBAdapter | None = None
     adapter_type = vector_db_config.type
     logger.info(f"Attempting to get Vector DB adapter for type: {adapter_type}")
 

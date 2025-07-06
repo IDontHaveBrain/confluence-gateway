@@ -1,28 +1,52 @@
 import logging
-from typing import TYPE_CHECKING
-
-try:
-    import litellm
-    from litellm.exceptions import (
-        APIConnectionError,
-        AuthenticationError,
-        BadRequestError,
-        RateLimitError,
-        ServiceUnavailableError,
-    )
-except ImportError:
-    raise ImportError(
-        "The 'litellm' library is required for LiteLLMProvider. "
-        "Please install it using 'pip install litellm'."
-    )
+from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.exceptions import EmbeddingProviderError
+
+_litellm: Any | None = None
+_litellm_available: bool | None = None
+_litellm_exceptions: Any | None = None
+_EmbeddingResponse: Any | None = None
 
 if TYPE_CHECKING:
     from confluence_gateway.core.config import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _get_litellm():
+    """Get litellm module, loading it if needed."""
+    global _litellm, _litellm_available, _litellm_exceptions, _EmbeddingResponse
+    if _litellm is None:
+        try:
+            import litellm
+            from litellm.exceptions import (
+                APIConnectionError,
+                AuthenticationError,
+                BadRequestError,
+                RateLimitError,
+                ServiceUnavailableError,
+            )
+            from litellm.utils import EmbeddingResponse
+
+            _litellm = litellm
+            _litellm_exceptions = {
+                "APIConnectionError": APIConnectionError,
+                "AuthenticationError": AuthenticationError,
+                "BadRequestError": BadRequestError,
+                "RateLimitError": RateLimitError,
+                "ServiceUnavailableError": ServiceUnavailableError,
+            }
+            _EmbeddingResponse = EmbeddingResponse
+            _litellm_available = True
+        except ImportError:
+            _litellm_available = False
+            raise ImportError(
+                "The 'litellm' library is required for LiteLLMProvider. "
+                "Please install it using 'pip install litellm'."
+            )
+    return _litellm, _litellm_exceptions, _EmbeddingResponse
 
 
 class LiteLLMProvider(EmbeddingProvider):
@@ -49,6 +73,8 @@ class LiteLLMProvider(EmbeddingProvider):
         )
 
         try:
+            litellm, litellm_exceptions, EmbeddingResponse = _get_litellm()
+
             test_text = "validate provider initialization"
             logger.debug(
                 f"Performing test embedding call with model '{self.config.model_name}'..."
@@ -79,19 +105,12 @@ class LiteLLMProvider(EmbeddingProvider):
                     f"Test embedding validation failed: {str(e)}"
                 )
 
-        except (
-            AuthenticationError,
-            APIConnectionError,
-            BadRequestError,
-            RateLimitError,
-            ServiceUnavailableError,
-            Exception,
-        ) as e:
+        except Exception as e:
             error_message = f"Failed to initialize LiteLLM provider for model '{self.config.model_name}'. Error: {type(e).__name__}: {e}"
             logger.error(error_message, exc_info=True)
             raise EmbeddingProviderError(error_message) from e
 
-    def _validate_embedding_response(self, response, expected_count=1):
+    def _validate_embedding_response(self, response: Any, expected_count=1) -> list:
         """Validate embedding response format and structure."""
         if (
             not response.data
@@ -105,7 +124,7 @@ class LiteLLMProvider(EmbeddingProvider):
 
         return response.data
 
-    def _extract_embedding_from_item(self, item, index=None):
+    def _extract_embedding_from_item(self, item: dict, index=None) -> list[float]:
         """Extract and validate a single embedding from a response item."""
         index_info = f" at index {index}" if index is not None else ""
 
@@ -147,6 +166,8 @@ class LiteLLMProvider(EmbeddingProvider):
         self._check_configuration()
 
         try:
+            litellm, _, _ = _get_litellm()
+
             response = litellm.embedding(
                 model=self.config.model_name,
                 input=[text],
@@ -193,6 +214,8 @@ class LiteLLMProvider(EmbeddingProvider):
             )
 
         try:
+            litellm, _, _ = _get_litellm()
+
             response = litellm.embedding(
                 model=self.config.model_name,
                 input=valid_texts,

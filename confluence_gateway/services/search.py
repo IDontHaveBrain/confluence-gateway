@@ -2,9 +2,10 @@ import functools
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional, TypeVar, Union
+from typing import Any, TypeVar, Union
 
 from llama_index.core import VectorStoreIndex
 from pydantic import BaseModel, Field
@@ -61,9 +62,9 @@ class SearchStatistics(BaseModel):
 class EnhancedSearchResult(BaseModel):
     results: SearchResult
     statistics: SearchStatistics
-    query: Optional[str] = None
-    filters_applied: Optional[dict[str, Any]] = None
-    sort_criteria: Optional[list[dict[str, str]]] = None
+    query: str | None = None
+    filters_applied: dict[str, Any] | None = None
+    sort_criteria: list[dict[str, str]] | None = None
 
     def to_standard_result(self) -> SearchResult:
         return self.results
@@ -100,15 +101,15 @@ class SearchService:
     def __init__(
         self,
         client: ConfluenceClient,
-        indexing_service: Optional[IndexingService] = None,
-        embedding_service: Optional[EmbeddingService] = None,
-        vector_db_adapter: Optional[VectorDBAdapter] = None,
+        indexing_service: IndexingService | None = None,
+        embedding_service: EmbeddingService | None = None,
+        vector_db_adapter: VectorDBAdapter | None = None,
     ):
         self.client = client
         self.indexing_service = indexing_service
         self.embedding_service = embedding_service
         self.vector_db_adapter = vector_db_adapter
-        self.vector_index: Optional[VectorStoreIndex] = None
+        self.vector_index: VectorStoreIndex | None = None
 
         if self.indexing_service:
             logger.info("SearchService initialized with IndexingService.")
@@ -131,9 +132,9 @@ class SearchService:
 
     def _prepare_sort_criteria(
         self,
-        sort_by: Optional[list[Union[SortField, str]]],
-        sort_direction: Optional[list[Union[SortDirection, str]]],
-    ) -> Optional[list[dict[str, str]]]:
+        sort_by: list[SortField | str] | None,
+        sort_direction: list[SortDirection | str] | None,
+    ) -> list[dict[str, str]] | None:
         if not sort_by:
             return None
 
@@ -161,7 +162,7 @@ class SearchService:
 
         return sort_criteria
 
-    def _sanitize_keywords(self, keywords: Union[str, list[str]]) -> str:
+    def _sanitize_keywords(self, keywords: str | list[str]) -> str:
         if isinstance(keywords, str):
             return self._sanitize_text(keywords)
 
@@ -174,19 +175,19 @@ class SearchService:
     @validate_search_params
     def search_by_text(
         self,
-        text: Union[str, list[str]],
-        content_type: Optional[Union[ContentType, str]] = None,
-        space_key: Optional[str] = None,
+        text: str | list[str],
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
         include_archived: bool = False,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
         min_relevance: float = 0.0,
-        top_n: Optional[int] = None,
-        sort_by: Optional[list[Union[SortField, str]]] = None,
-        sort_direction: Optional[list[Union[SortDirection, str]]] = None,
+        top_n: int | None = None,
+        sort_by: list[SortField | str] | None = None,
+        sort_direction: list[SortDirection | str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
         sanitized_text = self._sanitize_keywords(text)
@@ -269,9 +270,9 @@ class SearchService:
         self,
         result: SearchResult,
         execution_time_ms: float = 0,
-        query: Optional[str] = None,
-        filters: Optional[dict[str, Any]] = None,
-        sort_criteria: Optional[list[dict[str, str]]] = None,
+        query: str | None = None,
+        filters: dict[str, Any] | None = None,
+        sort_criteria: list[dict[str, str]] | None = None,
         current_page: int = 1,
     ) -> EnhancedSearchResult:
         items_per_page = result.limit or search_config.default_limit
@@ -301,7 +302,7 @@ class SearchService:
         return enhanced_result
 
     def _filter_by_relevance(
-        self, results: SearchResult, min_score: float = 0.0, top_n: Optional[int] = None
+        self, results: SearchResult, min_score: float = 0.0, top_n: int | None = None
     ) -> SearchResult:
         filtered_results = list(results.results)
 
@@ -318,8 +319,8 @@ class SearchService:
     def _sort_results(
         self,
         results: SearchResult,
-        sort_fields: list[Union[SortField, str]],
-        directions: Optional[list[Union[SortDirection, str]]] = None,
+        sort_fields: list[SortField | str],
+        directions: list[SortDirection | str] | None = None,
     ) -> SearchResult:
         if not results.results or not sort_fields:
             return results
@@ -391,7 +392,7 @@ class SearchService:
         self,
         query: str,
         top_k: int = 10,
-        filters: Optional[dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
     ) -> tuple[list[VectorSearchResultItem], float]:
         if not self.embedding_service:
             logger.error(
@@ -471,14 +472,14 @@ class SearchService:
     def search_by_cql(
         self,
         cql: str,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
-        top_n: Optional[int] = None,
-        sort_by: Optional[list[Union[SortField, str]]] = None,
-        sort_direction: Optional[list[Union[SortDirection, str]]] = None,
+        max_results: int | None = None,
+        top_n: int | None = None,
+        sort_by: list[SortField | str] | None = None,
+        sort_direction: list[SortDirection | str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
         if not cql or not cql.strip():
@@ -574,13 +575,13 @@ class SearchService:
     @validate_search_params
     def search_hybrid(
         self,
-        text: Union[str, list[str]],
-        content_type: Optional[Union[ContentType, str]] = None,
-        space_key: Optional[str] = None,
+        text: str | list[str],
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
         include_archived: bool = False,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
         if not search_config.hybrid_search_enabled:
@@ -595,7 +596,7 @@ class SearchService:
         actual_expand = expand if expand is not None else search_config.default_expand
         start_time = time.time()
 
-        search_result_kw: Optional[SearchResult] = None
+        search_result_kw: SearchResult | None = None
         keyword_ranks: dict[str, int] = {}
         try:
             logger.info(

@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 
 from llama_index.core.node_parser import SentenceSplitter
 
@@ -17,7 +18,6 @@ from confluence_gateway.adapters.vector_db import (
     Document,
     VectorDBAdapter,
 )
-from confluence_gateway.adapters.vector_db.factory import get_vector_db_adapter
 from confluence_gateway.core.config import (
     IndexingConfig,
     SearchConfig,
@@ -45,10 +45,10 @@ class IndexingService:
     _lock = threading.Lock()
 
     _is_running: bool = False
-    _last_run_start_time: Optional[datetime] = None
-    _last_run_end_time: Optional[datetime] = None
+    _last_run_start_time: datetime | None = None
+    _last_run_end_time: datetime | None = None
     _last_run_status: Literal["idle", "running", "success", "failure"] = "idle"
-    _last_error_message: Optional[str] = None
+    _last_error_message: str | None = None
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -62,39 +62,41 @@ class IndexingService:
         confluence_client: ConfluenceClient,
         indexing_config: IndexingConfig,
         search_config: SearchConfig,
-        vector_db_config: Optional[VectorDBConfig],
-        embedding_service: Optional[EmbeddingService] = None,
+        embedding_service: EmbeddingService | None = None,
+        vector_db_adapter: VectorDBAdapter | None = None,
     ):
         self.confluence_client = confluence_client
         self.indexing_config = indexing_config
         self.search_config = search_config
-        self.vector_db_config = vector_db_config
         self.embedding_service = embedding_service
-        self.vector_db_adapter: Optional[VectorDBAdapter] = None
-        self.text_splitter: Optional[SentenceSplitter] = None
-        self.html_parser: Optional[ContentParser] = None
-        self.attachment_parser: Optional[ContentParser] = None
+        self.vector_db_adapter: VectorDBAdapter | None = vector_db_adapter
+        self.vector_db_config: VectorDBConfig | None = None
+        self.text_splitter: SentenceSplitter | None = None
+        self.html_parser: ContentParser | None = None
+        self.attachment_parser: ContentParser | None = None
 
-        if self.vector_db_config and self.vector_db_config.type != "none":
-            self.vector_db_adapter = get_vector_db_adapter()
-            if self.vector_db_adapter:
+        if self.vector_db_adapter:
+            adapter_config = getattr(self.vector_db_adapter, "config", None)
+            if isinstance(adapter_config, VectorDBConfig):
+                self.vector_db_config = adapter_config
+                adapter_type = self.vector_db_config.type
                 logger.info(
-                    f"IndexingService initialized with Vector DB Adapter: {self.vector_db_config.type}"
+                    f"IndexingService initialized with provided Vector DB Adapter: Type='{adapter_type}'"
                 )
                 self.text_splitter = SentenceSplitter(
                     chunk_size=self.vector_db_config.chunk_size,
                     chunk_overlap=self.vector_db_config.chunk_overlap,
                 )
                 logger.info(
-                    f"Initialized SentenceSplitter with chunk_size={self.vector_db_config.chunk_size}, chunk_overlap={self.vector_db_config.chunk_overlap}"
+                    f"Initialized SentenceSplitter using adapter's config: chunk_size={self.vector_db_config.chunk_size}, chunk_overlap={self.vector_db_config.chunk_overlap}"
                 )
             else:
                 logger.warning(
-                    "Vector DB configured but adapter initialization failed. Indexing disabled."
+                    "Vector DB Adapter provided to IndexingService, but its configuration could not be accessed. Cannot initialize SentenceSplitter."
                 )
         else:
             logger.warning(
-                "IndexingService initialized WITHOUT Vector DB Adapter (disabled or config error)."
+                "IndexingService initialized WITHOUT Vector DB Adapter (adapter not provided)."
             )
 
         if self.embedding_service:
@@ -270,7 +272,7 @@ class IndexingService:
     def _create_chunk_metadata(
         self,
         *,
-        content_object: Union[ConfluencePage, ConfluenceAttachment],
+        content_object: ConfluencePage | ConfluenceAttachment,
         document_type: str,
         chunk_sequence_number: int,
     ) -> dict[str, Any]:
@@ -311,7 +313,7 @@ class IndexingService:
         self,
         attachment: ConfluenceAttachment,
         parent_page_id: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         attachment_id = attachment.id
         filename = attachment.title
         logger.info(
@@ -409,10 +411,10 @@ class IndexingService:
 
     def _process_page(
         self, page_summary: ConfluencePage
-    ) -> tuple[Optional[ConfluencePage], Optional[str]]:
+    ) -> tuple[ConfluencePage | None, str | None]:
         page_id = page_summary.id
         logger.info(f"Processing page ID: {page_id}, Title: '{page_summary.title}'")
-        page_details: Optional[ConfluencePage] = None
+        page_details: ConfluencePage | None = None
 
         try:
             logger.debug(f"Fetching full details for page {page_id}...")
@@ -458,7 +460,7 @@ class IndexingService:
 
     def index_content(
         self,
-        content_object: Union[ConfluencePage, ConfluenceAttachment],
+        content_object: ConfluencePage | ConfluenceAttachment,
         text_content: str,
     ) -> None:
         content_id = content_object.id
@@ -538,15 +540,17 @@ class IndexingService:
                 )
                 continue
 
-            chunk_id = f"{content_id}_chunk_{i}"
+            chunk_uuid = str(uuid.uuid4())
             chunk_metadata = self._create_chunk_metadata(
                 content_object=content_object,
                 document_type=document_type,
                 chunk_sequence_number=i,
             )
+            if "original_content_id" not in chunk_metadata:
+                chunk_metadata["original_content_id"] = content_id
 
             doc = Document(
-                id=chunk_id,
+                id=chunk_uuid,
                 text=chunk_text,
                 embedding=embedding,
                 metadata=chunk_metadata,
@@ -596,7 +600,7 @@ class IndexingService:
             )
 
     def _should_index_content(
-        self, content_object: Union[ConfluencePage, ConfluenceAttachment]
+        self, content_object: ConfluencePage | ConfluenceAttachment
     ) -> tuple[bool, bool]:
         content_id = content_object.id
         doc_type = (
@@ -744,7 +748,7 @@ class IndexingService:
                 exc_info=True,
             )
 
-    async def run_indexing(self, space_keys: Optional[list[str]] = None) -> None:
+    async def run_indexing(self, space_keys: list[str] | None = None) -> None:
         with self._lock:
             if self._is_running:
                 logger.warning("Indexing is already running. Skipping new trigger.")
@@ -778,7 +782,7 @@ class IndexingService:
                     self._last_run_status = "failure"
                     self._last_error_message = "Indexing finished unexpectedly without success or failure status."
 
-    def _run_indexing_sync(self, space_keys: Optional[list[str]] = None) -> None:
+    def _run_indexing_sync(self, space_keys: list[str] | None = None) -> None:
         logger.info("Background indexing thread started.")
 
         if not self.vector_db_adapter or not self.embedding_service:
@@ -830,7 +834,7 @@ class IndexingService:
                 )
                 processed_content_ids_in_space.add(page_id)
 
-                page_details_for_check: Optional[ConfluencePage] = None
+                page_details_for_check: ConfluencePage | None = None
                 try:
                     page_details_for_check = self.confluence_client.get_page(
                         page_id,
@@ -860,7 +864,7 @@ class IndexingService:
                     page_details_for_check
                 )
 
-                page_details_full: Optional[ConfluencePage] = None
+                page_details_full: ConfluencePage | None = None
 
                 if should_index_page:
                     logger.info(f"Page {page_id}: Processing required.")

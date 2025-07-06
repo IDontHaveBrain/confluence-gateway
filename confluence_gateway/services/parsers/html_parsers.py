@@ -1,21 +1,24 @@
+import io
 import logging
+from collections.abc import Callable
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.services.parsers.base import ContentParser
 
-markitdown_module: Optional[ModuleType] = None
-MarkItDownClass: Optional[Any] = None
+markitdown_module: ModuleType | None = None
+MarkItDownClass: Any | None = None
 try:
     from markitdown import MarkItDown
+    from markitdown._stream_info import StreamInfo
 
     MarkItDownClass = MarkItDown
 except ImportError:
     MarkItDownClass = None
 
 
-partition_html: Optional[Callable[..., list[Any]]] = None
-clean_extra_whitespace: Optional[Callable[[str], str]] = None
+partition_html: Callable[..., list[Any]] | None = None
+clean_extra_whitespace: Callable[[str], str] | None = None
 try:
     from unstructured.cleaners.core import clean_extra_whitespace
     from unstructured.partition.html import partition_html
@@ -32,7 +35,7 @@ if TYPE_CHECKING:
 
 
 class MarkitdownHtmlParser(ContentParser):
-    def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]:
+    def parse(self, content: str | bytes, **kwargs: Any) -> str | None:
         if MarkItDownClass is None:
             logger.error(
                 "Markitdown library not installed or MarkItDown class not found. "
@@ -46,7 +49,10 @@ class MarkitdownHtmlParser(ContentParser):
 
         try:
             converter = MarkItDownClass()
-            result = converter.convert(content)
+            html_bytes = content.encode("utf-8")
+            html_stream = io.BytesIO(html_bytes)
+            stream_info = StreamInfo(mimetype="text/html", charset="utf-8")
+            result = converter.convert(html_stream, stream_info=stream_info)
             extracted_text = " ".join(result.markdown.split())
             logger.debug("Successfully extracted text using markitdown")
             return extracted_text if extracted_text else None
@@ -56,7 +62,7 @@ class MarkitdownHtmlParser(ContentParser):
 
 
 class UnstructuredHtmlParser(ContentParser):
-    def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]:
+    def parse(self, content: str | bytes, **kwargs: Any) -> str | None:
         if partition_html is None:
             logger.error(
                 "Unstructured library not installed or partition_html not found. "

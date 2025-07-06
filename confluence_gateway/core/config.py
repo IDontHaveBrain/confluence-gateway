@@ -3,7 +3,7 @@ import logging
 import os
 import platform
 from pathlib import Path
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import (
     BaseModel,
@@ -15,6 +15,11 @@ from pydantic import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_EMBEDDING_PROVIDER_TYPE = "sentence-transformers"
+DEFAULT_EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+DEFAULT_EMBEDDING_DIMENSION = 384
+DEFAULT_EMBEDDING_DEVICE = "cpu"
 
 
 class ConfluenceConfig(BaseModel):
@@ -29,7 +34,7 @@ class SearchConfig(BaseModel):
     max_limit: int = 100
     default_expand: list[str] = ["body.view", "space"]
 
-    hybrid_search_enabled: bool = False
+    hybrid_search_enabled: bool = True
     hybrid_keyword_fetch_limit: int = Field(default=50, gt=0)
     hybrid_semantic_fetch_limit: int = Field(default=50, gt=0)
     hybrid_rrf_k: int = Field(default=60, gt=0)
@@ -37,11 +42,11 @@ class SearchConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     provider: Literal["sentence-transformers", "litellm", "none"] = "none"
-    model_name: Optional[str] = None
-    dimension: Optional[int] = None
-    litellm_api_key: Optional[str] = Field(default=None, exclude=True)
-    litellm_api_base: Optional[HttpUrl] = None
-    device: Optional[Literal["cpu", "cuda"]] = None
+    model_name: str | None = None
+    dimension: int | None = None
+    litellm_api_key: str | None = Field(default=None, exclude=True)
+    litellm_api_base: HttpUrl | None = None
+    device: Literal["cpu", "cuda"] | None = None
 
     @model_validator(mode="after")
     def check_conditional_requirements(self) -> "EmbeddingConfig":
@@ -80,12 +85,12 @@ VectorDBType = Literal["chroma", "qdrant", "none"]
 
 
 class IndexingConfig(BaseModel):
-    include_spaces: Optional[list[str]] = None
-    exclude_spaces: Optional[list[str]] = None
+    include_spaces: list[str] | None = None
+    exclude_spaces: list[str] | None = None
     html_parser: Literal["markitdown", "unstructured"] = "markitdown"
     include_attachments: bool = False
     max_attachment_size_mb: int = Field(default=10, ge=0)
-    allowed_attachment_extensions: Optional[list[str]] = [
+    allowed_attachment_extensions: list[str] | None = [
         "pdf",
         "docx",
         "pptx",
@@ -145,14 +150,14 @@ def _load_config_from_file(path: Path) -> dict[str, Any]:
 class VectorDBConfig(BaseModel):
     type: VectorDBType = "none"
     collection_name: str = "confluence_embeddings"
-    embedding_dimension: Optional[int] = None
+    embedding_dimension: int | None = None
     chunk_size: int = 512
     chunk_overlap: int = 50
-    chroma_persist_path: Optional[str] = None
-    chroma_host: Optional[str] = None
-    chroma_port: Optional[int] = None
-    qdrant_url: Optional[Union[HttpUrl, Literal[":memory:"]]] = None
-    qdrant_api_key: Optional[str] = None
+    chroma_persist_path: str | None = None
+    chroma_host: str | None = None
+    chroma_port: int | None = None
+    qdrant_url: HttpUrl | Literal[":memory:"] | None = None
+    qdrant_api_key: str | None = None
     qdrant_grpc_port: int = 6334
     qdrant_prefer_grpc: bool = False
 
@@ -176,9 +181,9 @@ class VectorDBConfig(BaseModel):
 class GenerationConfig(BaseModel):
     enable: bool = False
     provider: Literal["litellm"] = "litellm"
-    model_name: Optional[str] = None
-    litellm_api_key: Optional[str] = Field(default=None, exclude=True)
-    litellm_api_base: Optional[HttpUrl] = None
+    model_name: str | None = None
+    litellm_api_key: str | None = Field(default=None, exclude=True)
+    litellm_api_base: HttpUrl | None = None
     prompt_template: str = "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
     max_context_tokens: int = Field(default=3000, gt=0)
     max_output_tokens: int = Field(default=500, gt=0)
@@ -242,16 +247,10 @@ def _load_raw_search_env() -> dict[str, Any]:
 
 
 def _load_raw_confluence_env() -> dict[str, Any]:
-    confluence_env = _load_raw_env_vars("CONFLUENCE_")
-
-    if "timeout" in confluence_env and isinstance(confluence_env["timeout"], str):
-        try:
-            confluence_env["timeout"] = int(confluence_env["timeout"])
-        except ValueError:
-            logger.warning("Invalid CONFLUENCE_TIMEOUT value, using default.")
-            del confluence_env["timeout"]
-
-    return confluence_env
+    validations = {
+        "timeout": int,
+    }
+    return _load_env_with_validation("CONFLUENCE_", validations)
 
 
 def _load_raw_vector_db_env() -> dict[str, Any]:
@@ -310,30 +309,46 @@ def _load_env_with_validation(
     if not validations:
         return raw_config
 
-    for key, validator in validations.items():
-        if key not in raw_config:
+    keys_to_process = list(raw_config.keys())
+
+    for key in keys_to_process:
+        if key not in validations:
             continue
 
+        validator = validations[key]
         value = raw_config[key]
 
         if isinstance(validator, type):
             try:
                 if validator is int:
                     raw_config[key] = int(value)
+                elif validator is float:
+                    raw_config[key] = float(value)
                 elif validator is bool and isinstance(value, str):
                     raw_config[key] = value.lower() in ["true", "1", "t", "yes", "y"]
             except ValueError:
-                pass
+                logger.warning(
+                    f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
+                    f"Expected {validator.__name__}. Using default or ignoring."
+                )
+                del raw_config[key]
 
-        elif isinstance(validator, list):
+        elif isinstance(validator, tuple) and all(
+            isinstance(t, type) for t in validator
+        ):
             if isinstance(value, str) and value.lower() not in [
                 str(v).lower() for v in validator
             ]:
                 logger.warning(
-                    f"Invalid {prefix}{key} '{value}' in environment. Using default."
+                    f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
+                    f"Expected one of: {', '.join(map(str, validator))}. Using default or ignoring."
                 )
+                del raw_config[key]
             elif isinstance(value, str):
-                raw_config[key] = value.lower()
+                for literal_val in validator:
+                    if str(literal_val).lower() == value.lower():
+                        raw_config[key] = literal_val
+                        break
 
         elif validator == "comma_list" and isinstance(value, str):
             raw_config[key] = [s.strip() for s in value.split(",") if s.strip()]
@@ -409,12 +424,12 @@ def _load_raw_generation_env() -> dict[str, Any]:
 
 
 def load_configurations() -> tuple[
-    Optional[ConfluenceConfig],
+    ConfluenceConfig | None,
     SearchConfig,
-    Optional[VectorDBConfig],
-    Optional[EmbeddingConfig],
+    VectorDBConfig | None,
+    EmbeddingConfig | None,
     IndexingConfig,
-    Optional["GenerationConfig"],
+    GenerationConfig | None,
 ]:
     user_config_path = get_user_config_path()
     file_config = _load_config_from_file(user_config_path)
@@ -433,25 +448,26 @@ def load_configurations() -> tuple[
     file_indexing = file_config.get("indexing", {})
     file_generation = file_config.get("generation", {})
 
-    final_confluence_config = env_confluence_raw.copy()
-    final_confluence_config.update(file_confluence)
+    final_confluence_config = file_confluence.copy()
+    final_confluence_config.update(env_confluence_raw)
 
-    final_search_config = env_search_raw.copy()
-    final_search_config.update(file_search)
+    final_search_config = file_search.copy()
+    final_search_config.update(env_search_raw)
 
-    final_vector_db_config = env_vector_db_raw.copy()
-    final_vector_db_config.update(file_vector_db)
+    final_vector_db_config = file_vector_db.copy()
+    final_vector_db_config.update(env_vector_db_raw)
 
-    final_embedding_config = env_embedding_raw.copy()
-    final_embedding_config.update(file_embedding)
+    final_embedding_config = file_embedding.copy()
+    final_embedding_config.update(env_embedding_raw)
+    user_embedding_config_provided = bool(final_embedding_config)
 
-    final_indexing_config = env_indexing_raw.copy()
-    final_indexing_config.update(file_indexing)
+    final_indexing_config = file_indexing.copy()
+    final_indexing_config.update(env_indexing_raw)
 
-    final_generation_config = env_generation_raw.copy()
-    final_generation_config.update(file_generation)
+    final_generation_config = file_generation.copy()
+    final_generation_config.update(env_generation_raw)
 
-    loaded_confluence_config: Optional[ConfluenceConfig] = None
+    loaded_confluence_config: ConfluenceConfig | None = None
     required_confluence_fields = ["url", "username", "api_token"]
     if all(field in final_confluence_config for field in required_confluence_fields):
         try:
@@ -470,11 +486,15 @@ def load_configurations() -> tuple[
         logger.error(f"Invalid Search configuration: {e}. Using defaults.")
         loaded_search_config = SearchConfig()
 
-    loaded_embedding_config: Optional[EmbeddingConfig] = None
-    if final_embedding_config:
+    loaded_embedding_config: EmbeddingConfig | None = None
+    embedding_load_error = False
+
+    if user_embedding_config_provided:
         if "provider" not in final_embedding_config:
             final_embedding_config["provider"] = "none"
-            logger.info("Embedding provider type missing, defaulting to 'none'.")
+            logger.info(
+                "Embedding provider type missing in provided config, defaulting to 'none'."
+            )
 
         try:
             filtered_emb_config = {
@@ -489,13 +509,42 @@ def load_configurations() -> tuple[
             config_instance = EmbeddingConfig(**filtered_emb_config)
             if config_instance.provider != "none":
                 loaded_embedding_config = config_instance
+                logger.info(
+                    f"Loaded user-provided Embedding configuration (Provider: {config_instance.provider})."
+                )
             else:
-                logger.info("Embedding provider is disabled (provider='none').")
+                logger.info(
+                    "User configuration explicitly disabled embeddings (provider='none')."
+                )
 
         except (ValidationError, ValueError) as e:
-            logger.error(f"Invalid Embedding configuration: {e}")
-    else:
-        logger.info("No Embedding configuration found. Embedding features disabled.")
+            logger.error(f"Invalid user-provided Embedding configuration: {e}")
+            embedding_load_error = True
+
+    if not user_embedding_config_provided and not embedding_load_error:
+        logger.info(
+            "No user Embedding configuration provided. Applying default: "
+            f"Provider='{DEFAULT_EMBEDDING_PROVIDER_TYPE}', Model='{DEFAULT_EMBEDDING_MODEL_NAME}'"
+        )
+        try:
+            loaded_embedding_config = EmbeddingConfig(
+                provider=DEFAULT_EMBEDDING_PROVIDER_TYPE,
+                model_name=DEFAULT_EMBEDDING_MODEL_NAME,
+                dimension=DEFAULT_EMBEDDING_DIMENSION,
+                device=DEFAULT_EMBEDDING_DEVICE,
+            )
+        except (ValidationError, ValueError) as e:
+            logger.error(f"Failed to create default Embedding configuration: {e}")
+
+    elif loaded_embedding_config is None:
+        if embedding_load_error:
+            logger.warning(
+                "Embedding features disabled due to invalid user configuration."
+            )
+        elif user_embedding_config_provided:
+            logger.info(
+                "Embedding features disabled as per user configuration (provider='none')."
+            )
 
     if loaded_embedding_config and loaded_embedding_config.dimension is not None:
         vdb_type = final_vector_db_config.get("type", "none")
@@ -517,7 +566,7 @@ def load_configurations() -> tuple[
                 f"differs from EMBEDDING_DIMENSION ({loaded_embedding_config.dimension}). Using the VectorDB specific value."
             )
 
-    loaded_vector_db_config: Optional[VectorDBConfig] = None
+    loaded_vector_db_config: VectorDBConfig | None = None
     if final_vector_db_config:
         if "type" not in final_vector_db_config:
             final_vector_db_config["type"] = "none"
@@ -548,7 +597,7 @@ def load_configurations() -> tuple[
         logger.error(f"Invalid Indexing configuration: {e}. Using defaults.")
         loaded_indexing_config = IndexingConfig()
 
-    loaded_generation_config: Optional[GenerationConfig] = None
+    loaded_generation_config: GenerationConfig | None = None
     if final_generation_config:
         if "enable" not in final_generation_config:
             final_generation_config["enable"] = False
