@@ -162,9 +162,7 @@ async def search_content(
         None, description="Filter by content type (page, blogpost, attachment, comment)"
     ),
     include_archived: bool = Query(False, description="Include archived content"),
-    limit: int | None = Query(
-        None, description="Maximum number of results to return"
-    ),
+    limit: int | None = Query(None, description="Maximum number of results to return"),
     start: int | None = Query(0, description="Starting position for pagination"),
     expand: list[str] | None = Query(
         None, description="Fields to expand in the response"

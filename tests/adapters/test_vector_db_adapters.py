@@ -18,7 +18,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.semantic]
 def adapter(vector_db_adapter: VectorDBAdapter) -> VectorDBAdapter:
     if not vector_db_adapter:
         pytest.skip("Vector DB adapter fixture not available.")
-    print(f"\nINFO: Using Vector DB Adapter: {type(vector_db_adapter).__name__}")
     return vector_db_adapter
 
 
@@ -50,7 +49,6 @@ def test_adapter_count_initial(
     adapter: VectorDBAdapter, SEMANTIC_TEST_DOCS: list[dict], index_semantic_test_data
 ):
     initial_count = adapter.count()
-    print(f"\nINFO: Initial document count: {initial_count}")
     assert initial_count >= len(SEMANTIC_TEST_DOCS)
 
 
@@ -186,11 +184,14 @@ def test_adapter_search_by_metadata(
     assert list(results_select[0].keys()) == ["id", select_key]
 
 
-@pytest.mark.skipif(
-    not hasattr(pytest.lazy_fixture("vector_db_adapter"), "retrieve_by_ids"),
-    reason="Adapter does not support retrieve_by_ids",
-)
 def test_adapter_retrieve_by_ids(adapter: VectorDBAdapter, embed_svc: EmbeddingService):
+    """Test retrieve_by_ids functionality - only supported by Qdrant adapter."""
+    if not hasattr(adapter, "retrieve_by_ids"):
+        pytest.skip(f"{type(adapter).__name__} does not support retrieve_by_ids")
+
+    if isinstance(adapter, ChromaDBAdapter):
+        pytest.skip("ChromaDB adapter does not support retrieve_by_ids")
+
     doc_to_retrieve = create_test_doc(
         embed_svc, "Document to retrieve by ID.", {"source": "retrieve_test"}
     )
@@ -200,7 +201,7 @@ def test_adapter_retrieve_by_ids(adapter: VectorDBAdapter, embed_svc: EmbeddingS
     retrieved = adapter.retrieve_by_ids(ids=[doc_to_retrieve.id])
     assert len(retrieved) == 1
     assert str(retrieved[0].id) == doc_to_retrieve.id
-    assert retrieved[0].payload["metadata"]["source"] == "retrieve_test"
+    assert retrieved[0].payload["source"] == "retrieve_test"
 
     retrieved_non_existent = adapter.retrieve_by_ids(ids=["non_existent_id"])
     assert len(retrieved_non_existent) == 0

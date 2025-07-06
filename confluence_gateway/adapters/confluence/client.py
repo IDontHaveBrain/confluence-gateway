@@ -306,9 +306,7 @@ class ConfluenceClient:
                 ) from e
             raise ConfluenceAPIError(error_message=str(e)) from e
 
-    def get_page(
-        self, page_id: str, expand: list[str] | None = None
-    ) -> ConfluencePage:
+    def get_page(self, page_id: str, expand: list[str] | None = None) -> ConfluencePage:
         expand_str = "body.view,body.storage,space,version,metadata,children.page,children.attachment,history,ancestors"
         if expand:
             expand_str = ",".join(expand)

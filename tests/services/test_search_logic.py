@@ -26,9 +26,13 @@ class TestSearchServiceHybridLogic:
         search_config.hybrid_search_enabled = original_value
 
     def test_hybrid_search_rrf_ranking(
-        self, semantic_search_service: SearchService, mocker
+        self,
+        semantic_search_service: SearchService,
+        real_content_samples: list[dict],
+        mocker,
     ):
         query = "test query"
+
         mock_kw_page1 = create_mock_search_page("page1", "Keyword Match 1")
         mock_kw_page2 = create_mock_search_page("page2", "Keyword Match 2")
         mock_kw_page_shared = create_mock_search_page("shared", "Shared Document")
@@ -91,10 +95,13 @@ class TestSearchServiceHybridLogic:
         )
 
     def test_hybrid_search_disabled(
-        self, semantic_search_service: SearchService, mocker
+        self,
+        semantic_search_service: SearchService,
+        real_search_terms: list[str],
+        mocker,
     ):
         search_config.hybrid_search_enabled = False
-        query = "test query"
+        query = real_search_terms[0] if real_search_terms else "test query"
         mocker.patch.object(semantic_search_service.client, "search")
         mocker.patch.object(semantic_search_service, "search_semantic")
         with pytest.raises(Exception, match="Hybrid search is disabled"):

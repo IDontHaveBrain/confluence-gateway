@@ -90,7 +90,7 @@ DEFAULT_VECTOR_DB_TYPE = "qdrant"
 DEFAULT_VECTOR_DB_COLLECTION = "confluence_pytest_embeddings"
 DEFAULT_VECTOR_DB_URL = ":memory:"
 
-_SEMANTIC_TEST_DOCS = [
+_FALLBACK_SEMANTIC_TEST_DOCS = [
     {"id": str(uuid.uuid4()), "text": "This is the first test document about apples."},
     {
         "id": str(uuid.uuid4()),
@@ -103,8 +103,67 @@ import pytest
 
 
 @pytest.fixture(scope="session")
-def SEMANTIC_TEST_DOCS():
-    return _SEMANTIC_TEST_DOCS
+def SEMANTIC_TEST_DOCS(
+    dummy_data_spaces: list[dict] | None, confluence_client
+) -> list[dict]:
+    """Provides semantic test documents, preferring real generated content over fallback docs."""
+    if dummy_data_spaces and confluence_client:
+        real_docs = []
+        target_doc_count = 5
+
+        for space in dummy_data_spaces[:2]:
+            if not space["has_content"]:
+                continue
+
+            try:
+                search_result = confluence_client.search(
+                    query=f"space={space['key']}",
+                    limit=3,
+                )
+
+                for page in search_result.results[:3]:
+                    if len(real_docs) >= target_doc_count:
+                        break
+
+                    try:
+                        page_detail = confluence_client.get_page(
+                            page.id, expand="body.storage"
+                        )
+
+                        content = (
+                            getattr(page_detail.body.storage, "value", "")
+                            if page_detail.body
+                            else ""
+                        )
+                        if content:
+                            import re
+
+                            text_content = re.sub(r"<[^>]+>", " ", content)
+                            text_content = " ".join(text_content.split())
+
+                            if len(text_content) > 50:
+                                real_docs.append(
+                                    {
+                                        "id": page.id,
+                                        "text": text_content[:1000],
+                                        "title": page.title,
+                                        "space_key": space["key"],
+                                        "source": "real_generated_data",
+                                    }
+                                )
+                    except Exception as e:
+                        continue
+
+                if len(real_docs) >= target_doc_count:
+                    break
+
+            except Exception as e:
+                continue
+
+        if real_docs:
+            return real_docs
+
+    return _FALLBACK_SEMANTIC_TEST_DOCS
 
 
 @pytest.fixture(scope="session")
@@ -166,16 +225,22 @@ def confluence_client(
         return None
 
     client = ConfluenceClient(config=confluence_config)
-    # Remove automatic test_connection() call - let individual tests call it if needed
     return client
 
 
 @pytest.fixture(scope="session")
-def real_search_term() -> str:
-    """Fast search term without API calls."""
+def real_search_term(real_search_terms: list[str]) -> str:
+    """Provides a single search term, preferring real extracted terms."""
     import os
 
-    return os.environ.get("CONFLUENCE_TEST_SEARCH_TERM", "confluence")
+    env_term = os.environ.get("CONFLUENCE_TEST_SEARCH_TERM")
+    if env_term:
+        return env_term
+
+    if real_search_terms:
+        return real_search_terms[0]
+
+    return "confluence"
 
 
 @pytest.fixture(scope="session")
@@ -189,10 +254,6 @@ def embedding_provider(embedding_config) -> EmbeddingProvider | None:
     effective_config = embedding_config
 
     if effective_config is None or effective_config.provider == "none":
-        print(
-            f"\nINFO (pytest): No Embedding Provider configured globally. Using default: "
-            f"{DEFAULT_EMBEDDING_PROVIDER_TYPE}/{DEFAULT_EMBEDDING_MODEL}"
-        )
         effective_config = EmbeddingConfig(
             provider=DEFAULT_EMBEDDING_PROVIDER_TYPE,
             model_name=DEFAULT_EMBEDDING_MODEL,
@@ -200,47 +261,34 @@ def embedding_provider(embedding_config) -> EmbeddingProvider | None:
             device=DEFAULT_EMBEDDING_DEVICE,
         )
         try:
-            # Check if model is already cached
             from pathlib import Path
 
             cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
             model_path = cache_dir / f"sentence-transformers_{DEFAULT_EMBEDDING_MODEL}"
-            if model_path.exists():
-                print(f"INFO (pytest): Model cache found at {model_path}")
 
-            # Lazy import of SentenceTransformerProvider
             from confluence_gateway.adapters.embedding.sentence_transformer import (
                 SentenceTransformerProvider,
             )
 
             provider_instance = SentenceTransformerProvider(effective_config)
             provider_instance.initialize()
-            print(
-                "INFO (pytest): Default SentenceTransformerProvider initialized with caching."
-            )
         except Exception as e:
             pytest.skip(
                 f"Failed to initialize default embedding provider ({DEFAULT_EMBEDDING_MODEL}): {e}"
             )
             return None
     else:
-        print(
-            f"\nINFO (pytest): Using globally configured Embedding Provider: "
-            f"Type='{effective_config.provider}', Model='{effective_config.model_name}'"
-        )
         try:
             provider_instance = get_embedding_provider(effective_config)
             if provider_instance is None and effective_config.provider != "none":
                 raise RuntimeError(
                     "Embedding factory returned None for non-'none' provider."
                 )
-            print("INFO (pytest): Configured Embedding Provider obtained.")
         except Exception as e:
             pytest.skip(f"Failed to get/initialize configured embedding provider: {e}")
             return None
 
         if effective_config.provider == "sentence-transformers":
-            # Lazy import for type checking
             from confluence_gateway.adapters.embedding.sentence_transformer import (
                 SentenceTransformerProvider,
             )
@@ -253,16 +301,10 @@ def embedding_provider(embedding_config) -> EmbeddingProvider | None:
     yield provider_instance
 
     if provider_instance and hasattr(provider_instance, "close"):
-        print(
-            f"\nINFO (pytest): Closing Embedding Provider instance ({effective_config.provider})..."
-        )
         try:
             provider_instance.close()
-            print("INFO (pytest): Embedding Provider closed.")
         except Exception as close_e:
-            print(
-                f"ERROR (pytest): Exception during Embedding Provider close: {close_e}"
-            )
+            pass
 
 
 @pytest.fixture(scope="session")
@@ -292,14 +334,10 @@ def mocked_litellm_provider(
             model_name="mock-embedding-model",
             dimension=128,
         )
-        print("\nINFO (pytest): Using dummy LiteLLM config for mocked provider.")
-    else:
-        print("\nINFO (pytest): Using provided LiteLLM config for mocked provider.")
 
     mock_embedding_call = mocker.patch("litellm.embedding", autospec=True)
 
     try:
-        # Lazy import of LiteLLMProvider
         from confluence_gateway.adapters.embedding.litellm import LiteLLMProvider
 
         provider = LiteLLMProvider(config=effective_config)
@@ -334,9 +372,6 @@ def effective_embedding_dimension(embedding_provider) -> int | None:
     try:
         return embedding_provider.get_dimension()
     except Exception as e:
-        print(
-            f"\nWARN (pytest): Could not get dimension from embedding provider: {e}. Falling back."
-        )
         if global_embedding_config and global_embedding_config.dimension:
             return global_embedding_config.dimension
         return DEFAULT_EMBEDDING_DIMENSION
@@ -359,10 +394,6 @@ def vector_db_adapter(
         return None
 
     if effective_vdb_config is None or effective_vdb_config.type == "none":
-        print(
-            f"\nINFO (pytest): No Vector DB configured globally. Using default: "
-            f"In-memory {DEFAULT_VECTOR_DB_TYPE} (Dim: {effective_embedding_dimension})"
-        )
         effective_vdb_config = VectorDBConfig(
             type=DEFAULT_VECTOR_DB_TYPE,
             qdrant_url=DEFAULT_VECTOR_DB_URL,
@@ -371,14 +402,12 @@ def vector_db_adapter(
         )
         try:
             if effective_vdb_config.type == "qdrant":
-                # Lazy import of QdrantAdapter
                 from confluence_gateway.adapters.vector_db.qdrant_adapter import (
                     QdrantAdapter,
                 )
 
                 adapter_instance = QdrantAdapter(effective_vdb_config)
                 adapter_instance.initialize()
-                print("INFO (pytest): Default in-memory Qdrant adapter initialized.")
             else:
                 raise NotImplementedError(
                     "Default Vector DB type not implemented for tests"
@@ -388,33 +417,18 @@ def vector_db_adapter(
             pytest.skip(f"Failed to initialize default Vector DB adapter: {e}")
             return None
     else:
-        if effective_vdb_config.embedding_dimension != effective_embedding_dimension:
-            print(
-                f"\nWARN (pytest): Mismatch between configured Vector DB dimension "
-                f"({effective_vdb_config.embedding_dimension}) and effective "
-                f"embedding dimension ({effective_embedding_dimension})."
-            )
-
-        print(
-            f"\nINFO (pytest): Using globally configured Vector DB: "
-            f"Type='{effective_vdb_config.type}', Collection='{effective_vdb_config.collection_name}'"
-        )
         try:
             adapter_instance = get_vector_db_adapter(effective_vdb_config)
             if adapter_instance is None and effective_vdb_config.type != "none":
                 raise RuntimeError(
                     "Vector DB factory returned None for non-'none' type."
                 )
-            print("INFO (pytest): Configured Vector DB adapter obtained.")
         except Exception as e:
             pytest.skip(f"Failed to get/initialize configured Vector DB adapter: {e}")
             return None
     yield adapter_instance
 
     if adapter_instance and hasattr(adapter_instance, "close"):
-        print(
-            f"\nINFO (pytest): Closing Vector DB adapter instance ({effective_vdb_config.type})..."
-        )
         try:
             if (
                 effective_vdb_config.qdrant_url == ":memory:"
@@ -426,18 +440,12 @@ def vector_db_adapter(
                     adapter_instance.client.delete_collection(
                         collection_name=effective_vdb_config.collection_name
                     )
-                    print(
-                        f"INFO (pytest): Deleted collection '{effective_vdb_config.collection_name}'."
-                    )
                 except Exception as del_e:
-                    print(f"WARN (pytest): Failed to delete Qdrant collection: {del_e}")
+                    pass
 
             adapter_instance.close()
-            print("INFO (pytest): Vector DB adapter closed.")
         except Exception as close_e:
-            print(
-                f"ERROR (pytest): Exception during Vector DB adapter close: {close_e}"
-            )
+            pass
 
 
 @pytest.fixture(scope="session")
@@ -455,12 +463,9 @@ def is_semantic_search_possible(
 
 
 @pytest.fixture(scope="session")
-def embedding_service(
-    embedding_provider, is_embedding_available
-) -> Any | None:  # Will be EmbeddingService when imported
+def embedding_service(embedding_provider, is_embedding_available) -> Any | None:
     if not is_embedding_available:
         return None
-    # Lazy import
     from confluence_gateway.services.embedding import EmbeddingService
 
     return EmbeddingService(provider=embedding_provider)
@@ -469,15 +474,12 @@ def embedding_service(
 @pytest.fixture(scope="function")
 def mocked_embedding_service(
     mocked_litellm_provider: MockedProviderFixture | None,
-) -> Any | None:  # Will be EmbeddingService when imported
+) -> Any | None:
     """Provides an EmbeddingService using the mocked LiteLLMProvider."""
     if not mocked_litellm_provider:
         pytest.skip("Mocked LiteLLM provider not available.")
         return None
-    # Ensure the provider appears initialized for the service
-    # (mocks above handle the actual initialization logic)
     provider, _ = mocked_litellm_provider
-    # Lazy import
     from confluence_gateway.services.embedding import EmbeddingService
 
     return EmbeddingService(provider=provider)
@@ -486,7 +488,7 @@ def mocked_embedding_service(
 @pytest.fixture(scope="session")
 def semantic_search_service(
     confluence_client, embedding_service, vector_db_adapter, is_semantic_search_possible
-) -> Any | None:  # Will be SearchService when imported
+) -> Any | None:
     """
     Provides a SearchService instance fully configured for semantic search.
     Returns None if semantic search is not possible.
@@ -494,7 +496,6 @@ def semantic_search_service(
     if not is_semantic_search_possible:
         return None
 
-    # Lazy import
     from confluence_gateway.services.search import SearchService
 
     return SearchService(
@@ -506,12 +507,9 @@ def semantic_search_service(
 
 
 @pytest.fixture(scope="session")
-def standard_search_service(
-    confluence_client, is_real_config_available
-) -> Any | None:  # Will be SearchService when imported
+def standard_search_service(confluence_client, is_real_config_available) -> Any | None:
     if not is_real_config_available:
         return None
-    # Lazy import
     from confluence_gateway.services.search import SearchService
 
     return SearchService(
@@ -525,12 +523,12 @@ def standard_search_service(
 @pytest.fixture(scope="function")
 def indexing_service(
     confluence_client: ConfluenceClient | None,
-    embedding_service: Any | None,  # Will be EmbeddingService
+    embedding_service: Any | None,
     vector_db_adapter: VectorDBAdapter | None,
     indexing_config: IndexingConfig,
     search_config: SearchConfig,
     is_semantic_search_possible: bool,
-) -> Any | None:  # Will be IndexingService when imported
+) -> Any | None:
     if not is_semantic_search_possible or not confluence_client:
         pytest.skip(
             "IndexingService requires Confluence client, Vector DB, and Embedding Service."
@@ -542,10 +540,8 @@ def indexing_service(
         )
         return None
 
-    # Lazy import
     from confluence_gateway.services.indexing import IndexingService
 
-    # Reset singleton state before creating/getting instance
     IndexingService._instance = None
     IndexingService._is_running = False
     IndexingService._last_run_start_time = None
@@ -574,7 +570,6 @@ def indexing_service(
 
         yield service
 
-        # Clean up singleton state after test
         IndexingService._instance = None
         IndexingService._is_running = False
         IndexingService._last_run_start_time = None
@@ -589,10 +584,10 @@ def indexing_service(
 
 @pytest.fixture(scope="function")
 def generation_service(
-    semantic_search_service: Any | None,  # Will be SearchService
+    semantic_search_service: Any | None,
     generation_config: GenerationConfig | None,
     is_generation_enabled: bool,
-) -> Any | None:  # Will be GenerationService when imported
+) -> Any | None:
     """
     Provides a GenerationService instance.
     Mocking of internal litellm.acompletion happens *within tests*.
@@ -608,7 +603,6 @@ def generation_service(
         return None
 
     try:
-        # Lazy import
         from confluence_gateway.services.generation import GenerationService
 
         service = GenerationService(
@@ -631,40 +625,28 @@ def index_semantic_test_data(
     """
     Indexes the SEMANTIC_TEST_DOCS into the vector DB if semantic search is possible.
     Runs once per session and checks if data might already exist.
+    Now supports both real generated content and fallback test docs.
     """
     if not is_semantic_search_possible:
-        print(
-            "\nINFO (pytest): Skipping semantic test data indexing (semantic search not possible)."
-        )
         return
 
     adapter = vector_db_adapter
     embed_svc = embedding_service
 
+    using_real_data = any(
+        doc.get("source") == "real_generated_data" for doc in SEMANTIC_TEST_DOCS
+    )
+
     try:
-        # Check if the first document exists using retrieve_by_ids
         first_doc_id = SEMANTIC_TEST_DOCS[0]["id"]
-        # Use retrieve_by_ids which is simpler for checking existence by ID
         existing_records = adapter.retrieve_by_ids(
             ids=[first_doc_id], with_payload=False, with_vector=False
         )
         if existing_records:
-            print(
-                f"\nINFO (pytest): Semantic test data (e.g., '{first_doc_id}') seems to exist via retrieve_by_ids. Skipping indexing."
-            )
             return
-        else:
-            print(
-                f"\nINFO (pytest): Semantic test data (e.g., '{first_doc_id}') not found via retrieve_by_ids. Proceeding with indexing."
-            )
     except Exception as check_err:
-        # Catch specific expected errors if possible, otherwise broad Exception
-        print(
-            f"\nWARN (pytest): Error checking for existing semantic test data using retrieve_by_ids: {check_err}. Attempting indexing anyway."
-        )
-        # For robustness, we'll proceed with indexing attempt
+        pass
 
-    print("\nINFO (pytest): Indexing semantic test data...")
     try:
         texts = [doc["text"] for doc in SEMANTIC_TEST_DOCS]
         embeddings = embed_svc.embed_texts(texts)
@@ -676,32 +658,35 @@ def index_semantic_test_data(
 
         documents = []
         for i, doc_data in enumerate(SEMANTIC_TEST_DOCS):
+            metadata = {
+                "source": doc_data.get("source", "pytest_fixture"),
+                "test_run_id": str(uuid.uuid4())[:8],
+            }
+
+            if using_real_data:
+                metadata.update(
+                    {
+                        "title": doc_data.get("title", "Unknown"),
+                        "space_key": doc_data.get("space_key", "Unknown"),
+                        "data_type": "real_generated",
+                    }
+                )
+            else:
+                metadata["data_type"] = "fallback"
+
             documents.append(
                 Document(
                     id=doc_data["id"],
                     text=doc_data["text"],
                     embedding=embeddings[i],
-                    metadata={
-                        "source": "pytest_fixture",
-                        "test_run_id": str(uuid.uuid4())[:8],
-                    },
+                    metadata=metadata,
                 )
             )
 
         adapter.upsert(documents)
-        print(f"INFO (pytest): Indexed {len(documents)} semantic test documents.")
 
     except Exception as e:
-        print(f"\nERROR (pytest): Failed to index semantic test data: {e}")
-
-
-# Imports moved into test_app_client fixture to avoid heavy imports at module level
-# from confluence_gateway.api.app import app
-# from confluence_gateway.api.dependencies import (
-#     get_confluence_client,
-#     get_embedding_provider_dependency,
-#     get_vector_db_adapter,
-# )
+        pass
 
 
 @pytest.fixture(scope="session")
@@ -713,7 +698,6 @@ def test_app_client(
     vector_db_config: VectorDBConfig | None,
     indexing_config: IndexingConfig,
 ) -> Generator[TestClient, Any, None]:
-    # Lazy import to avoid heavy imports at module level
     from confluence_gateway.api.app import app
     from confluence_gateway.api.dependencies import (
         get_confluence_client,
@@ -784,7 +768,6 @@ def test_app_client(
                     )
                     return None
 
-                # Lazy imports
                 from confluence_gateway.services.embedding import EmbeddingService
                 from confluence_gateway.services.indexing import IndexingService
 
@@ -837,9 +820,6 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-# Fixture aliases for backward compatibility
-
-
 @pytest.fixture(scope="session")
 def search_service(standard_search_service):
     """Alias for standard_search_service for backward compatibility."""
@@ -850,9 +830,6 @@ def search_service(standard_search_service):
 def api_client(test_app_client):
     """Alias for test_app_client for backward compatibility."""
     return test_app_client
-
-
-# Lazy loading fixture variants for better performance
 
 
 @pytest.fixture(scope="session")
@@ -891,24 +868,263 @@ def lazy_embedding_provider():
     def get_provider():
         nonlocal _provider
         if _provider is None:
-            print("\nINFO (pytest): Lazy loading embedding provider...")
             config = EmbeddingConfig(
                 provider=DEFAULT_EMBEDDING_PROVIDER_TYPE,
                 model_name=DEFAULT_EMBEDDING_MODEL,
                 dimension=DEFAULT_EMBEDDING_DIMENSION,
                 device=DEFAULT_EMBEDDING_DEVICE,
             )
-            # Lazy import of SentenceTransformerProvider
             from confluence_gateway.adapters.embedding.sentence_transformer import (
                 SentenceTransformerProvider,
             )
 
             _provider = SentenceTransformerProvider(config)
             _provider.initialize()
-            print("INFO (pytest): Embedding provider loaded.")
         return _provider
 
     yield get_provider
 
     if _provider and hasattr(_provider, "close"):
         _provider.close()
+
+
+@pytest.fixture(scope="session")
+def dummy_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] | None:
+    """
+    Check for and return available dummy data spaces (TESTDUM*).
+    Returns None if no dummy data is found or confluence client is unavailable.
+    """
+    if not confluence_client:
+        return None
+
+    try:
+        all_spaces = confluence_client.list_all_spaces(limit=100)
+        dummy_spaces = [
+            space for space in all_spaces if space.key.startswith("TESTDUM")
+        ]
+
+        if dummy_spaces:
+            spaces_dict = []
+            for space in dummy_spaces:
+                try:
+                    search_result = confluence_client.search(
+                        query=f"space={space.key}",
+                        limit=1,
+                    )
+                    page_count = (
+                        len(search_result.results) if search_result.results else 0
+                    )
+
+                    spaces_dict.append(
+                        {
+                            "key": space.key,
+                            "name": space.name,
+                            "id": getattr(space, "id", None),
+                            "page_count": page_count,
+                            "has_content": page_count > 0,
+                        }
+                    )
+                except Exception as e:
+                    spaces_dict.append(
+                        {
+                            "key": space.key,
+                            "name": space.name,
+                            "id": getattr(space, "id", None),
+                            "page_count": 0,
+                            "has_content": False,
+                        }
+                    )
+
+            spaces_with_content = [s for s in spaces_dict if s["has_content"]]
+
+            if spaces_with_content:
+                return spaces_with_content
+            else:
+                return None
+
+        else:
+            return None
+
+    except Exception as e:
+        return None
+
+
+@pytest.fixture(scope="session")
+def test_space_with_content(dummy_data_spaces: list[dict] | None) -> dict | None:
+    """
+    Provides a single test space with content for tests that need a reliable space.
+    Prefers TESTDUMTECH spaces, falls back to any available dummy space with content.
+    """
+    if not dummy_data_spaces:
+        return None
+
+    tech_spaces = [
+        s for s in dummy_data_spaces if "TECH" in s["key"] and s["has_content"]
+    ]
+    if tech_spaces:
+        return tech_spaces[0]
+
+    content_spaces = [s for s in dummy_data_spaces if s["has_content"]]
+    if content_spaces:
+        return content_spaces[0]
+
+    return None
+
+
+@pytest.fixture(scope="session")
+def test_space_with_attachments(
+    dummy_data_spaces: list[dict] | None, confluence_client: ConfluenceClient | None
+) -> dict | None:
+    """
+    Provides a test space that has pages with attachments for attachment testing.
+    """
+    if not dummy_data_spaces or not confluence_client:
+        return None
+
+    for space in dummy_data_spaces:
+        if not space["has_content"]:
+            continue
+
+        try:
+            search_result = confluence_client.search(
+                query=f"space={space['key']}",
+                limit=10,
+            )
+
+            if not search_result.results:
+                continue
+
+            for page in search_result.results:
+                try:
+                    if hasattr(confluence_client, "get_attachments"):
+                        attachments = confluence_client.get_attachments(page.id)
+                    else:
+                        attachments = confluence_client.atlassian_api.get_attachments_from_content(
+                            page.id
+                        )
+
+                    if attachments and (
+                        (isinstance(attachments, dict) and attachments.get("results"))
+                        or (isinstance(attachments, list) and attachments)
+                    ):
+                        attachment_count = (
+                            len(attachments["results"])
+                            if isinstance(attachments, dict)
+                            else len(attachments)
+                        )
+
+                        space_with_attachments = space.copy()
+                        space_with_attachments["has_attachments"] = True
+                        space_with_attachments["sample_page_id"] = page.id
+                        space_with_attachments["attachment_count"] = attachment_count
+
+                        return space_with_attachments
+
+                except Exception as e:
+                    continue
+
+        except Exception as e:
+            continue
+
+    return None
+
+
+@pytest.fixture(scope="session")
+def real_search_terms(
+    dummy_data_spaces: list[dict] | None, confluence_client
+) -> list[str]:
+    """
+    Provides real search terms extracted from dummy data content for more realistic testing.
+    """
+    if not dummy_data_spaces or not confluence_client:
+        return ["confluence", "documentation", "test"]
+
+    search_terms = set()
+
+    for space in dummy_data_spaces[:2]:
+        if not space["has_content"]:
+            continue
+
+        try:
+            search_result = confluence_client.search(
+                query=f"space={space['key']}",
+                limit=3,
+            )
+
+            for page in search_result.results[:3]:
+                title_words = page.title.lower().split()
+                for word in title_words:
+                    clean_word = "".join(c for c in word if c.isalnum())
+                    if len(clean_word) > 4 and clean_word not in [
+                        "testdum",
+                        "confluence",
+                        "documentation",
+                    ]:
+                        search_terms.add(clean_word)
+
+                if len(search_terms) >= 10:
+                    break
+
+        except Exception as e:
+            continue
+
+    terms_list = (
+        list(search_terms)[:5]
+        if search_terms
+        else ["confluence", "documentation", "test"]
+    )
+    return terms_list
+
+
+@pytest.fixture(scope="session")
+def real_content_samples(
+    dummy_data_spaces: list[dict] | None, confluence_client
+) -> list[dict]:
+    """
+    Provides samples of real content from dummy data for testing various content processing scenarios.
+    """
+    if not dummy_data_spaces or not confluence_client:
+        return []
+
+    content_samples = []
+
+    for space in dummy_data_spaces:
+        if not space["has_content"] or len(content_samples) >= 5:
+            continue
+
+        try:
+            search_result = confluence_client.search(
+                query=f"space={space['key']}",
+                limit=2,
+            )
+
+            for page in search_result.results[:2]:
+                try:
+                    page_detail = confluence_client.get_page(
+                        page.id, expand="body.storage"
+                    )
+                    content = (
+                        getattr(page_detail.body.storage, "value", "")
+                        if page_detail.body
+                        else ""
+                    )
+
+                    if content and len(content) > 100:
+                        content_samples.append(
+                            {
+                                "id": page.id,
+                                "title": page.title,
+                                "space_key": space["key"],
+                                "content": content,
+                                "content_length": len(content),
+                                "source": "real_dummy_data",
+                            }
+                        )
+
+                except Exception as e:
+                    continue
+
+        except Exception as e:
+            continue
+
+    return content_samples

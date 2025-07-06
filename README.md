@@ -1,8 +1,8 @@
 # Confluence Gateway
 
-Open source tool to enhance search and knowledge retrieval from Confluence using RAG and LLMs
+**AI-powered search and knowledge retrieval for Atlassian Confluence**
 
-> **Project Status**: This project is in the early stages of development (Alpha). Core features are implemented but the API may change.
+> **Status**: Beta (v0.1.0)
 
 [English](#english) | [한국어](#한국어)
 
@@ -10,156 +10,125 @@ Open source tool to enhance search and knowledge retrieval from Confluence using
 
 ## Confluence Gateway <a name="english"></a>
 
-**Enhance Your Confluence Search with RAG and LLMs**
+Transform your Confluence into a smart knowledge base with semantic search, hybrid search algorithms, and AI-powered question answering.
 
-Confluence Gateway provides enhanced search capabilities for Atlassian Confluence, enabling semantic search, hybrid search, and LLM-powered question answering through REST API and CLI interfaces.
+### ✨ Key Features
 
-### 🚀 Features
-
-- **Advanced Search**
-  - Traditional keyword search using Confluence Query Language (CQL)
-  - Semantic search using vector embeddings
-  - Hybrid search combining keyword and semantic approaches with RRF
+- **🔍 Advanced Search Modes**
+  - **Text Search**: Traditional keyword search with CQL support
+  - **Semantic Search**: Vector similarity using embeddings
+  - **Hybrid Search**: Best of both worlds with Reciprocal Rank Fusion (RRF)
   
-- **RAG Integration**
+- **🤖 RAG-Powered Q&A**
   - Generate contextual answers from your Confluence content
-  - Support for multiple LLM providers via LiteLLM
-  - Source attribution for generated answers
+  - Multiple LLM providers via LiteLLM (OpenAI, Anthropic, etc.)
+  - Source attribution with direct links
   
-- **Flexible Deployment**
-  - REST API for integration
-  - CLI for command-line usage
-  - Configurable vector databases and embedding providers
+- **⚡ Flexible Integration**
+  - REST API with OpenAPI documentation
+  - Full-featured CLI interface
+  - Support for multiple vector databases and embedding providers
 
-### 📋 Implementation Status
+### 🎯 What's Implemented
 
-Currently implemented:
-- ✅ Keyword search with CQL support
-- ✅ Semantic search with vector embeddings
-- ✅ Hybrid search with Reciprocal Rank Fusion (RRF)
-- ✅ Content indexing from Confluence (pages and attachments)
-- ✅ RAG-based answer generation via LiteLLM
-- ✅ REST API with FastAPI (OpenAPI documentation)
-- ✅ Full CLI interface with all features
+**Core Features:**
+- ✅ All search modes: Text, Semantic, CQL, Hybrid
+- ✅ Content indexing with attachment support (PDF, DOCX, PPTX, TXT, MD)
+- ✅ RAG answer generation with source attribution
+- ✅ REST API + CLI with feature parity
+- ✅ Multi-provider architecture (Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
 - ✅ Hierarchical configuration system
-- ✅ Vector databases: Qdrant, ChromaDB
-- ✅ Embedding providers: Sentence Transformers, LiteLLM
-- ✅ HTML and attachment parsing (PDF, DOCX, etc.)
+- ✅ Comprehensive error handling and logging
 
-Not yet implemented:
-- ❌ MCP (Model Context Protocol) server
-- ❌ Built-in authentication (use reverse proxy)
-- ❌ Real-time indexing webhooks
-- ❌ Caching layer
+**Planned Features:**
+- 🔄 MCP (Model Context Protocol) server
+- 🔄 Built-in authentication layer
+- 🔄 Real-time indexing webhooks
+- 🔄 Result caching layer
 
 ### 🏗️ Architecture
 
+Clean service layer architecture with dependency injection:
+
 ```
-confluence_gateway/
-├── adapters/          # External integrations
-│   ├── confluence/    # Confluence API client
-│   ├── embedding/     # Embedding providers
-│   └── vector_db/     # Vector databases
-├── services/          # Business logic
-│   ├── indexing.py    # Document indexing (singleton)
-│   ├── search.py      # Search algorithms
-│   ├── generation.py  # LLM generation
-│   ├── ranking.py     # Result ranking (RRF)
-│   └── parsers/       # Content parsing
-├── api/              # REST API
-│   └── routes/       # API endpoints
-├── cli/              # CLI interface
-└── core/             # Core utilities
-    └── config.py     # Configuration management
+├── adapters/      # External integrations (Confluence, Vector DBs, Embeddings)
+├── services/      # Business logic (Search, Indexing, Generation, Ranking)
+├── api/          # REST API with FastAPI
+├── cli/          # CLI interface with Typer
+└── core/         # Configuration & utilities
 ```
+
+**Key Design Patterns:** Service Layer, Factory, Singleton, Dependency Injection
 
 ### 🚀 Quick Start
 
-#### Prerequisites
+**Requirements:** Python 3.10+, Confluence API access
 
-- Python 3.10+
-- Confluence instance with API access
-- (Optional) Vector database: Qdrant or ChromaDB
-- (Optional) LLM API key for RAG features
-
-#### Installation
-
+#### 1. Install
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/confluence-gateway.git
 cd confluence-gateway
-
-# Install dependencies
-uv pip install -e .
-uv pip install -e ".[dev]"  # For development
+uv sync
 ```
 
-#### Configuration
-
-Create `~/.confluence_gateway_config.json`:
-
-```json
-{
-  "confluence": {
-    "url": "https://your-instance.atlassian.net",
-    "username": "your-email@example.com",
-    "api_token": "YOUR_API_TOKEN"
-  }
-}
-```
-
-Or use environment variables:
+#### 2. Configure
+Environment variables (recommended):
 ```bash
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
 export CONFLUENCE_USERNAME="your-email@example.com"
 export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 ```
 
-#### Basic Usage
+Or config file at `~/.confluence_gateway_config.json`:
+```json
+{
+  "confluence": {
+    "url": "https://your-instance.atlassian.net",
+    "username": "your-email@example.com", 
+    "api_token": "YOUR_API_TOKEN"
+  }
+}
+```
+
+#### 3. Use It
 
 **CLI:**
 ```bash
-# Index Confluence content
-confluence-gateway index trigger --space-keys TECH --sync
-
-# Check indexing status
-confluence-gateway index status
+# Index content
+uv run confluence-gateway index trigger --space-keys TECH --sync
 
 # Search
-confluence-gateway search text "deployment guide"
-confluence-gateway search semantic "how to deploy"
-confluence-gateway search cql "space = TECH and text ~ deploy"
+uv run confluence-gateway search text "deployment guide"
+uv run confluence-gateway search semantic "how to deploy"
 
-# Generate answers
-confluence-gateway generate answer "What is our deployment process?"
+# Get AI answers  
+uv run confluence-gateway generate answer "What is our deployment process?"
 ```
 
-**API:**
+**API Server:**
 ```bash
 # Start server
-uvicorn confluence_gateway.api.app:app --reload
+uv run uvicorn confluence_gateway.api.app:app --reload
+# API docs: http://localhost:8000/docs
 
-# API documentation available at http://localhost:8000/docs
-
-# Search
-curl "http://localhost:8000/search?query=deployment&mode=hybrid"
-
-# Semantic search
-curl -X POST "http://localhost:8000/search/semantic" \
+# Search endpoints
+curl "http://localhost:8000/api/search?query=deployment&mode=hybrid"
+curl -X POST "http://localhost:8000/api/search/semantic" \
   -H "Content-Type: application/json" \
   -d '{"query": "deployment process", "top_k": 5}'
 
-# Generate answer
-curl -X POST "http://localhost:8000/generate/answer" \
+# Generate answers
+curl -X POST "http://localhost:8000/api/generate/answer" \
   -H "Content-Type: application/json" \
   -d '{"question": "What is our deployment process?"}'
 ```
 
-### ⚙️ Configuration
+### ⚙️ Advanced Configuration
 
-Configuration follows this priority: Environment Variables > `~/.confluence_gateway_config.json` > Defaults
+**Priority:** Environment Variables > `~/.confluence_gateway_config.json` > Defaults
 
-#### Full Configuration Example
+<details>
+<summary><strong>Complete Configuration Example</strong></summary>
 
 ```json
 {
@@ -173,281 +142,222 @@ Configuration follows this priority: Environment Variables > `~/.confluence_gate
     "default_limit": 20,
     "max_limit": 100,
     "hybrid_search_enabled": true,
-    "hybrid_keyword_fetch_limit": 50,
-    "hybrid_semantic_fetch_limit": 50,
     "hybrid_rrf_k": 60
   },
   "embedding": {
     "provider": "sentence-transformers",
     "model_name": "all-MiniLM-L6-v2",
     "dimension": 384,
-    "device": "cpu",
-    "batch_size": 32
+    "device": "cpu"
   },
   "vector_db": {
     "type": "qdrant",
-    "collection_name": "confluence_embeddings",
-    "embedding_dimension": 384,
     "qdrant_url": "http://localhost:6333",
     "chunk_size": 512,
     "chunk_overlap": 50
   },
   "indexing": {
-    "batch_size": 10,
-    "include_archived": false,
     "include_attachments": true,
     "max_attachment_size_mb": 10,
     "allowed_attachment_extensions": ["pdf", "docx", "txt", "md"],
     "parser_type": "markitdown"
   },
   "generation": {
-    "enable": true,
     "provider": "litellm",
     "model_name": "openai/gpt-4",
     "litellm_api_key": "YOUR_API_KEY",
     "max_context_tokens": 3000,
-    "temperature": 0.1,
-    "top_k_results": 5
+    "temperature": 0.1
   }
 }
 ```
+</details>
 
-#### Environment Variables
-
-All configuration can be set via environment variables with the format `{SECTION}_{KEY}`:
-
+**Common Environment Variables:**
 ```bash
-# Confluence settings
+# Required
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
 export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
 
-# Embedding settings
-export EMBEDDING_PROVIDER="sentence-transformers"
-export EMBEDDING_MODEL_NAME="all-MiniLM-L6-v2"
-
-# Vector DB settings
-export VECTOR_DB_TYPE="qdrant"
-export VECTOR_DB_QDRANT_URL="http://localhost:6333"
-
-# Generation settings
+# For AI features
 export GENERATION_MODEL_NAME="openai/gpt-4"
 export GENERATION_LITELLM_API_KEY="YOUR_API_KEY"
+
+# Vector database
+export VECTOR_DB_TYPE="qdrant"
+export VECTOR_DB_QDRANT_URL="http://localhost:6333"
 ```
 
 ### 🧪 Testing
 
 ```bash
-# Run all tests
-pytest
+# All tests
+uv run pytest
 
-# Unit tests only
-pytest -m "not integration"
+# Fast unit tests only
+uv run pytest -m unit
 
-# Integration tests (requires Confluence)
-export CONFLUENCE_URL="https://test.atlassian.net"
-export CONFLUENCE_API_TOKEN="test-token"
-pytest -m integration
+# Specific test categories 
+uv run pytest -m integration  # Requires external services
+uv run pytest -m api         # Requires Confluence API
+uv run pytest -m semantic    # Requires vector DB + embeddings
 
 # With coverage
-pytest --cov=confluence_gateway
+uv run pytest --cov=confluence_gateway
 ```
 
 ### 🔧 Development
 
 ```bash
-# Install development dependencies
-uv pip install -e ".[dev]"
-pre-commit install
+# Setup
+uv sync --group dev
+uv run pre-commit install
 
-# Code formatting
-ruff format confluence_gateway tests
-
-# Linting
-ruff check confluence_gateway tests
-
-# Type checking
-mypy confluence_gateway
-
-# Run all checks
-pre-commit run --all-files
+# Code quality
+uv run ruff format confluence_gateway tests  # Format
+uv run ruff check confluence_gateway tests   # Lint  
+uv run mypy confluence_gateway               # Type check
+uv run pre-commit run --all-files           # All checks
 ```
 
-### 🔒 Security Considerations
+### 🔒 Production Security
 
-This tool does not include built-in authentication. For production use:
-
-1. **Use a reverse proxy** (nginx, Apache) with authentication
-2. **Configure CORS** appropriately in the API settings
-3. **Use environment variables** for sensitive data (API tokens)
-4. **Restrict network access** to the API server
-
-Example nginx configuration:
-```nginx
-location /api/ {
-    auth_basic "Restricted";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-    proxy_pass http://localhost:8000/;
-}
-```
+⚠️ **No built-in authentication** - Use reverse proxy (nginx/Apache) with auth
+- Store API tokens in environment variables
+- Configure CORS appropriately  
+- Restrict network access to API server
 
 ### 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file
 
 ---
 
 ## Confluence Gateway <a name="한국어"></a>
 
-**RAG와 LLM으로 Confluence 검색 향상하기**
+**Confluence를 위한 AI 기반 검색 및 지식 검색**
 
-Confluence Gateway는 Atlassian Confluence에 향상된 검색 기능을 제공하여 시맨틱 검색, 하이브리드 검색, LLM 기반 질문 답변을 REST API와 CLI 인터페이스를 통해 지원합니다.
+> **상태**: Beta (v0.1.0)
 
-### 🚀 주요 기능
+시맨틱 검색, 하이브리드 검색 알고리즘, AI 기반 질문 답변으로 Confluence를 스마트 지식 베이스로 변환하세요.
 
-- **고급 검색**
-  - Confluence Query Language (CQL)을 사용한 전통적인 키워드 검색
-  - 벡터 임베딩을 사용한 시맨틱 검색
-  - RRF로 키워드와 시맨틱 접근법을 결합한 하이브리드 검색
+### ✨ 주요 기능
+
+- **🔍 고급 검색 모드**
+  - **텍스트 검색**: CQL 지원 전통적인 키워드 검색
+  - **시맨틱 검색**: 임베딩을 사용한 벡터 유사성 검색
+  - **하이브리드 검색**: Reciprocal Rank Fusion(RRF)으로 두 방식의 장점 결합
   
-- **RAG 통합**
+- **🤖 RAG 기반 Q&A**
   - Confluence 콘텐츠에서 맥락적 답변 생성
-  - LiteLLM을 통한 다중 LLM 제공자 지원
-  - 생성된 답변에 대한 출처 표시
+  - LiteLLM을 통한 다중 LLM 제공자 지원 (OpenAI, Anthropic 등)
+  - 직접 링크가 포함된 출처 표시
   
-- **유연한 배포**
-  - 통합을 위한 REST API
-  - 명령줄 사용을 위한 CLI
-  - 구성 가능한 벡터 데이터베이스 및 임베딩 제공자
+- **⚡ 유연한 통합**
+  - OpenAPI 문서가 포함된 REST API
+  - 모든 기능을 갖춘 CLI 인터페이스
+  - 다중 벡터 데이터베이스 및 임베딩 제공자 지원
 
-### 📋 구현 상태
+### 🎯 구현 현황
 
-구현 완료:
-- ✅ CQL 지원 키워드 검색
-- ✅ 벡터 임베딩을 사용한 시맨틱 검색
-- ✅ Reciprocal Rank Fusion (RRF)을 사용한 하이브리드 검색
-- ✅ Confluence 콘텐츠 인덱싱 (페이지 및 첨부 파일)
-- ✅ LiteLLM을 통한 RAG 기반 답변 생성
-- ✅ FastAPI를 사용한 REST API (OpenAPI 문서화)
-- ✅ 모든 기능을 갖춘 CLI 인터페이스
+**핵심 기능:**
+- ✅ 모든 검색 모드: 텍스트, 시맨틱, CQL, 하이브리드
+- ✅ 첨부 파일 지원 콘텐츠 인덱싱 (PDF, DOCX, PPTX, TXT, MD)
+- ✅ 출처 표시가 포함된 RAG 답변 생성
+- ✅ 기능 동등성을 갖춘 REST API + CLI
+- ✅ 다중 제공자 아키텍처 (Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
 - ✅ 계층적 구성 시스템
-- ✅ 벡터 데이터베이스: Qdrant, ChromaDB
-- ✅ 임베딩 제공자: Sentence Transformers, LiteLLM
-- ✅ HTML 및 첨부 파일 파싱 (PDF, DOCX 등)
+- ✅ 포괄적인 오류 처리 및 로깅
 
-아직 구현되지 않음:
-- ❌ MCP (Model Context Protocol) 서버
-- ❌ 내장 인증 (리버스 프록시 사용)
-- ❌ 실시간 인덱싱 웹훅
-- ❌ 캐싱 레이어
+**계획된 기능:**
+- 🔄 MCP (Model Context Protocol) 서버
+- 🔄 내장 인증 레이어
+- 🔄 실시간 인덱싱 웹훅
+- 🔄 결과 캐싱 레이어
 
 ### 🏗️ 아키텍처
 
+의존성 주입이 포함된 깔끔한 서비스 레이어 아키텍처:
+
 ```
-confluence_gateway/
-├── adapters/          # 외부 통합
-│   ├── confluence/    # Confluence API 클라이언트
-│   ├── embedding/     # 임베딩 제공자
-│   └── vector_db/     # 벡터 데이터베이스
-├── services/          # 비즈니스 로직
-│   ├── indexing.py    # 문서 인덱싱 (싱글톤)
-│   ├── search.py      # 검색 알고리즘
-│   ├── generation.py  # LLM 생성
-│   ├── ranking.py     # 결과 순위 지정 (RRF)
-│   └── parsers/       # 콘텐츠 파싱
-├── api/              # REST API
-│   └── routes/       # API 엔드포인트
-├── cli/              # CLI 인터페이스
-└── core/             # 핵심 유틸리티
-    └── config.py     # 구성 관리
+├── adapters/      # 외부 통합 (Confluence, Vector DB, Embeddings)
+├── services/      # 비즈니스 로직 (Search, Indexing, Generation, Ranking)
+├── api/          # FastAPI REST API
+├── cli/          # Typer CLI 인터페이스
+└── core/         # 구성 및 유틸리티
 ```
+
+**주요 디자인 패턴:** Service Layer, Factory, Singleton, Dependency Injection
 
 ### 🚀 빠른 시작
 
-#### 사전 요구 사항
+**요구사항:** Python 3.10+, Confluence API 액세스
 
-- Python 3.10+
-- API 액세스가 있는 Confluence 인스턴스
-- (선택 사항) 벡터 데이터베이스: Qdrant 또는 ChromaDB
-- (선택 사항) RAG 기능을 위한 LLM API 키
-
-#### 설치
-
+#### 1. 설치
 ```bash
-# 저장소 복제
 git clone https://github.com/yourusername/confluence-gateway.git
 cd confluence-gateway
-
-# 의존성 설치
-uv pip install -e .
-uv pip install -e ".[dev]"  # 개발용
+uv sync
 ```
 
-#### 구성
-
-`~/.confluence_gateway_config.json` 생성:
-
-```json
-{
-  "confluence": {
-    "url": "https://your-instance.atlassian.net",
-    "username": "your-email@example.com",
-    "api_token": "YOUR_API_TOKEN"
-  }
-}
-```
-
-또는 환경 변수 사용:
+#### 2. 구성
+환경 변수 (권장):
 ```bash
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
 export CONFLUENCE_USERNAME="your-email@example.com"
 export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 ```
 
-#### 기본 사용법
+또는 `~/.confluence_gateway_config.json` 설정 파일:
+```json
+{
+  "confluence": {
+    "url": "https://your-instance.atlassian.net",
+    "username": "your-email@example.com", 
+    "api_token": "YOUR_API_TOKEN"
+  }
+}
+```
+
+#### 3. 사용하기
 
 **CLI:**
 ```bash
-# Confluence 콘텐츠 인덱싱
-confluence-gateway index trigger --space-keys TECH --sync
-
-# 인덱싱 상태 확인
-confluence-gateway index status
+# 콘텐츠 인덱싱
+uv run confluence-gateway index trigger --space-keys TECH --sync
 
 # 검색
-confluence-gateway search text "배포 가이드"
-confluence-gateway search semantic "배포하는 방법"
-confluence-gateway search cql "space = TECH and text ~ 배포"
+uv run confluence-gateway search text "배포 가이드"
+uv run confluence-gateway search semantic "배포하는 방법"
 
-# 답변 생성
-confluence-gateway generate answer "우리의 배포 프로세스는 무엇입니까?"
+# AI 답변 얻기
+uv run confluence-gateway generate answer "우리의 배포 프로세스는 무엇입니까?"
 ```
 
-**API:**
+**API 서버:**
 ```bash
 # 서버 시작
-uvicorn confluence_gateway.api.app:app --reload
+uv run uvicorn confluence_gateway.api.app:app --reload
+# API 문서: http://localhost:8000/docs
 
-# API 문서는 http://localhost:8000/docs에서 확인 가능
-
-# 검색
-curl "http://localhost:8000/search?query=배포&mode=hybrid"
-
-# 시맨틱 검색
-curl -X POST "http://localhost:8000/search/semantic" \
+# 검색 엔드포인트
+curl "http://localhost:8000/api/search?query=배포&mode=hybrid"
+curl -X POST "http://localhost:8000/api/search/semantic" \
   -H "Content-Type: application/json" \
   -d '{"query": "배포 프로세스", "top_k": 5}'
 
 # 답변 생성
-curl -X POST "http://localhost:8000/generate/answer" \
+curl -X POST "http://localhost:8000/api/generate/answer" \
   -H "Content-Type: application/json" \
   -d '{"question": "우리의 배포 프로세스는 무엇입니까?"}'
 ```
 
-### ⚙️ 구성
+### ⚙️ 고급 구성
 
-구성 우선순위: 환경 변수 > `~/.confluence_gateway_config.json` > 기본값
+**우선순위:** 환경 변수 > `~/.confluence_gateway_config.json` > 기본값
 
-#### 전체 구성 예제
+<details>
+<summary><strong>전체 구성 예제</strong></summary>
 
 ```json
 {
@@ -461,123 +371,91 @@ curl -X POST "http://localhost:8000/generate/answer" \
     "default_limit": 20,
     "max_limit": 100,
     "hybrid_search_enabled": true,
-    "hybrid_keyword_fetch_limit": 50,
-    "hybrid_semantic_fetch_limit": 50,
     "hybrid_rrf_k": 60
   },
   "embedding": {
     "provider": "sentence-transformers",
     "model_name": "all-MiniLM-L6-v2",
     "dimension": 384,
-    "device": "cpu",
-    "batch_size": 32
+    "device": "cpu"
   },
   "vector_db": {
     "type": "qdrant",
-    "collection_name": "confluence_embeddings",
-    "embedding_dimension": 384,
     "qdrant_url": "http://localhost:6333",
     "chunk_size": 512,
     "chunk_overlap": 50
   },
   "indexing": {
-    "batch_size": 10,
-    "include_archived": false,
     "include_attachments": true,
     "max_attachment_size_mb": 10,
     "allowed_attachment_extensions": ["pdf", "docx", "txt", "md"],
     "parser_type": "markitdown"
   },
   "generation": {
-    "enable": true,
     "provider": "litellm",
     "model_name": "openai/gpt-4",
     "litellm_api_key": "YOUR_API_KEY",
     "max_context_tokens": 3000,
-    "temperature": 0.1,
-    "top_k_results": 5
+    "temperature": 0.1
   }
 }
 ```
+</details>
 
-#### 환경 변수
-
-모든 구성은 `{SECTION}_{KEY}` 형식의 환경 변수로 설정할 수 있습니다:
-
+**주요 환경 변수:**
 ```bash
-# Confluence 설정
+# 필수
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
 export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
 
-# 임베딩 설정
-export EMBEDDING_PROVIDER="sentence-transformers"
-export EMBEDDING_MODEL_NAME="all-MiniLM-L6-v2"
-
-# 벡터 DB 설정
-export VECTOR_DB_TYPE="qdrant"
-export VECTOR_DB_QDRANT_URL="http://localhost:6333"
-
-# 생성 설정
+# AI 기능용
 export GENERATION_MODEL_NAME="openai/gpt-4"
 export GENERATION_LITELLM_API_KEY="YOUR_API_KEY"
+
+# 벡터 데이터베이스
+export VECTOR_DB_TYPE="qdrant"
+export VECTOR_DB_QDRANT_URL="http://localhost:6333"
 ```
 
 ### 🧪 테스팅
 
 ```bash
-# 모든 테스트 실행
-pytest
+# 모든 테스트
+uv run pytest
 
-# 단위 테스트만
-pytest -m "not integration"
+# 빠른 단위 테스트만
+uv run pytest -m unit
 
-# 통합 테스트 (Confluence 필요)
-export CONFLUENCE_URL="https://test.atlassian.net"
-export CONFLUENCE_API_TOKEN="test-token"
-pytest -m integration
+# 특정 테스트 카테고리 
+uv run pytest -m integration  # 외부 서비스 필요
+uv run pytest -m api         # Confluence API 필요
+uv run pytest -m semantic    # 벡터 DB + 임베딩 필요
 
 # 커버리지와 함께
-pytest --cov=confluence_gateway
+uv run pytest --cov=confluence_gateway
 ```
 
 ### 🔧 개발
 
 ```bash
-# 개발 의존성 설치
-uv pip install -e ".[dev]"
-pre-commit install
+# 설정
+uv sync --group dev
+uv run pre-commit install
 
-# 코드 포맷팅
-ruff format confluence_gateway tests
-
-# 린팅
-ruff check confluence_gateway tests
-
-# 타입 체킹
-mypy confluence_gateway
-
-# 모든 검사 실행
-pre-commit run --all-files
+# 코드 품질
+uv run ruff format confluence_gateway tests  # 포맷
+uv run ruff check confluence_gateway tests   # 린트  
+uv run mypy confluence_gateway               # 타입 체크
+uv run pre-commit run --all-files           # 모든 검사
 ```
 
-### 🔒 보안 고려사항
+### 🔒 프로덕션 보안
 
-이 도구는 내장 인증을 포함하지 않습니다. 프로덕션 사용을 위해:
-
-1. **리버스 프록시 사용** (nginx, Apache) 인증과 함께
-2. **CORS를 적절히 구성** API 설정에서
-3. **민감한 데이터에 환경 변수 사용** (API 토큰)
-4. **API 서버에 대한 네트워크 액세스 제한**
-
-nginx 구성 예제:
-```nginx
-location /api/ {
-    auth_basic "Restricted";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-    proxy_pass http://localhost:8000/;
-}
-```
+⚠️ **내장 인증 없음** - 인증이 포함된 리버스 프록시(nginx/Apache) 사용
+- API 토큰을 환경 변수에 저장
+- CORS를 적절히 구성  
+- API 서버에 대한 네트워크 액세스 제한
 
 ### 📄 라이선스
 
-이 프로젝트는 MIT 라이선스에 따라 라이선스가 부여됩니다 - 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
+MIT 라이선스 - [LICENSE](LICENSE) 파일 참조

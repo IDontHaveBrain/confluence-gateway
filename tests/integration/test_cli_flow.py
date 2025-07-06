@@ -107,15 +107,11 @@ class TestCliFlows:
         if not is_semantic_search_possible:
             pytest.skip("Semantic search requires semantic search configuration.")
 
-        print(f"\nDEBUG: semantic_search_service instance: {semantic_search_service}")
         assert semantic_search_service is not None, (
             "semantic_search_service fixture is None"
         )
         assert hasattr(semantic_search_service, "vector_db_adapter"), (
             "semantic_search_service fixture missing vector_db_adapter attr"
-        )
-        print(
-            f"DEBUG: semantic_search_service.vector_db_adapter: {semantic_search_service.vector_db_adapter}"
         )
         assert semantic_search_service.vector_db_adapter is not None, (
             "semantic_search_service.vector_db_adapter is None BEFORE patching/invoke"

@@ -126,12 +126,8 @@ def test_download_attachment(client: ConfluenceClient, real_search_term: str):
                     page_id_with_attachment = page.id
                     attachment_id = attachments[0].id
                     attachment_title = attachments[0].title
-                    print(
-                        f"\nINFO: Found attachment '{attachment_title}' ({attachment_id}) on page {page_id_with_attachment} for download test."
-                    )
                     break
-            except Exception as e:
-                print(f"\nWARN: Error listing attachments for page {page.id}: {e}")
+            except Exception:
                 continue
         if page_id_with_attachment:
             break
