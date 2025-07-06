@@ -1,78 +1,181 @@
 # Real Data Sources Configuration
-# Define sources for collecting real technical documentation
-
 sources:
-  github:
-    - name: "Python Documentation"
-      type: "github_repo"
-      url: "https://github.com/python/cpython/tree/main/Doc"
-      categories: ["technical", "api_docs"]
-      languages: ["en"]
-      file_patterns: ["*.rst", "*.md"]
+  api_documentation:
+    - name: "Stripe API Documentation"
+      type: "web_api_docs"
+      base_url: "https://docs.stripe.com/api"
+      start_urls:
+        - "https://docs.stripe.com/api/charges"
+        - "https://docs.stripe.com/api/customers"
+        - "https://docs.stripe.com/api/payment_intents"
+        - "https://docs.stripe.com/api/refunds"
+        - "https://docs.stripe.com/api/subscriptions"
+      categories: ["api_docs"]
+      selector: "main"
+      max_depth: 2
       
-    - name: "FastAPI Documentation"
-      type: "github_repo"
-      url: "https://github.com/tiangolo/fastapi/tree/master/docs"
-      categories: ["api_docs", "technical"]
-      languages: ["en"]
-      file_patterns: ["*.md"]
+    - name: "Twilio API Documentation"
+      type: "web_api_docs"
+      base_url: "https://www.twilio.com/docs"
+      start_urls:
+        - "https://www.twilio.com/docs/usage/api"
+        - "https://www.twilio.com/docs/sms/api"
+        - "https://www.twilio.com/docs/voice/api"
+      categories: ["api_docs"]
+      selector: "main"
+      max_depth: 1
       
-    - name: "Django Documentation"
-      type: "github_repo"
-      url: "https://github.com/django/django/tree/main/docs"
-      categories: ["technical", "api_docs"]
-      languages: ["en"]
-      file_patterns: ["*.txt", "*.rst"]
+    - name: "GitHub REST API Documentation"
+      type: "web_api_docs"
+      base_url: "https://docs.github.com/en/rest"
+      start_urls:
+        - "https://docs.github.com/en/rest/overview/endpoints-available-for-github-apps"
+        - "https://docs.github.com/en/rest/overview/resources-in-the-rest-api"
+        - "https://docs.github.com/en/rest/repos"
+      categories: ["api_docs"]
+      selector: "main"
+      max_depth: 1
       
-  web_docs:
-    - name: "MDN Web Docs"
-      type: "web_scrape"
-      base_url: "https://developer.mozilla.org/en-US/docs/Web"
-      categories: ["technical", "api_docs"]
-      languages: ["en"]
-      max_pages: 50
+    - name: "AWS S3 API Documentation"
+      type: "web_api_docs"
+      base_url: "https://docs.aws.amazon.com/s3/"
+      start_urls:
+        - "https://docs.aws.amazon.com/s3/latest/userguide/using-with-s3-actions.html"
+        - "https://docs.aws.amazon.com/s3/latest/userguide/Welcome.html"
+      categories: ["api_docs"]
+      selector: "main"
+      max_depth: 1
+      
+    - name: "PayPal API Documentation"
+      type: "web_api_docs"
+      base_url: "https://developer.paypal.com/docs/api/"
+      start_urls:
+        - "https://developer.paypal.com/docs/api/overview/"
+        - "https://developer.paypal.com/docs/api/payments/"
+      categories: ["api_docs"]
+      selector: "main"
+      max_depth: 1
+      
+    - name: "Slack API Documentation"
+      type: "web_api_docs"
+      base_url: "https://api.slack.com"
+      start_urls:
+        - "https://api.slack.com/methods"
+        - "https://api.slack.com/web"
+      categories: ["api_docs"]
+      selector: "main"
+      max_depth: 1
+      
+  technical_documentation:
+    - name: "Python Official Documentation"
+      type: "web_tech_docs"
+      base_url: "https://docs.python.org/3/"
+      start_urls:
+        - "https://docs.python.org/3/tutorial/"
+        - "https://docs.python.org/3/library/"
+      categories: ["technical"]
+      selector: "div.body"
+      max_depth: 2
+      
+    - name: "Docker Documentation"
+      type: "web_tech_docs"
+      base_url: "https://docs.docker.com"
+      start_urls:
+        - "https://docs.docker.com/get-started/"
+        - "https://docs.docker.com/reference/"
+      categories: ["technical"]
+      selector: "main"
+      max_depth: 1
+      
+    - name: "Kubernetes Documentation"
+      type: "web_tech_docs"
+      base_url: "https://kubernetes.io/docs/"
+      start_urls:
+        - "https://kubernetes.io/docs/concepts/"
+        - "https://kubernetes.io/docs/tutorials/"
+      categories: ["technical"]
+      selector: "main"
+      max_depth: 1
       
     - name: "PostgreSQL Documentation"
-      type: "web_scrape"
-      base_url: "https://www.postgresql.org/docs/current/"
-      categories: ["technical", "knowledge_base"]
-      languages: ["en"]
-      max_pages: 30
+      type: "web_tech_docs"
+      base_url: "https://www.postgresql.org/docs/"
+      start_urls:
+        - "https://www.postgresql.org/docs/current/"
+        - "https://www.postgresql.org/docs/current/tutorial.html"
+      categories: ["technical"]
+      selector: "div.NAVHEADER"
+      max_depth: 1
       
-  open_datasets:
-    - name: "Awesome Lists"
-      type: "github_repo"
-      url: "https://github.com/sindresorhus/awesome"
-      categories: ["knowledge_base", "project_docs"]
-      languages: ["en"]
-      file_patterns: ["*.md"]
+    - name: "React Documentation"
+      type: "web_tech_docs"
+      base_url: "https://react.dev"
+      start_urls:
+        - "https://react.dev/learn"
+        - "https://react.dev/reference/react"
+      categories: ["technical"]
+      selector: "main"
+      max_depth: 1
       
-    - name: "TensorFlow Tutorials"
-      type: "github_repo"
-      url: "https://github.com/tensorflow/docs/tree/master/site/en"
-      categories: ["technical", "knowledge_base"]
-      languages: ["en"]
-      file_patterns: ["*.md", "*.ipynb"]
-
-collection_settings:
-  max_content_size_mb: 10
-  min_content_length: 500
-  max_content_length: 50000
-  quality_threshold: 0.7
-  respect_robots_txt: true
-  user_agent: "ConfluenceGatewayTestDataCollector/1.0"
-  rate_limit_seconds: 2
-  cache_expiry_days: 30
-
-content_filters:
-  exclude_patterns:
-    - "*test*"
-    - "*example*"
-    - "*.min.js"
-    - "*.min.css"
-  include_mime_types:
-    - "text/plain"
-    - "text/markdown"
-    - "text/x-rst"
-    - "text/html"
-    - "application/json"
+    - name: "MongoDB Documentation"
+      type: "web_tech_docs"
+      base_url: "https://docs.mongodb.com"
+      start_urls:
+        - "https://docs.mongodb.com/manual/"
+        - "https://docs.mongodb.com/manual/tutorial/"
+      categories: ["technical"]
+      selector: "main"
+      max_depth: 1
+      
+    - name: "Redis Documentation"
+      type: "web_tech_docs"
+      base_url: "https://redis.io/docs/"
+      start_urls:
+        - "https://redis.io/docs/get-started/"
+        - "https://redis.io/docs/manual/"
+      categories: ["technical"]
+      selector: "main"
+      max_depth: 1
+      
+    - name: "Nginx Documentation"
+      type: "web_tech_docs"
+      base_url: "https://nginx.org/en/docs/"
+      start_urls:
+        - "https://nginx.org/en/docs/beginners_guide.html"
+        - "https://nginx.org/en/docs/http/"
+      categories: ["technical"]
+      selector: "div#content"
+      max_depth: 1
+      
+  knowledge_base:
+    - name: "MDN Web Docs"
+      type: "web_kb"
+      base_url: "https://developer.mozilla.org"
+      start_urls:
+        - "https://developer.mozilla.org/en-US/docs/Web/JavaScript"
+        - "https://developer.mozilla.org/en-US/docs/Web/HTML"
+        - "https://developer.mozilla.org/en-US/docs/Web/CSS"
+        - "https://developer.mozilla.org/en-US/docs/Web/HTTP"
+      categories: ["knowledge_base"]
+      selector: "article"
+      max_depth: 1
+      
+    - name: "Wikipedia Technology Portal"
+      type: "web_kb"
+      base_url: "https://en.wikipedia.org"
+      start_urls:
+        - "https://en.wikipedia.org/wiki/Portal:Technology"
+        - "https://en.wikipedia.org/wiki/Portal:Computer_science"
+      categories: ["knowledge_base"]
+      selector: "div#mw-content-text"
+      max_depth: 1
+      
+    - name: "Microsoft Azure Cloud Adoption Framework"
+      type: "web_kb"
+      base_url: "https://docs.microsoft.com/en-us/azure/cloud-adoption-framework/"
+      start_urls:
+        - "https://docs.microsoft.com/en-us/azure/cloud-adoption-framework/overview"
+        - "https://docs.microsoft.com/en-us/azure/cloud-adoption-framework/strategy/"
+      categories: ["knowledge_base"]
+      selector: "main"
+      max_depth: 1

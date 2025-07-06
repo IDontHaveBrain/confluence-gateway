@@ -234,16 +234,13 @@ def create(
                 custom_config = yaml.safe_load(f)
                 generation_config = custom_config.get("generation", {})
                 
-                # Update existing config with custom values, preserving defaults
                 for key, value in generation_config.items():
                     if hasattr(config, key):
                         if isinstance(getattr(config, key), dict) and isinstance(value, dict):
-
                             existing_dict = getattr(config, key).copy()
                             existing_dict.update(value)
                             setattr(config, key, existing_dict)
                         else:
-
                             setattr(config, key, value)
         except Exception as e:
             console.print(f"[yellow]Warning: Failed to load config file: {e}[/yellow]")
@@ -302,7 +299,7 @@ def create(
     if use_real_data:
         console.print("[yellow]Using REAL DATA mode - content will be sourced from collected documentation[/yellow]\n")
         # Check if real data is available
-        real_data_index = Path("scripts/config/real_data/content_index.json")
+        real_data_index = Path("config/real_data/content_index.json")
         if real_data_index.exists():
             with open(real_data_index, 'r') as f:
                 index_data = json.load(f)
@@ -330,9 +327,7 @@ def create(
     }
     
     try:
-
         for space_config in config.spaces:
-
             space_key = f"{config.prefix}{space_config['key']}{timestamp}"
             space_name = f"{config.prefix} - {space_config['name']} ({timestamp})"
             
@@ -340,7 +335,6 @@ def create(
             
             if not config.safety["dry_run"]:
                 try:
-
                     space = content_gen.create_space(space_key, space_name)
                     stats["spaces_created"] += 1
 

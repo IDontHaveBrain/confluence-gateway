@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""
-Real Data Collector for Confluence Gateway Testing
 
-This script collects real technical documentation from various sources
-to create realistic test data for Confluence Gateway.
-"""
-
+import asyncio
 import hashlib
 import json
-import logging
 import os
 import re
 import sys
@@ -16,628 +10,697 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from urllib.parse import urljoin, urlparse
 
+import aiohttp
 import requests
 import yaml
+from markitdown import MarkItDown
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
 from rich.console import Console
-from rich.progress import track
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.table import Table
 
-# Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 console = Console()
-logger = logging.getLogger(__name__)
 
 
 class ContentEntry(BaseModel):
-    """Model for content metadata"""
     id: str
+    url: str
+    title: str
+    content: str
+    content_hash: str
     source: Dict[str, Any]
     metadata: Dict[str, Any]
     categorization: Dict[str, Any]
-    content: Dict[str, Any]
-    quality_metrics: Dict[str, float]
-    attachments: List[Dict[str, Any]] = []
-    processing: Dict[str, Any]
+    content_info: Dict[str, Any]
+    collection_time: str
+    
+
+class DuplicateDetector:
+    def __init__(self, method: str = "content_hash", threshold: float = 0.95):
+        self.method = method
+        self.threshold = threshold
+        self.seen_hashes: Set[str] = set()
+        self.seen_urls: Set[str] = set()
+        
+    def is_duplicate(self, entry: ContentEntry) -> bool:
+        if self.method == "content_hash":
+            if entry.content_hash in self.seen_hashes:
+                return True
+            self.seen_hashes.add(entry.content_hash)
+        elif self.method == "url_hash":
+            url_hash = hashlib.sha256(entry.url.encode()).hexdigest()
+            if url_hash in self.seen_urls:
+                return True
+            self.seen_urls.add(url_hash)
+        return False
+    
+    def add_entry(self, entry: ContentEntry):
+        self.seen_hashes.add(entry.content_hash)
+        self.seen_urls.add(entry.url)
+
+
+class RateLimiter:
+    def __init__(self, requests_per_minute: int = 30):
+        self.requests_per_minute = requests_per_minute
+        self.min_interval = 60.0 / requests_per_minute
+        self.last_request_time = 0
+        
+    async def wait_if_needed(self):
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        
+        if time_since_last < self.min_interval:
+            wait_time = self.min_interval - time_since_last
+            await asyncio.sleep(wait_time)
+            
+        self.last_request_time = time.time()
 
 
 class BaseCollector(ABC):
-    """Base class for content collectors"""
     
-    def __init__(self, config: Dict[str, Any], cache_dir: Path):
+    def __init__(self, config: Dict[str, Any], production_config: Dict[str, Any]):
         self.config = config
-        self.cache_dir = cache_dir
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': config.get('collection_settings', {}).get(
-                'user_agent', 'ConfluenceGatewayTestDataCollector/1.0'
-            )
-        })
+        self.production_config = production_config
+        self.collection_settings = config.get('collection_settings', {})
+        self.rate_limiter = RateLimiter(
+            production_config.get('collection', {}).get('rate_limits', {}).get('requests_per_minute', 30)
+        )
         
     @abstractmethod
-    def collect(self, source: Dict[str, Any]) -> List[ContentEntry]:
+    async def collect(self, source: Dict[str, Any]) -> List[ContentEntry]:
         """Collect content from the source"""
         pass
     
-    def _generate_id(self, source_name: str, path: str) -> str:
-        """Generate unique ID for content"""
-        content = f"{source_name}:{path}"
-        return hashlib.sha256(content.encode()).hexdigest()[:16]
+    def _generate_content_hash(self, content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()
     
-    def _extract_text_from_html(self, html_content: str) -> str:
-        """Extract clean text from HTML"""
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.decompose()
-            
-        # Get text
-        text = soup.get_text()
-        
-        # Clean up whitespace
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
-        
-        return text
-    
-    def _calculate_quality_metrics(self, content: str) -> Dict[str, float]:
-        """Calculate quality metrics for content"""
-        # Simple metrics for now
-        word_count = len(content.split())
-        char_count = len(content)
-        
-        # Readability (simple approximation)
-        avg_word_length = char_count / max(word_count, 1)
-        readability = min(1.0, max(0.0, 1.0 - (avg_word_length - 5) / 10))
-        
-        # Technical depth (based on code blocks and technical terms)
-        code_blocks = len(re.findall(r'```[\s\S]*?```', content))
-        technical_terms = len(re.findall(
-            r'\b(api|function|class|method|parameter|configuration|algorithm|database|server)\b', 
-            content.lower()
-        ))
-        technical_depth = min(1.0, (code_blocks * 0.1 + technical_terms * 0.01))
-        
-        # Completeness (based on length)
-        completeness = min(1.0, word_count / 1000)
-        
-        # Overall quality
-        overall = (readability + technical_depth + completeness) / 3
-        
-        return {
-            "readability_score": round(readability, 2),
-            "technical_depth": round(technical_depth, 2),
-            "completeness": round(completeness, 2),
-            "overall_quality": round(overall, 2)
-        }
-
-
-class GitHubCollector(BaseCollector):
-    """Collector for GitHub repositories"""
-    
-    def collect(self, source: Dict[str, Any]) -> List[ContentEntry]:
-        """Collect documentation from GitHub repository"""
-        entries = []
-        repo_url = source['url']
-        
-        # Parse GitHub URL
-        parts = urlparse(repo_url).path.strip('/').split('/')
-        if len(parts) < 2:
-            logger.error(f"Invalid GitHub URL: {repo_url}")
-            return entries
-            
-        owner, repo = parts[0], parts[1]
-        path = '/'.join(parts[4:]) if len(parts) > 4 else ''
-        
-        console.print(f"[yellow]Collecting from GitHub: {owner}/{repo}/{path}[/yellow]")
-        
-        # Use GitHub API to list files
-        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    def _extract_text_from_html(self, html_content: str, selector: Optional[str] = None) -> str:
+        """Extract text from HTML using markitdown"""
+        import tempfile
+        import re
         
         try:
-            response = self.session.get(api_url)
-            response.raise_for_status()
+            # If selector is provided, extract specific content first
+            if selector:
+                soup = BeautifulSoup(html_content, 'html.parser')
+                element = soup.select_one(selector)
+                if element:
+                    html_content = str(element)
             
-            items = response.json()
-            if not isinstance(items, list):
-                items = [items]
-                
-            for item in track(items, description=f"Processing {source['name']}"):
-                if item['type'] == 'file':
-                    # Check file patterns
-                    if any(item['name'].endswith(pattern.replace('*', '')) 
-                          for pattern in source.get('file_patterns', ['*'])):
-                        entry = self._process_github_file(source, owner, repo, item)
-                        if entry:
-                            entries.append(entry)
-                            
-                # Rate limiting
-                time.sleep(self.config.get('collection_settings', {}).get('rate_limit_seconds', 2))
-                
-        except Exception as e:
-            logger.error(f"Error collecting from GitHub: {e}")
+            # Create MarkItDown instance
+            md = MarkItDown()
             
-        return entries
-    
-    def _process_github_file(self, source: Dict[str, Any], owner: str, repo: str, 
-                            file_info: Dict[str, Any]) -> Optional[ContentEntry]:
-        """Process a single GitHub file"""
-        try:
-            # Get file content
-            response = self.session.get(file_info['download_url'])
-            response.raise_for_status()
-            
-            content = response.text
-            
-            # Skip if too small or too large
-            settings = self.config.get('collection_settings', {})
-            if (len(content) < settings.get('min_content_length', 500) or
-                len(content) > settings.get('max_content_length', 50000)):
-                return None
-                
-            # Generate metadata
-            entry_id = self._generate_id(source['name'], file_info['path'])
-            
-            # Determine format
-            file_ext = Path(file_info['name']).suffix.lower()
-            format_map = {
-                '.md': 'markdown',
-                '.rst': 'rst',
-                '.txt': 'plain_text',
-                '.html': 'html',
-                '.ipynb': 'jupyter'
-            }
-            content_format = format_map.get(file_ext, 'plain_text')
-            
-            # Save raw content
-            raw_path = self.cache_dir / 'raw_content' / f"{entry_id}_{file_info['name']}"
-            raw_path.parent.mkdir(parents=True, exist_ok=True)
-            raw_path.write_text(content, encoding='utf-8')
-            
-            # Calculate metrics
-            metrics = self._calculate_quality_metrics(content)
-            
-            # Create entry
-            entry = ContentEntry(
-                id=entry_id,
-                source={
-                    "name": source['name'],
-                    "type": "github_repo",
-                    "url": file_info['html_url'],
-                    "fetch_date": datetime.now(timezone.utc).isoformat()
-                },
-                metadata={
-                    "title": file_info['name'].replace('-', ' ').replace('_', ' ').title(),
-                    "description": f"Documentation from {owner}/{repo}",
-                    "author": owner,
-                    "created_date": datetime.now(timezone.utc).isoformat(),
-                    "modified_date": datetime.now(timezone.utc).isoformat(),
-                    "language": source['languages'][0] if source.get('languages') else 'en',
-                    "license": "Check repository"
-                },
-                categorization={
-                    "primary_category": source['categories'][0],
-                    "secondary_categories": source['categories'][1:],
-                    "tags": self._extract_tags(content),
-                    "topics": [repo, owner]
-                },
-                content={
-                    "format": content_format,
-                    "raw_file_path": str(raw_path.relative_to(self.cache_dir)),
-                    "processed_file_path": "",
-                    "word_count": len(content.split()),
-                    "char_count": len(content),
-                    "code_blocks_count": len(re.findall(r'```[\s\S]*?```', content)),
-                    "images_count": len(re.findall(r'!\[.*?\]\(.*?\)', content)),
-                    "tables_count": len(re.findall(r'\|.*\|.*\|', content))
-                },
-                quality_metrics=metrics,
-                attachments=[],
-                processing={
-                    "preprocessed": False,
-                    "validated": True,
-                    "errors": [],
-                    "warnings": []
-                }
-            )
-            
-            return entry
-            
-        except Exception as e:
-            logger.error(f"Error processing file {file_info['name']}: {e}")
-            return None
-    
-    def _extract_tags(self, content: str) -> List[str]:
-        """Extract relevant tags from content"""
-        # Simple keyword extraction
-        keywords = []
-        
-        # Common technical terms
-        tech_terms = ['api', 'database', 'server', 'client', 'function', 'class', 
-                     'method', 'configuration', 'installation', 'deployment']
-        
-        content_lower = content.lower()
-        for term in tech_terms:
-            if term in content_lower:
-                keywords.append(term)
-                
-        return keywords[:10]  # Limit to 10 tags
-
-
-class WebScraperCollector(BaseCollector):
-    """Collector for web documentation"""
-    
-    def collect(self, source: Dict[str, Any]) -> List[ContentEntry]:
-        """Collect documentation from web pages"""
-        entries = []
-        base_url = source['base_url']
-        max_pages = source.get('max_pages', 10)
-        
-        console.print(f"[yellow]Collecting from web: {base_url}[/yellow]")
-        
-        # Start with base URL
-        urls_to_visit = [base_url]
-        visited_urls = set()
-        
-        while urls_to_visit and len(entries) < max_pages:
-            url = urls_to_visit.pop(0)
-            
-            if url in visited_urls:
-                continue
-                
-            visited_urls.add(url)
+            # Create a temporary HTML file for markitdown to process
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as temp_file:
+                temp_file.write(html_content)
+                temp_file_path = temp_file.name
             
             try:
-                # Respect robots.txt
-                if self.config.get('collection_settings', {}).get('respect_robots_txt', True):
-                    # Simple check - in production, use robotparser
-                    robots_url = urljoin(url, '/robots.txt')
-                    # Skip complex robots.txt parsing for now
-                    
-                response = self.session.get(url, timeout=30)
-                response.raise_for_status()
+                # Convert to markdown
+                result = md.convert(temp_file_path)
+                text = result.text_content
                 
-                # Parse content
-                soup = BeautifulSoup(response.content, 'html.parser')
+                # Basic cleanup - remove excessive whitespace
+                if text:
+                    # Remove multiple consecutive empty lines
+                    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+                    text = text.strip()
                 
-                # Extract links for crawling
-                for link in soup.find_all('a', href=True):
-                    href = urljoin(url, link['href'])
-                    if (href.startswith(base_url) and 
-                        href not in visited_urls and 
-                        href not in urls_to_visit):
-                        urls_to_visit.append(href)
+                return text or ""
                 
-                # Process page content
-                entry = self._process_web_page(source, url, response.text)
-                if entry:
-                    entries.append(entry)
-                    
-                # Rate limiting
-                time.sleep(self.config.get('collection_settings', {}).get('rate_limit_seconds', 2))
-                
-            except Exception as e:
-                logger.error(f"Error collecting from {url}: {e}")
-                
-        return entries
-    
-    def _process_web_page(self, source: Dict[str, Any], url: str, 
-                         html_content: str) -> Optional[ContentEntry]:
-        """Process a single web page"""
-        try:
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Extract title
-            title = soup.find('title')
-            title_text = title.text.strip() if title else urlparse(url).path
-            
-            # Extract main content
-            # Try common content containers
-            content_tags = ['main', 'article', 'div.content', 'div.documentation']
-            content_elem = None
-            
-            for tag in content_tags:
-                if '.' in tag:
-                    tag_name, class_name = tag.split('.')
-                    content_elem = soup.find(tag_name, class_=class_name)
-                else:
-                    content_elem = soup.find(tag)
-                    
-                if content_elem:
-                    break
-                    
-            if not content_elem:
-                content_elem = soup.find('body')
-                
-            if not content_elem:
-                return None
-                
-            # Extract text
-            text_content = self._extract_text_from_html(str(content_elem))
-            
-            # Skip if too small
-            settings = self.config.get('collection_settings', {})
-            if len(text_content) < settings.get('min_content_length', 500):
-                return None
-                
-            # Generate entry
-            entry_id = self._generate_id(source['name'], url)
-            
-            # Save raw content
-            raw_path = self.cache_dir / 'raw_content' / f"{entry_id}.html"
-            raw_path.parent.mkdir(parents=True, exist_ok=True)
-            raw_path.write_text(html_content, encoding='utf-8')
-            
-            # Calculate metrics
-            metrics = self._calculate_quality_metrics(text_content)
-            
-            # Create entry
-            entry = ContentEntry(
-                id=entry_id,
-                source={
-                    "name": source['name'],
-                    "type": "web_scrape",
-                    "url": url,
-                    "fetch_date": datetime.now(timezone.utc).isoformat()
-                },
-                metadata={
-                    "title": title_text,
-                    "description": f"Documentation from {urlparse(url).netloc}",
-                    "author": urlparse(url).netloc,
-                    "created_date": datetime.now(timezone.utc).isoformat(),
-                    "modified_date": datetime.now(timezone.utc).isoformat(),
-                    "language": source['languages'][0] if source.get('languages') else 'en',
-                    "license": "Check website"
-                },
-                categorization={
-                    "primary_category": source['categories'][0],
-                    "secondary_categories": source['categories'][1:],
-                    "tags": self._extract_tags(text_content),
-                    "topics": [urlparse(url).netloc]
-                },
-                content={
-                    "format": "html",
-                    "raw_file_path": str(raw_path.relative_to(self.cache_dir)),
-                    "processed_file_path": "",
-                    "word_count": len(text_content.split()),
-                    "char_count": len(text_content),
-                    "code_blocks_count": len(soup.find_all(['pre', 'code'])),
-                    "images_count": len(soup.find_all('img')),
-                    "tables_count": len(soup.find_all('table'))
-                },
-                quality_metrics=metrics,
-                attachments=[],
-                processing={
-                    "preprocessed": False,
-                    "validated": True,
-                    "errors": [],
-                    "warnings": []
-                }
-            )
-            
-            return entry
+            finally:
+                # Always clean up the temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
             
         except Exception as e:
-            logger.error(f"Error processing web page {url}: {e}")
+            # Fallback to basic BeautifulSoup text extraction
+            try:
+                soup = BeautifulSoup(html_content, 'html.parser')
+                # Remove script and style elements
+                for script in soup(["script", "style"]):
+                    script.decompose()
+                # Get text and clean it up
+                text = soup.get_text()
+                # Clean up whitespace
+                lines = (line.strip() for line in text.splitlines())
+                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                text = '\n'.join(chunk for chunk in chunks if chunk)
+                return text
+            except Exception:
+                return ""
+    
+    def _extract_title_from_html(self, html_content: str) -> str:
+        """Extract title from HTML"""
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Try different title sources
+        title = None
+        
+        # Try h1 tag first
+        h1 = soup.find('h1')
+        if h1:
+            title = h1.get_text().strip()
+            
+        # Try title tag
+        if not title:
+            title_tag = soup.find('title')
+            if title_tag:
+                title = title_tag.get_text().strip()
+                
+        if not title:
+            og_title = soup.find('meta', property='og:title')
+            if og_title:
+                title = og_title.get('content', '').strip()
+                
+        return title or "Untitled Document"
+    
+    async def _fetch_url(self, session: aiohttp.ClientSession, url: str) -> Optional[str]:
+        """Fetch content from URL with error handling"""
+        try:
+            # Skip PDF files
+            if url.endswith('.pdf') or '#' in url and url.split('#')[0].endswith('.pdf'):
+                console.print(f"[yellow]Skipping PDF file: {url}[/yellow]")
+                return None
+                
+            await self.rate_limiter.wait_if_needed()
+            
+            timeout = aiohttp.ClientTimeout(total=self.collection_settings.get('timeout_seconds', 30))
+            headers = {
+                'User-Agent': self.collection_settings.get('user_agent', 
+                    'Mozilla/5.0 (compatible; ConfluenceGatewayBot/1.0)')
+            }
+            
+            async with session.get(url, headers=headers, timeout=timeout) as response:
+                if response.status == 200:
+                    # Check content type
+                    content_type = response.headers.get('Content-Type', '')
+                    if 'application/pdf' in content_type:
+                        console.print(f"[yellow]Skipping PDF content: {url}[/yellow]")
+                        return None
+                    return await response.text()
+                else:
+                    console.print(f"[yellow]Failed to fetch {url}: Status {response.status}[/yellow]")
+                    return None
+                    
+        except Exception as e:
+            console.print(f"[red]Error fetching {url}: {e}[/red]")
             return None
     
-    def _extract_tags(self, content: str) -> List[str]:
-        """Extract relevant tags from content"""
-        # Simple keyword extraction
-        keywords = []
+    def _should_follow_link(self, url: str, base_url: str, max_depth: int, current_depth: int) -> bool:
+        """Check if a link should be followed"""
+        if current_depth >= max_depth:
+            return False
+            
+        # Only follow links within the same domain
+        url_domain = urlparse(url).netloc
+        base_domain = urlparse(base_url).netloc
         
-        # Common technical terms
-        tech_terms = ['api', 'database', 'server', 'client', 'function', 'class', 
-                     'method', 'configuration', 'installation', 'deployment']
+        return url_domain == base_domain
+
+
+class WebDocumentationCollector(BaseCollector):
+    
+    async def collect(self, source: Dict[str, Any]) -> List[ContentEntry]:
+        """Collect documentation from web pages"""
+        entries = []
+        visited_urls = set()
         
-        content_lower = content.lower()
-        for term in tech_terms:
-            if term in content_lower:
-                keywords.append(term)
+        async with aiohttp.ClientSession() as session:
+            # Process start URLs
+            for start_url in source.get('start_urls', []):
+                await self._collect_recursive(
+                    session, source, start_url, entries, visited_urls, 0
+                )
+                # Limit documents per source
+                if len(entries) >= 10:
+                    break
                 
-        return keywords[:10]  # Limit to 10 tags
+        console.print(f"[green]✓ Collected {len(entries)} documents from {source['name']}[/green]")
+        return entries
+    
+    async def _collect_recursive(self, session: aiohttp.ClientSession, source: Dict[str, Any], 
+                                url: str, entries: List[ContentEntry], visited_urls: Set[str], 
+                                depth: int):
+        if url in visited_urls or len(entries) >= 10:
+            return
+            
+        visited_urls.add(url)
+        
+        # Check depth limit
+        max_depth = source.get('max_depth', 2)
+        if depth > max_depth:
+            return
+            
+        # Fetch page content
+        try:
+            html_content = await self._fetch_url(session, url)
+            if not html_content:
+                return
+        except Exception as e:
+            console.print(f"[yellow]Skipping {url} due to error: {e}[/yellow]")
+            return
+            
+        # Extract content
+        selector = source.get('selector', 'main')
+        text_content = self._extract_text_from_html(html_content, selector)
+        
+        # Check content length
+        min_length = self.production_config.get('collection', {}).get('content_filters', {}).get('min_length', 500)
+        max_length = self.production_config.get('collection', {}).get('content_filters', {}).get('max_length', 100000)
+        
+        if len(text_content) < min_length or len(text_content) > max_length:
+            console.print(f"[yellow]Skipping {url}: Content length {len(text_content)} outside range[/yellow]")
+            return
+            
+        # Extract title
+        title = self._extract_title_from_html(html_content)
+        
+        # Create entry
+        content_hash = self._generate_content_hash(text_content)
+        entry = ContentEntry(
+            id=hashlib.sha256(url.encode()).hexdigest()[:16],
+            url=url,
+            title=title,
+            content=text_content,
+            content_hash=content_hash,
+            source={
+                "name": source['name'],
+                "type": source['type'],
+                "base_url": source['base_url']
+            },
+            metadata={
+                "description": f"Documentation from {source['name']}",
+                "author": source['name'],
+                "language": "en",
+                "collected_at": datetime.now(timezone.utc).isoformat()
+            },
+            categorization={
+                "primary_category": source['categories'][0],
+                "categories": source['categories']
+            },
+            content_info={
+                "format": "html",
+                "word_count": len(text_content.split()),
+                "char_count": len(text_content)
+            },
+            collection_time=datetime.now(timezone.utc).isoformat()
+        )
+        
+        entries.append(entry)
+        
+        # Extract and follow links if not at max depth
+        if depth < max_depth:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            links = soup.find_all('a', href=True)
+            
+            for link in links:
+                href = link['href']
+                absolute_url = urljoin(url, href)
+                
+                # Check if we should follow this link
+                if self._should_follow_link(absolute_url, source['base_url'], max_depth, depth):
+                    await self._collect_recursive(
+                        session, source, absolute_url, entries, visited_urls, depth + 1
+                    )
+
+
+class APIDocumentationCollector(BaseCollector):
+    
+    async def collect(self, source: Dict[str, Any]) -> List[ContentEntry]:
+        """Collect API documentation"""
+        # If source has API endpoint, use that
+        if source.get('use_api'):
+            return await self._collect_via_api(source)
+        else:
+            # Otherwise use web scraping
+            collector = WebDocumentationCollector(self.config, self.production_config)
+            return await collector.collect(source)
+    
+    async def _collect_via_api(self, source: Dict[str, Any]) -> List[ContentEntry]:
+        entries = []
+        
+        if source['name'].startswith("Dev.to"):
+            api_endpoint = source['api_endpoint']
+            params = source.get('api_params', {})
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_endpoint, params=params) as response:
+                    if response.status == 200:
+                        articles = await response.json()
+                        
+                        for article in articles[:30]:
+                            content = article.get('description', '')
+                            if not content:
+                                content = f"# {article['title']}\n\n{article.get('tags', '')}\n\nRead more at: {article['url']}"
+                            
+                            entry = ContentEntry(
+                                id=str(article['id']),
+                                url=article['url'],
+                                title=article['title'],
+                                content=content,
+                                content_hash=self._generate_content_hash(content),
+                                source={
+                                    "name": source['name'],
+                                    "type": "api",
+                                    "base_url": source['base_url']
+                                },
+                                metadata={
+                                    "description": article.get('description', ''),
+                                    "author": article['user']['username'],
+                                    "language": "en",
+                                    "tags": article.get('tags', '').split(', '),
+                                    "collected_at": datetime.now(timezone.utc).isoformat()
+                                },
+                                categorization={
+                                    "primary_category": source['categories'][0],
+                                    "categories": source['categories']
+                                },
+                                content_info={
+                                    "format": "markdown",
+                                    "word_count": len(content.split()),
+                                    "reading_time_minutes": article.get('reading_time_minutes', 0)
+                                },
+                                collection_time=datetime.now(timezone.utc).isoformat()
+                            )
+                            entries.append(entry)
+                            
+        elif source['name'] == "Stack Overflow Documentation":
+            api_endpoint = source['api_endpoint']
+            
+            async with aiohttp.ClientSession() as session:
+                params = {
+                    'order': 'desc',
+                    'sort': 'votes',
+                    'tagged': 'python;javascript;java',
+                    'site': 'stackoverflow',
+                    'filter': 'withbody'
+                }
+                
+                async with session.get(api_endpoint, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        questions = data.get('items', [])
+                        
+                        for q in questions[:20]:
+                            content = f"# {q['title']}\n\n{q.get('body', '')}"
+                            
+                            if q.get('accepted_answer_id'):
+                                content += "\n\n## Accepted Answer\n\n[Answer content would be fetched separately]"
+                            
+                            entry = ContentEntry(
+                                id=str(q['question_id']),
+                                url=q['link'],
+                                title=q['title'],
+                                content=content,
+                                content_hash=self._generate_content_hash(content),
+                                source={
+                                    "name": source['name'],
+                                    "type": "api",
+                                    "base_url": source['base_url']
+                                },
+                                metadata={
+                                    "description": f"Stack Overflow Q&A",
+                                    "author": q['owner'].get('display_name', 'Anonymous'),
+                                    "language": "en",
+                                    "tags": q.get('tags', []),
+                                    "score": q.get('score', 0),
+                                    "collected_at": datetime.now(timezone.utc).isoformat()
+                                },
+                                categorization={
+                                    "primary_category": source['categories'][0],
+                                    "categories": source['categories']
+                                },
+                                content_info={
+                                    "format": "html",
+                                    "word_count": len(content.split()),
+                                    "view_count": q.get('view_count', 0)
+                                },
+                                collection_time=datetime.now(timezone.utc).isoformat()
+                            )
+                            entries.append(entry)
+        
+        console.print(f"[green]✓ Collected {len(entries)} documents via API from {source['name']}[/green]")
+        return entries
 
 
 class RealDataCollector:
-    """Main collector that orchestrates all source collectors"""
     
     def __init__(self, config_path: Path):
         self.config_path = config_path
         self.cache_dir = config_path / 'real_data'
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         
-        # Load configuration
-        with open(config_path / 'real_data' / 'sources.yaml', 'r') as f:
-            self.config = yaml.safe_load(f)
+        sources_file = config_path / 'real_data' / 'sources.yaml'
+        with open(sources_file, 'r') as f:
+            self.sources_config = yaml.safe_load(f)
             
-        # Load existing index
+        with open(config_path / 'production_config.yaml', 'r') as f:
+            self.production_config = yaml.safe_load(f)
+            
+        dup_config = self.production_config.get('collection', {}).get('duplicate_detection', {})
+        self.duplicate_detector = DuplicateDetector(
+            method=dup_config.get('method', 'content_hash'),
+            threshold=dup_config.get('similarity_threshold', 0.95)
+        )
+        
+        self.collectors = {
+            'web_api_docs': APIDocumentationCollector(self.sources_config, self.production_config),
+            'web_tech_docs': WebDocumentationCollector(self.sources_config, self.production_config),
+            'web_kb': WebDocumentationCollector(self.sources_config, self.production_config)
+        }
+        
         self.index_path = self.cache_dir / 'content_index.json'
+        self.load_index()
+        
+    def load_index(self):
         if self.index_path.exists():
             with open(self.index_path, 'r') as f:
                 self.index = json.load(f)
         else:
             self.index = {
-                "version": "1.0.0",
+                "version": "2.0.0",
                 "last_updated": None,
                 "total_entries": 0,
                 "categories": {
-                    "technical": 0,
-                    "api_docs": 0,
-                    "knowledge_base": 0,
-                    "project_docs": 0,
-                    "multilingual": 0
+                    "api_docs": [],
+                    "technical": [],
+                    "knowledge_base": []
                 },
-                "languages": {
-                    "en": 0,
-                    "ko": 0,
-                    "mixed": 0,
-                    "other": 0
-                },
+                "sources": {},
                 "entries": []
             }
-            
-        # Initialize collectors
-        self.collectors = {
-            'github_repo': GitHubCollector(self.config, self.cache_dir),
-            'web_scrape': WebScraperCollector(self.config, self.cache_dir)
-        }
-        
-    def collect_all(self, source_types: Optional[List[str]] = None):
-        """Collect content from all configured sources"""
-        console.print("[bold blue]Starting Real Data Collection[/bold blue]\n")
-        
-        all_entries = []
-        
-        # Process each source type
-        for source_type, sources in self.config['sources'].items():
-            if source_types and source_type not in source_types:
-                continue
-                
-            console.print(f"\n[bold]Processing {source_type} sources...[/bold]")
-            
-            for source in sources:
-                collector = self.collectors.get(source['type'])
-                if not collector:
-                    console.print(f"[red]No collector for type: {source['type']}[/red]")
-                    continue
-                    
-                try:
-                    entries = collector.collect(source)
-                    all_entries.extend(entries)
-                    console.print(f"[green]✓ Collected {len(entries)} entries from {source['name']}[/green]")
-                except Exception as e:
-                    console.print(f"[red]✗ Error collecting from {source['name']}: {e}[/red]")
-                    
-        # Update index
-        self._update_index(all_entries)
-        
-        console.print(f"\n[bold green]Collection complete! Total entries: {len(all_entries)}[/bold green]")
-        
-    def _update_index(self, new_entries: List[ContentEntry]):
-        """Update the content index with new entries"""
-        # Convert existing entries to dict for easier lookup
-        existing_ids = {entry['id'] for entry in self.index['entries']}
-        
-        # Add new entries
-        added_count = 0
-        for entry in new_entries:
-            if entry.id not in existing_ids:
-                entry_dict = entry.model_dump()
-                self.index['entries'].append(entry_dict)
-                
-                # Update counts
-                primary_cat = entry.categorization['primary_category']
-                if primary_cat in self.index['categories']:
-                    self.index['categories'][primary_cat] += 1
-                    
-                lang = entry.metadata['language']
-                if lang in self.index['languages']:
-                    self.index['languages'][lang] += 1
-                else:
-                    self.index['languages']['other'] += 1
-                    
-                added_count += 1
-                
-        # Update metadata
-        self.index['total_entries'] = len(self.index['entries'])
+    
+    def save_index(self):
         self.index['last_updated'] = datetime.now(timezone.utc).isoformat()
+        self.index['total_entries'] = len(self.index['entries'])
         
-        # Save index
+        console.print(f"[blue]Saving {len(self.index['entries'])} entries to {self.index_path}[/blue]")
         with open(self.index_path, 'w') as f:
             json.dump(self.index, f, indent=2)
-            
-        console.print(f"[green]✓ Added {added_count} new entries to index[/green]")
+        console.print(f"[green]✓ Index saved successfully[/green]")
+    
+    async def collect_all(self):
+        console.print("[bold blue]Starting Real Data Collection from Live Sources[/bold blue]\n")
         
-    def search_content(self, category: Optional[str] = None, 
-                      language: Optional[str] = None,
-                      min_quality: float = 0.5) -> List[Dict[str, Any]]:
-        """Search collected content by criteria"""
+        enabled_sources = self.production_config.get('collection', {}).get('enabled_sources', [])
+        targets = self.production_config.get('collection', {}).get('targets', {})
+        
+        category_counts = {
+            'api_docs': 0,
+            'technical': 0,
+            'knowledge_base': 0
+        }
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=console
+        ) as progress:
+            
+            for source_type in enabled_sources:
+                if source_type not in self.sources_config['sources']:
+                    continue
+                    
+                sources = self.sources_config['sources'][source_type]
+                task = progress.add_task(f"Processing {source_type}", total=len(sources))
+                
+                for source in sources:
+                    progress.update(task, description=f"Collecting from {source['name']}")
+                    
+                    collector = self.collectors.get(source['type'])
+                    if not collector:
+                        console.print(f"[red]No collector for type: {source['type']}[/red]")
+                        progress.advance(task)
+                        continue
+                    
+                    try:
+                        entries = await collector.collect(source)
+                        
+                        new_entries = 0
+                        for entry in entries:
+                            if not self.duplicate_detector.is_duplicate(entry):
+                                self.index['entries'].append(entry.model_dump())
+                                self.duplicate_detector.add_entry(entry)
+                                new_entries += 1
+                                
+                                primary_cat = entry.categorization['primary_category']
+                                if primary_cat in category_counts:
+                                    category_counts[primary_cat] += 1
+                                    
+                                if primary_cat in targets:
+                                    max_docs = targets[primary_cat].get('max_documents', 50)
+                                    if category_counts[primary_cat] >= max_docs:
+                                        console.print(f"[yellow]Reached max documents ({max_docs}) for {primary_cat}[/yellow]")
+                                        break
+                        
+                        console.print(f"[green]✓ Added {new_entries} new unique documents from {source['name']}[/green]")
+                        
+                    except Exception as e:
+                        console.print(f"[red]✗ Error collecting from {source['name']}: {e}[/red]")
+                    
+                    progress.advance(task)
+                    
+                    all_satisfied = True
+                    for cat, target in targets.items():
+                        if category_counts.get(cat, 0) < target.get('min_documents', 20):
+                            all_satisfied = False
+                            break
+                            
+                    if all_satisfied:
+                        console.print("[yellow]Collected minimum required documents for all categories[/yellow]")
+                        break
+        
+        self.save_index()
+        
+        self._display_summary(category_counts)
+    
+    def _display_summary(self, category_counts: Dict[str, int]):
+        table = Table(title="Collection Summary")
+        table.add_column("Category", style="cyan")
+        table.add_column("Documents Collected", justify="right", style="green")
+        table.add_column("Target Range", justify="right")
+        table.add_column("Status", justify="center")
+        
+        targets = self.production_config.get('collection', {}).get('targets', {})
+        
+        for category, count in category_counts.items():
+            if category in targets:
+                target = targets[category]
+                min_docs = target.get('min_documents', 20)
+                max_docs = target.get('max_documents', 50)
+                target_range = f"{min_docs}-{max_docs}"
+                
+                if count >= min_docs:
+                    status = "[green]✓ Complete[/green]"
+                else:
+                    status = f"[red]✗ Need {min_docs - count} more[/red]"
+            else:
+                target_range = "N/A"
+                status = "[yellow]No target[/yellow]"
+                
+            table.add_row(category, str(count), target_range, status)
+        
+        console.print("\n")
+        console.print(table)
+        console.print(f"\n[bold green]Total unique documents collected: {len(self.index['entries'])}[/bold green]")
+    
+    def search_content(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Search collected content by category"""
         results = []
         
         for entry in self.index['entries']:
-            # Filter by category
             if category and entry['categorization']['primary_category'] != category:
                 continue
-                
-            # Filter by language
-            if language and entry['metadata']['language'] != language:
-                continue
-                
-            # Filter by quality
-            if entry['quality_metrics']['overall_quality'] < min_quality:
-                continue
-                
             results.append(entry)
             
         return results
 
 
 def main():
-    """Main entry point"""
     import typer
     
-    app = typer.Typer(help="Collect real documentation for testing")
+    app = typer.Typer(help="Collect real documentation from live sources")
     
     @app.command()
     def collect(
         config_dir: Path = typer.Option(
-            Path("scripts/config"),
+            Path("config"),
             "--config-dir", "-c",
             help="Configuration directory"
-        ),
-        source_types: Optional[str] = typer.Option(
-            None,
-            "--sources", "-s",
-            help="Comma-separated source types to collect (github,web_docs)"
         )
     ):
-        """Collect real documentation from configured sources"""
         collector = RealDataCollector(config_dir)
-        
-        types = source_types.split(',') if source_types else None
-        collector.collect_all(types)
-        
+        asyncio.run(collector.collect_all())
+    
     @app.command()
     def search(
         config_dir: Path = typer.Option(
-            Path("scripts/config"),
+            Path("config"),
             "--config-dir", "-c",
             help="Configuration directory"
         ),
         category: Optional[str] = typer.Option(
             None,
             "--category",
-            help="Filter by category"
-        ),
-        language: Optional[str] = typer.Option(
-            None,
-            "--language",
-            help="Filter by language"
-        ),
-        min_quality: float = typer.Option(
-            0.5,
-            "--min-quality",
-            help="Minimum quality score"
+            help="Filter by category (api_docs, technical, knowledge_base)"
         )
     ):
-        """Search collected content"""
         collector = RealDataCollector(config_dir)
-        results = collector.search_content(category, language, min_quality)
+        results = collector.search_content(category)
         
-        console.print(f"\n[bold]Found {len(results)} entries[/bold]\n")
+        console.print(f"\n[bold]Found {len(results)} documents[/bold]\n")
         
-        for entry in results[:10]:  # Show first 10
-            console.print(f"• {entry['metadata']['title']}")
+        for entry in results[:10]:
+            console.print(f"• [cyan]{entry['title']}[/cyan]")
             console.print(f"  Category: {entry['categorization']['primary_category']}")
-            console.print(f"  Quality: {entry['quality_metrics']['overall_quality']}")
-            console.print(f"  URL: {entry['source']['url']}")
+            console.print(f"  URL: {entry['url']}")
+            console.print(f"  Words: {entry['content_info']['word_count']}")
             console.print()
+    
+    @app.command()
+    def stats(
+        config_dir: Path = typer.Option(
+            Path("config"),
+            "--config-dir", "-c",
+            help="Configuration directory"
+        )
+    ):
+        collector = RealDataCollector(config_dir)
+        
+        # Calculate stats
+        category_counts = {}
+        source_counts = {}
+        
+        for entry in collector.index['entries']:
+            cat = entry['categorization']['primary_category']
+            category_counts[cat] = category_counts.get(cat, 0) + 1
             
+            source = entry['source']['name']
+            source_counts[source] = source_counts.get(source, 0) + 1
+        
+        console.print("[bold]Collection Statistics[/bold]\n")
+        console.print(f"Total documents: {len(collector.index['entries'])}")
+        console.print(f"Last updated: {collector.index.get('last_updated', 'Never')}\n")
+        
+        console.print("[bold]By Category:[/bold]")
+        for cat, count in category_counts.items():
+            console.print(f"  {cat}: {count}")
+            
+        console.print("\n[bold]By Source:[/bold]")
+        for source, count in sorted(source_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
+            console.print(f"  {source}: {count}")
+    
     app()
 
 

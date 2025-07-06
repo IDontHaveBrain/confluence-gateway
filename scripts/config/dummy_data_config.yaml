@@ -5,15 +5,15 @@ generation:
   spaces:
     - key: "TECH"
       name: "Technical Documentation Test"
-      pages_count: 50
+      pages_count: 5
       categories: ["technical"]
     - key: "API"
       name: "API Documentation Test"  
-      pages_count: 30
+      pages_count: 2
       categories: ["api_docs", "technical"]
     - key: "KB"
       name: "Knowledge Base Test"
-      pages_count: 40
+      pages_count: 2
       categories: ["knowledge_base"]
   
   content:
@@ -25,7 +25,7 @@ generation:
     include_lists: true
   
   attachments:
-    enabled: true
+    enabled: false
     types: ["pdf", "docx", "xlsx", "png"]
     max_per_page: 3
     total_size_limit_mb: 100
