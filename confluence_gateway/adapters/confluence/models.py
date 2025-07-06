@@ -28,7 +28,7 @@ class ConfluenceObject(BaseModel):
         "str_strip_whitespace": True,
     }
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any) -> None:
         if "id" in data and not isinstance(data["id"], str):
             data["id"] = str(data["id"])
 
@@ -50,7 +50,7 @@ class ConfluenceSpace(ConfluenceObject):
     description: dict[str, Any] | None = None
     type: SpaceType | None = None
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any) -> None:
         if "name" in data and "title" not in data:
             data["title"] = data["name"]
 
@@ -96,7 +96,7 @@ class ConfluencePage(ConfluenceObject):
 
     @field_validator("content_type", mode="before")
     @classmethod
-    def normalize_content_type(cls, v):
+    def normalize_content_type(cls, v: Any) -> Any:
         if isinstance(v, str):
             try:
                 return ContentType(v)
@@ -125,19 +125,19 @@ class ConfluencePage(ConfluenceObject):
     @property
     def html_content(self) -> str | None:
         if self.body and self.body.view and "value" in self.body.view:
-            return self.body.view["value"]
+            return str(self.body.view["value"])
         return None
 
     @property
     def storage_content(self) -> str | None:
         if self.body and self.body.storage and "value" in self.body.storage:
-            return self.body.storage["value"]
+            return str(self.body.storage["value"])
         return None
 
     @property
     def plain_content(self) -> str | None:
         if self.body and self.body.plain and "value" in self.body.plain:
-            return self.body.plain["value"]
+            return str(self.body.plain["value"])
         return None
 
 
@@ -160,7 +160,7 @@ class ConfluenceAttachment(ConfluenceObject):
     _links: ConfluenceAttachmentLinks | None = None
     version: Version | None = None
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any) -> None:
         if "type" in data and "content_type" not in data:
             data["content_type"] = data["type"]
 
@@ -207,7 +207,7 @@ class SearchResult(BaseModel):
         "populate_by_name": True,
     }
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any) -> None:
         if "totalSize" in data:
             data["total_size"] = data["totalSize"]
         elif "total" in data:

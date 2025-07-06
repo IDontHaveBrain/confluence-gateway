@@ -21,8 +21,13 @@ except ImportError:
 unstructured_partition: Callable[..., list[Any]] | None = None
 clean_extra_whitespace: Callable[[str], str] | None = None
 try:
-    from unstructured.cleaners.core import clean_extra_whitespace
-    from unstructured.partition.auto import partition as unstructured_partition
+    from unstructured.cleaners.core import (
+        clean_extra_whitespace as _clean_extra_whitespace,
+    )
+    from unstructured.partition.auto import partition as _unstructured_partition
+
+    unstructured_partition = _unstructured_partition
+    clean_extra_whitespace = _clean_extra_whitespace
 except ImportError:
     unstructured_partition = None
     clean_extra_whitespace = None

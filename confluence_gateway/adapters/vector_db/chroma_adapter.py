@@ -270,7 +270,7 @@ class ChromaDBAdapter(VectorDBAdapter):
             )
             count_result = collection.count()
             logger.info(f"ChromaDB count result: {count_result}")
-            return count_result
+            return int(count_result)
         except Exception as e:
             logger.error(f"ChromaDB count operation failed: {e}", exc_info=True)
             raise RuntimeError(f"ChromaDB count failed: {e}") from e

@@ -1,6 +1,6 @@
-import pytest
 from unittest.mock import Mock, patch
 
+import pytest
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.exceptions import (
     EmbeddingError,
@@ -174,13 +174,13 @@ class TestEmbeddingService:
         """Test proper logging during initialization."""
         # With provider
         provider = Mock(spec=EmbeddingProvider)
-        service = EmbeddingService(provider)
+        EmbeddingService(provider)
         mock_logger.info.assert_called_with(
             f"EmbeddingService initialized with provider: {provider.__class__.__name__}"
         )
 
         # Without provider
-        service = EmbeddingService(None)
+        EmbeddingService(None)
         mock_logger.warning.assert_called_with(
             "EmbeddingService initialized without a provider. Embedding operations will be disabled."
         )

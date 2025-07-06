@@ -103,7 +103,7 @@ def text_search(
     top_n: int | None = typer.Option(
         None, "--top-n", help="Return only the top N results after fetching."
     ),
-):
+) -> None:
     search_service: SearchService = _get_search_service()
 
     enhanced_result: EnhancedSearchResult
@@ -169,7 +169,7 @@ def cql_search(
     expand: list[str] | None = typer.Option(
         None, "--expand", help="Fields to expand (repeatable)."
     ),
-):
+) -> None:
     search_service: SearchService = _get_search_service()
     print_status(f"Performing CQL Search: '{cql_query}'", "info")
 
@@ -208,7 +208,7 @@ def semantic_search(
         "-f",
         help='JSON string for metadata filtering, e.g., \'{"space_key": "DEV"}\'.',
     ),
-):
+) -> None:
     search_service: SearchService = _get_search_service()
     print_status("Performing Semantic Search...", "info")
 

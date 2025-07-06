@@ -375,7 +375,7 @@ class QdrantAdapter(VectorDBAdapter):
                 exact=True,
             )
             logger.info(f"Qdrant count result: {count_result.count}")
-            return count_result.count
+            return int(count_result.count)
         except Exception as e:
             logger.error(f"Qdrant count operation failed: {e}", exc_info=True)
             raise RuntimeError(f"Qdrant count failed: {e}") from e
@@ -399,7 +399,7 @@ class QdrantAdapter(VectorDBAdapter):
                 with_vectors=with_vector,
             )
             logger.info(f"Qdrant retrieve returned {len(records)} records.")
-            return records
+            return list(records)
         except Exception as e:
             logger.error(f"Qdrant retrieve by ID operation failed: {e}", exc_info=True)
             raise RuntimeError(f"Qdrant retrieve by ID failed: {e}") from e

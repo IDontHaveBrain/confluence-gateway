@@ -111,7 +111,6 @@ def test_download_attachment(client: ConfluenceClient, real_search_term: str):
     common_terms = [real_search_term, "template", "report", "meeting notes"]
     page_id_with_attachment = None
     attachment_id = None
-    attachment_title = None
 
     for term in common_terms:
         search_result = client.search(query=term, limit=5, content_type="page")
@@ -125,7 +124,6 @@ def test_download_attachment(client: ConfluenceClient, real_search_term: str):
                 if attachments:
                     page_id_with_attachment = page.id
                     attachment_id = attachments[0].id
-                    attachment_title = attachments[0].title
                     break
             except Exception:
                 continue

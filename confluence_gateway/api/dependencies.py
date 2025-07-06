@@ -28,7 +28,7 @@ from confluence_gateway.services.search import SearchService
 logger = logging.getLogger(__name__)
 
 
-def get_confluence_client():
+def get_confluence_client() -> ConfluenceClient:
     if not confluence_config:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

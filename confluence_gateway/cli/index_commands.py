@@ -29,7 +29,7 @@ def trigger_indexing(
         help="Specific space keys to index (optional, defaults to configured spaces).",
         show_default=False,
     ),
-):
+) -> None:
     indexing_service: IndexingService | None = _get_indexing_service()
 
     if indexing_service is None:
@@ -56,7 +56,7 @@ def trigger_indexing(
 
 @app.command("status", help="Get the current status of the indexing service.")
 @handle_cli_errors
-def get_status():
+def get_status() -> None:
     indexing_service: IndexingService | None = _get_indexing_service()
 
     if indexing_service is None:

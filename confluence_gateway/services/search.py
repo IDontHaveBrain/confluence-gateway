@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar, Union, cast
 
 from llama_index.core import VectorStoreIndex
 from pydantic import BaseModel, Field
@@ -72,7 +72,7 @@ class EnhancedSearchResult(BaseModel):
 
 def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
         limit = kwargs.get("limit")
         original_start = kwargs.get("start")
 
@@ -246,7 +246,7 @@ class SearchService:
                 current_page=page_number,
             )
         else:
-            return search_result
+            return cast(SearchResult_T, search_result)
 
     def _sanitize_text(self, text: str) -> str:
         if not text:
@@ -570,7 +570,7 @@ class SearchService:
                 current_page=page_number,
             )
         else:
-            return search_result
+            return cast(SearchResult_T, search_result)
 
     @validate_search_params
     def search_hybrid(

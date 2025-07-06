@@ -1,5 +1,6 @@
 from datetime import datetime
 from functools import wraps
+from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -29,9 +30,9 @@ from confluence_gateway.services.search import SearchService
 router = APIRouter()
 
 
-def handle_search_exceptions(func):
+def handle_search_exceptions(func: Any) -> Any:
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return await func(*args, **kwargs)
         except SearchParameterError as e:
@@ -81,7 +82,7 @@ def handle_search_exceptions(func):
 
 
 def _build_search_response(
-    search_result, search_service, request: Request | None = None
+    search_result: Any, search_service: Any, request: Request | None = None
 ) -> SearchResponse:
     search_items = [
         SearchResultItem(
@@ -172,7 +173,7 @@ async def search_content(
         description="Enable hybrid search (keyword + semantic with RRF re-ranking)",
     ),
     search_service: SearchService = Depends(get_search_service),
-):
+) -> SearchResponse:
     if use_hybrid:
         search_result = search_service.search_hybrid(
             text=query,
@@ -221,7 +222,7 @@ async def semantic_search(
     request: Request,
     search_request: SemanticSearchRequest,
     search_service: SearchService = Depends(get_search_service),
-):
+) -> SemanticSearchResponse:
     results, took_ms = search_service.search_semantic(
         query=search_request.query,
         top_k=search_request.top_k,
@@ -249,7 +250,7 @@ async def advanced_search(
     request: Request,
     search_request: AdvancedSearchRequest,
     search_service: SearchService = Depends(get_search_service),
-):
+) -> SearchResponse:
     if getattr(search_request, "use_hybrid", False):
         search_result = search_service.search_hybrid(
             text=search_request.query,
@@ -296,7 +297,7 @@ async def cql_search(
     request: Request,
     search_request: CQLSearchRequest,
     search_service: SearchService = Depends(get_search_service),
-):
+) -> SearchResponse:
     search_result = search_service.search_by_cql(
         cql=search_request.cql,
         limit=search_request.limit,

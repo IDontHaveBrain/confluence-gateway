@@ -12,18 +12,18 @@ dependencies = [
     "chromadb>=1.0.15",
     "fastapi>=0.115.14",
     "httpx>=0.28.1",
-    "litellm>=1.73.6",
-    "llama-index-core>=0.12.34.post1",
+    "litellm>=1.74.0",
+    "llama-index-core>=0.12.46",
     "markitdown>=0.1.2",
     "multidict>=6.6.3",
     "pydantic>=2.11.7",
     "python-dotenv>=1.1.1",
     "qdrant-client>=1.14.3",
     "requests>=2.32.4",
-    "sentence-transformers>=4.1.0",
+    "sentence-transformers>=5.0.0",
     "tiktoken>=0.9.0",
     "typer>=0.15.4",
-    "unstructured>=0.18.2",
+    "unstructured>=0.18.3",
 ]
 
 [project.scripts]
@@ -35,29 +35,34 @@ dev = [
     "mypy>=1.16.1",
     "pre-commit>=4.2.0",
     "pytest>=8.4.1",
-    "pytest-asyncio>=0.26.0",
+    "pytest-asyncio>=1.0.0",
     "pytest-lazy-fixture>=0.6.3",
     "pytest-mock>=3.14.1",
-    "pytest-xdist>=3.6.1",
-    "ruff>=0.12.1",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.12.2",
     "types-requests>=2.32.4.20250611",
 ]
 
 [tool.ruff]
 lint.select = [
-    "E",  # pycodestyle errors
-    "F",  # pyflakes
-    "I",  # isort
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
     "UP",   # pyupgrade
+    "PTH",  # flake8-use-pathlib
+    "W",    # pycodestyle warnings (whitespace 관련
 ]
 lint.ignore = [
-    "E501",  # line too long
+    "E501", # line too long
 ]
-lint.fixable = ["E", "F", "I", "UP"]
+lint.fixable = ["E", "F", "I", "UP", "PTH", "W"]
 target-version = "py310"
 src = [
     "confluence_gateway",
     "tests",
+]
+exclude = [
+    "scripts",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -69,18 +74,45 @@ plugins = "pydantic.mypy"
 show_error_codes = true
 show_error_context = true
 warn_redundant_casts = true
-warn_return_any = false
+warn_return_any = true
 warn_unused_ignores = true
+warn_unreachable = true
 check_untyped_defs = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
 disallow_any_explicit = false
-disallow_any_generics = false
+disallow_any_generics = true
 ignore_missing_imports = true
 implicit_optional = true
+#fast_module_lookup = true
+exclude = [
+    "scripts",
+    "build",
+    "dist",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".git",
+]
 
 [[tool.mypy.overrides]]
-module = "pydantic.*"
+module = [
+    "atlassian.*",
+    "chromadb.*",
+    "fastapi.*",
+    "httpx.*",
+    "litellm.*",
+    "llama_index.*",
+    "markitdown.*",
+    "multidict.*",
+    "pydantic.*",
+    "qdrant_client.*",
+    "requests.*",
+    "sentence_transformers.*",
+    "tiktoken.*",
+    "typer.*",
+    "unstructured.*",
+]
 follow_imports = "skip"
 
 [[tool.mypy.overrides]]

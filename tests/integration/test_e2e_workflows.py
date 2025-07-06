@@ -214,7 +214,6 @@ class TestE2EWorkflows:
             )
 
         space_key = test_space_with_attachments["key"]
-        page_id = test_space_with_attachments["sample_page_id"]
 
         mock_indexing_config = mocker.patch(
             "confluence_gateway.api.dependencies.get_indexing_config"

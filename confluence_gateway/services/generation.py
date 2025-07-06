@@ -94,7 +94,7 @@ class GenerationService:
                 f"Context token count ({len(tokens)}) exceeds limit ({max_tokens}). Truncating."
             )
             truncated_tokens = tokens[:max_tokens]
-            return self.tokenizer.decode(truncated_tokens)
+            return str(self.tokenizer.decode(truncated_tokens))
         return context
 
     def _format_context(

@@ -50,7 +50,7 @@ class IndexingService:
     _last_run_status: Literal["idle", "running", "success", "failure"] = "idle"
     _last_error_message: str | None = None
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args: Any, **kwargs: Any) -> "IndexingService":
         if not cls._instance:
             with cls._lock:
                 if not cls._instance:
@@ -147,7 +147,7 @@ class IndexingService:
     def _list_all_accessible_spaces(self) -> list[ConfluenceSpace]:
         try:
             logger.info("Fetching all accessible spaces from Confluence via client...")
-            all_spaces = self.confluence_client.list_all_spaces()
+            all_spaces: list[ConfluenceSpace] = self.confluence_client.list_all_spaces()
             logger.info(f"Client returned {len(all_spaces)} accessible spaces.")
             return all_spaces
         except (ConfluenceAPIError, ConfluenceConnectionError) as e:
@@ -267,7 +267,7 @@ class IndexingService:
             return [text] if text else []
         if not text:
             return []
-        return self.text_splitter.split_text(text)
+        return list(self.text_splitter.split_text(text))
 
     def _create_chunk_metadata(
         self,
@@ -779,7 +779,7 @@ class IndexingService:
                 self._is_running = False
                 self._last_run_end_time = datetime.now(timezone.utc)
                 if self._last_run_status == "running":
-                    self._last_run_status = "failure"
+                    self._last_run_status = "failure"  # type: ignore[unreachable]
                     self._last_error_message = "Indexing finished unexpectedly without success or failure status."
 
     def _run_indexing_sync(self, space_keys: list[str] | None = None) -> None:

@@ -107,7 +107,7 @@ class TestGenerationServiceLogic:
             side_effect=Timeout("Request timed out"),
         )
         with pytest.raises(
-            GenerationError, match="LLM API error \(Timeout\): Request timed out"
+            GenerationError, match=r"LLM API error \(Timeout\): Request timed out"
         ):
             await generation_service.generate_answer(query=query)
         mock_search_semantic.assert_called_once()

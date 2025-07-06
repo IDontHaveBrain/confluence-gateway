@@ -1,5 +1,6 @@
 import logging
 from functools import wraps
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -23,9 +24,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def handle_generation_exceptions(func):
+def handle_generation_exceptions(func: Any) -> Any:
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return await func(*args, **kwargs)
         except GenerationError as e:
@@ -99,7 +100,7 @@ async def generate_answer(
     request: Request,
     gen_request: GenerateAnswerRequest,
     generation_service: GenerationService = Depends(get_generation_service),
-):
+) -> GenerateAnswerResponse:
     logger.info(
         f"Received generation request: query='{gen_request.query[:50]}...', top_k={gen_request.top_k_retrieval or '(default)'}, filters={gen_request.filters}"
     )

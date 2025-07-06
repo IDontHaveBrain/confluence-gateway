@@ -46,7 +46,7 @@ def get_embedding_provider(
             )
             return None
 
-        provider = provider_class(config)
+        provider: EmbeddingProvider = provider_class(config)
         logger.info(f"Initializing {provider.__class__.__name__}...")
         provider.initialize()
         logger.info(

@@ -11,7 +11,7 @@ class BaseSearchRequest(BaseModel):
     expand: list[str] | None = None
 
     @field_validator("limit")
-    def validate_limit(cls, v):
+    def validate_limit(cls, v: int | None) -> int | None:
         if v is not None:
             if v <= 0:
                 raise ValueError("Limit must be a positive integer")
@@ -20,7 +20,7 @@ class BaseSearchRequest(BaseModel):
         return v
 
     @field_validator("start")
-    def validate_start(cls, v):
+    def validate_start(cls, v: int | None) -> int | None:
         if v is not None and v < 0:
             raise ValueError("Start position cannot be negative")
         return v
@@ -33,13 +33,13 @@ class TextSearchRequest(BaseSearchRequest):
     include_archived: bool | None = False
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v
 
     @field_validator("content_type")
-    def validate_content_type(cls, v):
+    def validate_content_type(cls, v: str | None) -> str | None:
         if v is not None:
             valid_types = ["page", "blogpost", "attachment", "comment"]
             if v.lower() not in valid_types:
@@ -83,7 +83,7 @@ class CQLSearchRequest(BaseSearchRequest):
     cql: str
 
     @field_validator("cql")
-    def validate_cql(cls, v):
+    def validate_cql(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("CQL query cannot be empty")
 
@@ -121,13 +121,13 @@ class AdvancedSearchRequest(BaseSearchRequest):
     )
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v
 
     @field_validator("content_type")
-    def validate_content_type(cls, v):
+    def validate_content_type(cls, v: str | None) -> str | None:
         if v is not None:
             valid_types = ["page", "blogpost", "attachment", "comment"]
             if v.lower() not in valid_types:
@@ -137,7 +137,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
         return v
 
     @field_validator("sort_by")
-    def validate_sort_by(cls, v):
+    def validate_sort_by(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             valid_fields = ["title", "created_at", "updated_at", "score", "space_key"]
             for field in v:
@@ -148,7 +148,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
         return v
 
     @field_validator("sort_direction")
-    def validate_sort_direction(cls, v):
+    def validate_sort_direction(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             valid_directions = ["asc", "desc"]
             for direction in v:
@@ -159,7 +159,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
         return v
 
     @field_validator("max_results")
-    def validate_max_results(cls, v, values):
+    def validate_max_results(cls, v: int | None, values: Any) -> int | None:
         if v is not None:
             if v <= 0:
                 raise ValueError("max_results must be a positive integer")
@@ -197,7 +197,7 @@ class SemanticSearchRequest(BaseModel):
     filters: dict[str, Any] | None = None
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v.strip()
@@ -226,7 +226,7 @@ class GenerateAnswerRequest(BaseModel):
     )
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v.strip()

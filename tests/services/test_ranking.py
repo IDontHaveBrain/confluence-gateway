@@ -1,6 +1,6 @@
-import pytest
 from unittest.mock import patch
 
+import pytest
 from confluence_gateway.services.ranking import reciprocal_rank_fusion
 
 
@@ -179,7 +179,7 @@ class TestRankingService:
         semantic_results = [("doc2", 0.9), ("doc3", 0.8)]
         k = 60
 
-        results = reciprocal_rank_fusion(keyword_ids, semantic_results, k)
+        reciprocal_rank_fusion(keyword_ids, semantic_results, k)
 
         assert mock_logger.debug.call_count == 2
 

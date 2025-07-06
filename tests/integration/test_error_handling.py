@@ -131,7 +131,6 @@ class TestErrorHandling:
         import httpx
         from confluence_gateway.adapters.vector_db.qdrant_adapter import QdrantAdapter
         from confluence_gateway.core.config import VectorDBConfig
-
         from qdrant_client.http.exceptions import ResponseHandlingException
 
         mock_qdrant_client = mocker.patch(

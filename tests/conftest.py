@@ -151,13 +151,13 @@ def SEMANTIC_TEST_DOCS(
                                         "source": "real_generated_data",
                                     }
                                 )
-                    except Exception as e:
+                    except Exception:
                         continue
 
                 if len(real_docs) >= target_doc_count:
                     break
 
-            except Exception as e:
+            except Exception:
                 continue
 
         if real_docs:
@@ -261,11 +261,6 @@ def embedding_provider(embedding_config) -> EmbeddingProvider | None:
             device=DEFAULT_EMBEDDING_DEVICE,
         )
         try:
-            from pathlib import Path
-
-            cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
-            model_path = cache_dir / f"sentence-transformers_{DEFAULT_EMBEDDING_MODEL}"
-
             from confluence_gateway.adapters.embedding.sentence_transformer import (
                 SentenceTransformerProvider,
             )
@@ -303,7 +298,7 @@ def embedding_provider(embedding_config) -> EmbeddingProvider | None:
     if provider_instance and hasattr(provider_instance, "close"):
         try:
             provider_instance.close()
-        except Exception as close_e:
+        except Exception:
             pass
 
 
@@ -371,7 +366,7 @@ def effective_embedding_dimension(embedding_provider) -> int | None:
         return DEFAULT_EMBEDDING_DIMENSION
     try:
         return embedding_provider.get_dimension()
-    except Exception as e:
+    except Exception:
         if global_embedding_config and global_embedding_config.dimension:
             return global_embedding_config.dimension
         return DEFAULT_EMBEDDING_DIMENSION
@@ -440,11 +435,11 @@ def vector_db_adapter(
                     adapter_instance.client.delete_collection(
                         collection_name=effective_vdb_config.collection_name
                     )
-                except Exception as del_e:
+                except Exception:
                     pass
 
             adapter_instance.close()
-        except Exception as close_e:
+        except Exception:
             pass
 
 
@@ -644,7 +639,7 @@ def index_semantic_test_data(
         )
         if existing_records:
             return
-    except Exception as check_err:
+    except Exception:
         pass
 
     try:
@@ -685,7 +680,7 @@ def index_semantic_test_data(
 
         adapter.upsert(documents)
 
-    except Exception as e:
+    except Exception:
         pass
 
 
@@ -924,7 +919,7 @@ def dummy_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] 
                             "has_content": page_count > 0,
                         }
                     )
-                except Exception as e:
+                except Exception:
                     spaces_dict.append(
                         {
                             "key": space.key,
@@ -945,7 +940,7 @@ def dummy_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] 
         else:
             return None
 
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -1020,10 +1015,10 @@ def test_space_with_attachments(
 
                         return space_with_attachments
 
-                except Exception as e:
+                except Exception:
                     continue
 
-        except Exception as e:
+        except Exception:
             continue
 
     return None
@@ -1065,7 +1060,7 @@ def real_search_terms(
                 if len(search_terms) >= 10:
                     break
 
-        except Exception as e:
+        except Exception:
             continue
 
     terms_list = (
@@ -1121,10 +1116,10 @@ def real_content_samples(
                             }
                         )
 
-                except Exception as e:
+                except Exception:
                     continue
 
-        except Exception as e:
+        except Exception:
             continue
 
     return content_samples

@@ -128,7 +128,7 @@ def _load_config_from_file(path: Path) -> dict[str, Any]:
     config_data = {}
     if path.exists() and path.is_file():
         try:
-            with open(path, encoding="utf-8") as f:
+            with path.open(encoding="utf-8") as f:
                 config_data = json.load(f)
             if not isinstance(config_data, dict):
                 logger.warning(

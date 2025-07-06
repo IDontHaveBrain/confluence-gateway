@@ -1,5 +1,6 @@
 import logging
 from functools import wraps
+from typing import Any
 
 import typer
 
@@ -82,7 +83,7 @@ def create_panel(content: str, title: str | None = None) -> str:
     return "\n".join(result)
 
 
-def print_status(message: str, status_type: str = "info"):
+def print_status(message: str, status_type: str = "info") -> None:
     """Print a status message with optional prefix."""
     prefix_map = {
         "info": "[INFO]",
@@ -100,7 +101,7 @@ def print_status(message: str, status_type: str = "info"):
 
 def print_search_results(
     results: list[SearchResultItem], total: int, start: int, limit: int, took_ms: float
-):
+) -> None:
     if not results:
         print("No results found.")
         return
@@ -147,7 +148,7 @@ def print_search_results(
 
 def print_semantic_search_results(
     results: list[VectorSearchResultItem], query: str, took_ms: float
-):
+) -> None:
     if not results:
         print("No semantic results found.")
         return
@@ -181,7 +182,7 @@ def print_semantic_search_results(
     print(f"\nSemantic search returned {len(results)} results. Took {took_ms:.2f} ms.")
 
 
-def print_indexing_status(status: IndexingStatusResponse):
+def print_indexing_status(status: IndexingStatusResponse) -> None:
     status_type = {
         "idle": "success",
         "success": "success",
@@ -209,7 +210,7 @@ def print_indexing_status(status: IndexingStatusResponse):
         print_status(f"  Last Error: {status.last_error_message}", "error")
 
 
-def print_generated_answer(answer: str, sources: list[SourceDocument]):
+def print_generated_answer(answer: str, sources: list[SourceDocument]) -> None:
     # Print answer in a panel
     panel_str = create_panel(answer, "Generated Answer")
     print(panel_str)
@@ -238,9 +239,9 @@ def print_generated_answer(answer: str, sources: list[SourceDocument]):
     print(f"\n{table_str}")
 
 
-def handle_cli_errors(func):
+def handle_cli_errors(func: Any) -> Any:
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
         except ConfluenceGatewayError as e:

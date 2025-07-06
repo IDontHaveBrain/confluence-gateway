@@ -18,12 +18,12 @@ Transform your Confluence into a smart knowledge base with semantic search, hybr
   - **Text Search**: Traditional keyword search with CQL support
   - **Semantic Search**: Vector similarity using embeddings
   - **Hybrid Search**: Best of both worlds with Reciprocal Rank Fusion (RRF)
-  
+
 - **🤖 RAG-Powered Q&A**
   - Generate contextual answers from your Confluence content
   - Multiple LLM providers via LiteLLM (OpenAI, Anthropic, etc.)
   - Source attribution with direct links
-  
+
 - **⚡ Flexible Integration**
   - REST API with OpenAPI documentation
   - Full-featured CLI interface
@@ -84,7 +84,7 @@ Or config file at `~/.confluence_gateway_config.json`:
 {
   "confluence": {
     "url": "https://your-instance.atlassian.net",
-    "username": "your-email@example.com", 
+    "username": "your-email@example.com",
     "api_token": "YOUR_API_TOKEN"
   }
 }
@@ -101,7 +101,7 @@ uv run confluence-gateway index trigger --space-keys TECH --sync
 uv run confluence-gateway search text "deployment guide"
 uv run confluence-gateway search semantic "how to deploy"
 
-# Get AI answers  
+# Get AI answers
 uv run confluence-gateway generate answer "What is our deployment process?"
 ```
 
@@ -197,7 +197,7 @@ uv run pytest
 # Fast unit tests only
 uv run pytest -m unit
 
-# Specific test categories 
+# Specific test categories
 uv run pytest -m integration  # Requires external services
 uv run pytest -m api         # Requires Confluence API
 uv run pytest -m semantic    # Requires vector DB + embeddings
@@ -215,7 +215,7 @@ uv run pre-commit install
 
 # Code quality
 uv run ruff format confluence_gateway tests  # Format
-uv run ruff check confluence_gateway tests   # Lint  
+uv run ruff check confluence_gateway tests   # Lint
 uv run mypy confluence_gateway               # Type check
 uv run pre-commit run --all-files           # All checks
 ```
@@ -224,7 +224,7 @@ uv run pre-commit run --all-files           # All checks
 
 ⚠️ **No built-in authentication** - Use reverse proxy (nginx/Apache) with auth
 - Store API tokens in environment variables
-- Configure CORS appropriately  
+- Configure CORS appropriately
 - Restrict network access to API server
 
 ### 📄 License
@@ -247,12 +247,12 @@ MIT License - see [LICENSE](LICENSE) file
   - **텍스트 검색**: CQL 지원 전통적인 키워드 검색
   - **시맨틱 검색**: 임베딩을 사용한 벡터 유사성 검색
   - **하이브리드 검색**: Reciprocal Rank Fusion(RRF)으로 두 방식의 장점 결합
-  
+
 - **🤖 RAG 기반 Q&A**
   - Confluence 콘텐츠에서 맥락적 답변 생성
   - LiteLLM을 통한 다중 LLM 제공자 지원 (OpenAI, Anthropic 등)
   - 직접 링크가 포함된 출처 표시
-  
+
 - **⚡ 유연한 통합**
   - OpenAPI 문서가 포함된 REST API
   - 모든 기능을 갖춘 CLI 인터페이스
@@ -313,7 +313,7 @@ export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 {
   "confluence": {
     "url": "https://your-instance.atlassian.net",
-    "username": "your-email@example.com", 
+    "username": "your-email@example.com",
     "api_token": "YOUR_API_TOKEN"
   }
 }
@@ -426,7 +426,7 @@ uv run pytest
 # 빠른 단위 테스트만
 uv run pytest -m unit
 
-# 특정 테스트 카테고리 
+# 특정 테스트 카테고리
 uv run pytest -m integration  # 외부 서비스 필요
 uv run pytest -m api         # Confluence API 필요
 uv run pytest -m semantic    # 벡터 DB + 임베딩 필요
@@ -444,7 +444,7 @@ uv run pre-commit install
 
 # 코드 품질
 uv run ruff format confluence_gateway tests  # 포맷
-uv run ruff check confluence_gateway tests   # 린트  
+uv run ruff check confluence_gateway tests   # 린트
 uv run mypy confluence_gateway               # 타입 체크
 uv run pre-commit run --all-files           # 모든 검사
 ```
@@ -453,7 +453,7 @@ uv run pre-commit run --all-files           # 모든 검사
 
 ⚠️ **내장 인증 없음** - 인증이 포함된 리버스 프록시(nginx/Apache) 사용
 - API 토큰을 환경 변수에 저장
-- CORS를 적절히 구성  
+- CORS를 적절히 구성
 - API 서버에 대한 네트워크 액세스 제한
 
 ### 📄 라이선스

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _get_litellm():
+def _get_litellm() -> Any:
     """Get litellm module, loading it if needed."""
     global _litellm, _litellm_available, _litellm_exceptions, _EmbeddingResponse
     if _litellm is None:
@@ -110,7 +110,9 @@ class LiteLLMProvider(EmbeddingProvider):
             logger.error(error_message, exc_info=True)
             raise EmbeddingProviderError(error_message) from e
 
-    def _validate_embedding_response(self, response: Any, expected_count=1) -> list:
+    def _validate_embedding_response(
+        self, response: Any, expected_count: int = 1
+    ) -> list[Any]:
         """Validate embedding response format and structure."""
         if (
             not response.data
@@ -122,9 +124,11 @@ class LiteLLMProvider(EmbeddingProvider):
                 f"got {len(response.data) if response.data else 0}."
             )
 
-        return response.data
+        return list(response.data)
 
-    def _extract_embedding_from_item(self, item: dict, index=None) -> list[float]:
+    def _extract_embedding_from_item(
+        self, item: dict[str, Any], index: int | None = None
+    ) -> list[float]:
         """Extract and validate a single embedding from a response item."""
         index_info = f" at index {index}" if index is not None else ""
 
@@ -149,7 +153,7 @@ class LiteLLMProvider(EmbeddingProvider):
 
         return embedding
 
-    def _check_configuration(self):
+    def _check_configuration(self) -> None:
         """Verify the provider is properly configured."""
         if not self.config.model_name or self.config.dimension is None:
             raise EmbeddingProviderError(

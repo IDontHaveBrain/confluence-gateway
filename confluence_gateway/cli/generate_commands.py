@@ -45,7 +45,7 @@ def generate_answer_command(
         help='JSON string for metadata filtering during retrieval, e.g., \'{"space_key": "DEV"}\'.',
         show_default=False,
     ),
-):
+) -> None:
     generation_service: GenerationService = _get_generation_service()
 
     print_status("Generating answer using RAG...", "info")

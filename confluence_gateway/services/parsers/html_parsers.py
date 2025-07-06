@@ -20,8 +20,13 @@ except ImportError:
 partition_html: Callable[..., list[Any]] | None = None
 clean_extra_whitespace: Callable[[str], str] | None = None
 try:
-    from unstructured.cleaners.core import clean_extra_whitespace
-    from unstructured.partition.html import partition_html
+    from unstructured.cleaners.core import (
+        clean_extra_whitespace as _clean_extra_whitespace,
+    )
+    from unstructured.partition.html import partition_html as _partition_html
+
+    partition_html = _partition_html
+    clean_extra_whitespace = _clean_extra_whitespace
 except ImportError:
     partition_html = None
     clean_extra_whitespace = None

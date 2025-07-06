@@ -34,10 +34,15 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-def with_backoff(max_retries=5, initial_delay=1, backoff_factor=2, jitter_factor=0.3):
-    def decorator(func):
+def with_backoff(
+    max_retries: int = 5,
+    initial_delay: float = 1,
+    backoff_factor: float = 2,
+    jitter_factor: float = 0.3,
+) -> Any:
+    def decorator(func: Any) -> Any:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             retries = 0
             delay = initial_delay
 
@@ -119,7 +124,7 @@ class ConfluenceClient:
         if response.status_code == 204:
             return None
 
-        response_data = response.json()
+        response_data: dict[str, Any] = response.json()
 
         if model_class:
             if use_transformer:
@@ -172,7 +177,7 @@ class ConfluenceClient:
         data: dict[str, Any] | None,
     ) -> requests.Response:
         try:
-            response = getattr(self.session, method.lower())(
+            response: requests.Response = getattr(self.session, method.lower())(
                 url, params=params, json=data, timeout=self.config.timeout
             )
 
@@ -476,7 +481,7 @@ class ConfluenceClient:
                 elif container is not None:
                     result["parent_id"] = getattr(container, "id", None)
 
-        elif isinstance(content, ConfluenceAttachment):
+        elif isinstance(content, ConfluenceAttachment):  # type: ignore[unreachable]
             result["file_name"] = content.title
             result["file_size"] = content.file_size
             result["media_type"] = content.media_type
@@ -704,7 +709,7 @@ class ConfluenceClient:
                     query, content_type, space_key, include_archived
                 )
 
-                return self.search_by_cql(
+                result: SearchResult = self.search_by_cql(
                     cql=cql_query,
                     limit=limit,
                     start=start,
@@ -713,6 +718,7 @@ class ConfluenceClient:
                     max_results=max_results,
                     include_archived=include_archived,
                 )
+                return result
         except Exception as e:
             if "401" in str(e):
                 raise ConfluenceAuthenticationError(

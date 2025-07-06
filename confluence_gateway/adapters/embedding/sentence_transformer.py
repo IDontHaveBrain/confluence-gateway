@@ -31,7 +31,7 @@ def _check_torch_available() -> bool:
     return _torch_available
 
 
-def _get_sentence_transformer_class():
+def _get_sentence_transformer_class() -> Any:
     """Get SentenceTransformer class, loading it if needed."""
     global _SentenceTransformer, _sentence_transformers_available
     if _SentenceTransformer is None:
@@ -91,7 +91,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
             logger.info("CPU explicitly requested. Using CPU.")
             return "cpu"
 
-        logger.warning(
+        logger.warning(  # type: ignore[unreachable]
             f"Invalid device '{self.config.device}' requested. Falling back to CPU."
         )
         return "cpu"
@@ -181,7 +181,9 @@ class SentenceTransformerProvider(EmbeddingProvider):
         if not self.config.dimension:
             raise EmbeddingProviderError("Configuration dimension is missing.")
 
-    def _validate_embedding(self, embedding, index=None) -> list[float]:
+    def _validate_embedding(
+        self, embedding: Any, index: int | None = None
+    ) -> list[float]:
         if not isinstance(embedding, list) or len(embedding) != self.config.dimension:
             index_info = f" at index {index}" if index is not None else ""
             logger.error(
