@@ -93,12 +93,21 @@ def _get_indexing_service() -> IndexingService | None:
         )
         return None
 
+    vector_db_adapter = _get_vector_db_adapter()
+    if not vector_db_adapter:
+        print_status(
+            "Error: Failed to initialize Vector DB Adapter. Indexing service is unavailable.",
+            "error",
+        )
+        return None
+
     try:
         service = IndexingService(
             confluence_client=client,
             indexing_config=indexing_config,
             search_config=search_config,
             embedding_service=embedding_service,
+            vector_db_adapter=vector_db_adapter,
         )
         if not service.vector_db_adapter:
             print_status(

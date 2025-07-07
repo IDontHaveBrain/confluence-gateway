@@ -65,9 +65,33 @@ from confluence_gateway.core.config import (
 )
 
 
-def test_load_defaults(mock_env, mock_config_file):
+def test_load_defaults(mock_env, mocker):
     mock_env({})
-    mock_config_file({})
+
+    # Mock to return default config for default path, empty for user path
+    default_config = {
+        "embedding": {
+            "provider": "sentence-transformers",
+            "model_name": "all-MiniLM-L6-v2",
+            "dimension": 384,
+            "device": "cpu",
+        },
+        "search": {"default_limit": 20},
+        "indexing": {"html_parser": "markitdown"},
+    }
+
+    def mock_load_config(path):
+        if "confluence_gateway_config.json" in str(
+            path
+        ) and ".confluence_gateway_config.json" not in str(path):
+            return default_config
+        return {}
+
+    mocker.patch(
+        "confluence_gateway.core.config._load_config_from_file",
+        side_effect=mock_load_config,
+    )
+
     (conf_cfg, search_cfg, vdb_cfg, emb_cfg, idx_cfg, gen_cfg) = load_configurations()
 
     assert conf_cfg is None
@@ -363,17 +387,37 @@ def test_ollama_litellm_requires_api_base(mock_env, mock_config_file, caplog):
         (_, _, _, emb_cfg, _, _) = load_configurations()
 
     assert emb_cfg is None
-    assert "Invalid user-provided Embedding configuration" in caplog.text
+    assert "Invalid Embedding configuration" in caplog.text
     assert "LITELLM_API_BASE must be set" in caplog.text
 
 
-def test_generation_requires_model_if_enabled(mock_env, mock_config_file, caplog):
+def test_generation_requires_model_if_enabled(mock_env, mocker, caplog):
     mock_env(
         {
             "GENERATION_ENABLE": "true",
         }
     )
-    mock_config_file({})
+
+    # Mock to return default config without generation model
+    default_config = {
+        "generation": {
+            "enable": False,
+            "provider": "litellm",
+            # No model_name provided
+        }
+    }
+
+    def mock_load_config(path):
+        if "confluence_gateway_config.json" in str(
+            path
+        ) and ".confluence_gateway_config.json" not in str(path):
+            return default_config
+        return {}
+
+    mocker.patch(
+        "confluence_gateway.core.config._load_config_from_file",
+        side_effect=mock_load_config,
+    )
 
     with caplog.at_level(logging.ERROR):
         (_, _, _, _, _, gen_cfg) = load_configurations()

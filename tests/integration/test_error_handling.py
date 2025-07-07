@@ -1,5 +1,3 @@
-"""Error handling tests for Confluence Gateway."""
-
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,10 +20,7 @@ pytestmark = pytest.mark.integration
 
 
 class TestErrorHandling:
-    """Test error handling across the system."""
-
     def test_confluence_connection_error_handling(self, mocker):
-        """Test handling of Confluence connection errors."""
         mock_client = MagicMock(spec=ConfluenceClient)
         mock_client.test_connection.side_effect = ConfluenceConnectionError(
             "Failed to connect", cause=Exception("Network error")
@@ -38,7 +33,6 @@ class TestErrorHandling:
         assert "Network error" in str(exc_info.value)
 
     def test_confluence_authentication_error_handling(self, mocker):
-        """Test handling of authentication failures."""
         mock_client = MagicMock(spec=ConfluenceClient)
         mock_client.search.side_effect = ConfluenceAuthenticationError(
             "Invalid credentials"
@@ -56,7 +50,6 @@ class TestErrorHandling:
         assert "Invalid credentials" in str(exc_info.value)
 
     def test_confluence_api_error_with_status_code(self):
-        """Test ConfluenceAPIError with status code and message."""
         error = ConfluenceAPIError(status_code=404, error_message="Page not found")
 
         assert error.status_code == 404
@@ -65,7 +58,6 @@ class TestErrorHandling:
         assert "Page not found" in str(error)
 
     def test_search_parameter_validation_error(self, standard_search_service):
-        """Test search parameter validation errors."""
         if not standard_search_service:
             pytest.skip("Requires standard search service")
 
@@ -76,7 +68,6 @@ class TestErrorHandling:
             )
 
     def test_semantic_search_without_vector_db(self, standard_search_service):
-        """Test semantic search error when vector DB is not configured."""
         if not standard_search_service:
             pytest.skip("Requires standard search service")
 
@@ -89,7 +80,6 @@ class TestErrorHandling:
     async def test_generation_error_without_search_results(
         self, generation_service, mocker
     ):
-        """Test generation error handling when no search results are found."""
         if not generation_service:
             pytest.skip("Requires generation service")
 
@@ -108,12 +98,10 @@ class TestErrorHandling:
         assert len(sources) == 0
 
     def test_embedding_provider_initialization_error(self):
-        """Test handling of embedding provider initialization errors."""
         pytest.skip("Embedding provider initialization is tested in unit tests")
 
     @pytest.mark.asyncio
     async def test_indexing_concurrent_run_rejection(self, indexing_service):
-        """Test that concurrent indexing runs are rejected."""
         if not indexing_service:
             pytest.skip("Requires indexing service")
 
@@ -127,7 +115,6 @@ class TestErrorHandling:
 
     @pytest.mark.slow
     def test_vector_db_connection_error(self, mocker):
-        """Test handling of vector database connection errors."""
         import httpx
         from confluence_gateway.adapters.vector_db.qdrant_adapter import QdrantAdapter
         from confluence_gateway.core.config import VectorDBConfig
@@ -153,7 +140,6 @@ class TestErrorHandling:
             adapter.initialize()
 
     def test_attachment_parsing_error_handling(self, indexing_service, mocker):
-        """Test handling of attachment parsing errors."""
         if not indexing_service:
             pytest.skip("Requires indexing service")
 
@@ -185,7 +171,6 @@ class TestErrorHandling:
         assert result is None
 
     def test_search_cql_injection_protection(self, standard_search_service):
-        """Test that CQL injection attempts are handled safely."""
         if not standard_search_service:
             pytest.skip("Requires standard search service")
 
@@ -200,19 +185,13 @@ class TestErrorHandling:
         except ConfluenceAPIError as e:
             assert "query cannot be parsed" in str(e)
 
-    def test_generation_timeout_handling(self, generation_service, mocker):
-        """Test handling of generation timeouts."""
+    @pytest.mark.asyncio
+    async def test_generation_timeout_handling(self, generation_service, mocker):
         if not generation_service:
             pytest.skip("Requires generation service")
 
-        import asyncio
-
-        async def timeout_coro(*args, **kwargs):
-            await asyncio.sleep(10)
-
-        mocker.patch("litellm.acompletion", side_effect=timeout_coro)
-
         from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
+        from litellm.exceptions import Timeout
 
         mock_results = [
             VectorSearchResultItem(
@@ -228,4 +207,14 @@ class TestErrorHandling:
             return_value=(mock_results, 50.0),
         )
 
-        pytest.skip("Timeout test requires async test runner refactoring")
+        mocker.patch(
+            "litellm.acompletion",
+            side_effect=Timeout(
+                message="Request timed out",
+                model="test-model",
+                llm_provider="test-provider",
+            ),
+        )
+
+        with pytest.raises(GenerationError, match=r"LLM API error \(Timeout\)"):
+            await generation_service.generate_answer(query="test query")

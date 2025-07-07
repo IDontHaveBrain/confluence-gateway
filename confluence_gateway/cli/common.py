@@ -44,10 +44,14 @@ def create_table(
     for row in rows:
         formatted_row = []
         for i, cell in enumerate(row):
-            # Truncate if needed
-            if len(cell) > col_widths[i]:
-                cell = cell[: col_widths[i] - 3] + "..."
-            formatted_row.append(cell.ljust(col_widths[i]))
+            # Never truncate URLs - they must be shown in full
+            if col_names[i] == "URL":
+                formatted_row.append(cell)
+            else:
+                # Truncate other columns if needed
+                if len(cell) > col_widths[i]:
+                    cell = cell[: col_widths[i] - 3] + "..."
+                formatted_row.append(cell.ljust(col_widths[i]))
         lines.append(" | ".join(formatted_row))
 
     return "\n".join(lines)
@@ -113,7 +117,7 @@ def print_search_results(
         ("Type", 10),
         ("Space", 20),
         ("Last Modified", 20),
-        ("URL", 40),
+        ("URL", 100),
     ]
 
     rows = []
@@ -159,7 +163,7 @@ def print_semantic_search_results(
         ("Score", 8),
         ("Title", 30),
         ("Space", 15),
-        ("URL", 40),
+        ("URL", 100),
         ("Text Snippet", 60),
     ]
 

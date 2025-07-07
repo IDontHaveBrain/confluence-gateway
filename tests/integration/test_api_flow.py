@@ -206,11 +206,24 @@ class TestApiFlows:
         test_app_client: TestClient,
         is_generation_enabled: bool,
         is_semantic_search_possible: bool,
+        mocker,
     ):
         if not is_generation_enabled:
             pytest.skip("Generation feature is disabled.")
         if not is_semantic_search_possible:
             pytest.skip("Generation requires semantic search capabilities.")
+
+        mock_llm_call = mocker.patch("litellm.acompletion", autospec=True)
+        mock_response_content = (
+            "Apples, oranges, and bananas are mentioned based on the provided context."
+        )
+        mock_llm_call.return_value = mocker.MagicMock(
+            choices=[
+                mocker.MagicMock(
+                    message=mocker.MagicMock(content=mock_response_content)
+                )
+            ]
+        )
 
         generation_payload = {
             "query": "What fruits are mentioned?",

@@ -5,6 +5,7 @@ import confluence_gateway.core.config as config_module
 import confluence_gateway.services.search as search_service_module
 import pytest
 from confluence_gateway.cli.main import app
+from confluence_gateway.core.config import GenerationConfig
 from confluence_gateway.services.embedding import EmbeddingService
 from confluence_gateway.services.generation import GenerationService
 from confluence_gateway.services.indexing import IndexingService
@@ -208,11 +209,41 @@ class TestCliFlows:
         is_semantic_search_possible: bool,
         mocker: MockerFixture,
         generation_service: GenerationService,
+        generation_config: GenerationConfig,
+        semantic_search_service: SearchService,
+        embedding_service: EmbeddingService,
+        vector_db_adapter,
+        index_semantic_test_data,
     ):
         if not is_generation_enabled:
             pytest.skip("Generation feature is disabled.")
         if not is_semantic_search_possible:
             pytest.skip("Generation requires semantic search capabilities.")
+
+        mocker.patch.object(cli_deps, "generation_config", generation_config)
+        mocker.patch.object(
+            cli_deps,
+            "embedding_config",
+            embedding_service.provider.config
+            if embedding_service and embedding_service.provider
+            else None,
+        )
+        mocker.patch.object(
+            cli_deps,
+            "vector_db_config",
+            vector_db_adapter.config
+            if vector_db_adapter and hasattr(vector_db_adapter, "config")
+            else None,
+        )
+        mocker.patch.object(
+            cli_deps, "_get_embedding_service", return_value=embedding_service
+        )
+        mocker.patch.object(
+            cli_deps, "_get_vector_db_adapter", return_value=vector_db_adapter
+        )
+        mocker.patch.object(
+            cli_deps, "_get_search_service", return_value=semantic_search_service
+        )
         mocker.patch.object(
             cli_deps, "_get_generation_service", return_value=generation_service
         )

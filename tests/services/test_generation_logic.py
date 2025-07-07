@@ -104,10 +104,15 @@ class TestGenerationServiceLogic:
         mock_acompletion = mocker.patch(
             "litellm.acompletion",
             new_callable=AsyncMock,
-            side_effect=Timeout("Request timed out"),
+            side_effect=Timeout(
+                message="Request timed out",
+                model="test-model",
+                llm_provider="test-provider",
+            ),
         )
         with pytest.raises(
-            GenerationError, match=r"LLM API error \(Timeout\): Request timed out"
+            GenerationError,
+            match=r"LLM API error \(Timeout\): litellm\.Timeout: Request timed out",
         ):
             await generation_service.generate_answer(query=query)
         mock_search_semantic.assert_called_once()

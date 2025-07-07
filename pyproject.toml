@@ -29,6 +29,9 @@ dependencies = [
 [project.scripts]
 confluence-gateway = "confluence_gateway.cli.main:app"
 
+[tool.setuptools.package-data]
+confluence_gateway = ["confluence_gateway_config.json"]
+
 [dependency-groups]
 dev = [
     "black>=25.1.0",
@@ -50,10 +53,10 @@ lint.select = [
     "I",    # isort
     "UP",   # pyupgrade
     "PTH",  # flake8-use-pathlib
-    "W",    # pycodestyle warnings (whitespace 관련
+    "W",
 ]
 lint.ignore = [
-    "E501", # line too long
+    "E501",
 ]
 lint.fixable = ["E", "F", "I", "UP", "PTH", "W"]
 target-version = "py310"
@@ -84,7 +87,6 @@ disallow_any_explicit = false
 disallow_any_generics = true
 ignore_missing_imports = true
 implicit_optional = true
-#fast_module_lookup = true
 exclude = [
     "scripts",
     "build",

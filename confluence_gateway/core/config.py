@@ -16,10 +16,12 @@ from pydantic import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EMBEDDING_PROVIDER_TYPE = "sentence-transformers"
+DEFAULT_EMBEDDING_PROVIDER_TYPE: Literal["sentence-transformers", "litellm", "none"] = (
+    "sentence-transformers"
+)
 DEFAULT_EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_DIMENSION = 384
-DEFAULT_EMBEDDING_DEVICE = "cpu"
+DEFAULT_EMBEDDING_DEVICE: Literal["cpu", "cuda"] = "cpu"
 
 
 class ConfluenceConfig(BaseModel):
@@ -124,6 +126,10 @@ def get_user_config_path() -> Path:
     return Path.home() / ".confluence_gateway_config.json"
 
 
+def get_default_config_path() -> Path:
+    return Path(__file__).parent.parent / "confluence_gateway_config.json"
+
+
 def _load_config_from_file(path: Path) -> dict[str, Any]:
     config_data = {}
     if path.exists() and path.is_file():
@@ -136,6 +142,7 @@ def _load_config_from_file(path: Path) -> dict[str, Any]:
                 )
                 return {}
             logger.info(f"Loaded configuration from {path}")
+            logger.debug(f"Configuration content from {path}: {json.dumps(config_data, indent=2)}")
         except json.JSONDecodeError:
             logger.warning(
                 f"Could not parse JSON from config file at {path}. Ignoring."
@@ -144,6 +151,8 @@ def _load_config_from_file(path: Path) -> dict[str, Any]:
         except Exception as e:
             logger.warning(f"Error reading config file at {path}: {e}. Ignoring.")
             return {}
+    else:
+        logger.info(f"Config file not found at {path}")
     return config_data
 
 
@@ -181,7 +190,7 @@ class VectorDBConfig(BaseModel):
 class GenerationConfig(BaseModel):
     enable: bool = False
     provider: Literal["litellm"] = "litellm"
-    model_name: str | None = "openrouter/google/gemini-2.5-flash"
+    model_name: str | None = None
     litellm_api_key: str | None = Field(default=None, exclude=True)
     litellm_api_base: HttpUrl | None = None
     prompt_template: str = "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
@@ -431,9 +440,18 @@ def load_configurations() -> tuple[
     IndexingConfig,
     GenerationConfig | None,
 ]:
-    user_config_path = get_user_config_path()
-    file_config = _load_config_from_file(user_config_path)
+    # Load default config first
+    default_config_path = get_default_config_path()
+    logger.info(f"Default config path resolved to: {default_config_path}")
+    logger.info(f"Default config path exists: {default_config_path.exists()}")
+    default_config = _load_config_from_file(default_config_path)
 
+    # Load user config
+    user_config_path = get_user_config_path()
+    logger.info(f"User config path resolved to: {user_config_path}")
+    user_config = _load_config_from_file(user_config_path)
+
+    # Load environment variables
     env_confluence_raw = _load_raw_confluence_env()
     env_search_raw = _load_raw_search_env()
     env_vector_db_raw = _load_raw_vector_db_env()
@@ -441,31 +459,53 @@ def load_configurations() -> tuple[
     env_indexing_raw = _load_raw_indexing_env()
     env_generation_raw = _load_raw_generation_env()
 
-    file_confluence = file_config.get("confluence", {})
-    file_search = file_config.get("search", {})
-    file_vector_db = file_config.get("vector_db", {})
-    file_embedding = file_config.get("embedding", {})
-    file_indexing = file_config.get("indexing", {})
-    file_generation = file_config.get("generation", {})
+    # Priority: user home config > env vars > default config
+    # For each section, start with default, override with env vars, then override with user config
+    def merge_configs(default_section: dict[str, Any], env_section: dict[str, Any], user_section: dict[str, Any]) -> dict[str, Any]:
+        # Start with default
+        result = default_section.copy() if default_section else {}
+        # Override with env vars
+        result.update(env_section)
+        # Override with user config (highest priority)
+        if user_section:
+            result.update(user_section)
+        return result
 
-    final_confluence_config = file_confluence.copy()
-    final_confluence_config.update(env_confluence_raw)
+    final_confluence_config = merge_configs(
+        default_config.get("confluence", {}),
+        env_confluence_raw,
+        user_config.get("confluence", {})
+    )
 
-    final_search_config = file_search.copy()
-    final_search_config.update(env_search_raw)
+    final_search_config = merge_configs(
+        default_config.get("search", {}),
+        env_search_raw,
+        user_config.get("search", {})
+    )
 
-    final_vector_db_config = file_vector_db.copy()
-    final_vector_db_config.update(env_vector_db_raw)
+    final_vector_db_config = merge_configs(
+        default_config.get("vector_db", {}),
+        env_vector_db_raw,
+        user_config.get("vector_db", {})
+    )
 
-    final_embedding_config = file_embedding.copy()
-    final_embedding_config.update(env_embedding_raw)
-    user_embedding_config_provided = bool(final_embedding_config)
+    final_embedding_config = merge_configs(
+        default_config.get("embedding", {}),
+        env_embedding_raw,
+        user_config.get("embedding", {})
+    )
 
-    final_indexing_config = file_indexing.copy()
-    final_indexing_config.update(env_indexing_raw)
+    final_indexing_config = merge_configs(
+        default_config.get("indexing", {}),
+        env_indexing_raw,
+        user_config.get("indexing", {})
+    )
 
-    final_generation_config = file_generation.copy()
-    final_generation_config.update(env_generation_raw)
+    final_generation_config = merge_configs(
+        default_config.get("generation", {}),
+        env_generation_raw,
+        user_config.get("generation", {})
+    )
 
     loaded_confluence_config: ConfluenceConfig | None = None
     required_confluence_fields = ["url", "username", "api_token"]
@@ -489,62 +529,25 @@ def load_configurations() -> tuple[
     loaded_embedding_config: EmbeddingConfig | None = None
     embedding_load_error = False
 
-    if user_embedding_config_provided:
-        if "provider" not in final_embedding_config:
-            final_embedding_config["provider"] = "none"
-            logger.info(
-                "Embedding provider type missing in provided config, defaulting to 'none'."
-            )
-
+    if final_embedding_config:
         try:
             filtered_emb_config = {
                 k: v for k, v in final_embedding_config.items() if v is not None
             }
-            if (
-                "provider" not in filtered_emb_config
-                and "provider" in final_embedding_config
-            ):
-                filtered_emb_config["provider"] = final_embedding_config["provider"]
-
             config_instance = EmbeddingConfig(**filtered_emb_config)
             if config_instance.provider != "none":
                 loaded_embedding_config = config_instance
                 logger.info(
-                    f"Loaded user-provided Embedding configuration (Provider: {config_instance.provider})."
+                    f"Loaded Embedding configuration (Provider: {config_instance.provider})."
                 )
             else:
-                logger.info(
-                    "User configuration explicitly disabled embeddings (provider='none')."
-                )
-
+                logger.info("Embedding features disabled (provider='none').")
         except (ValidationError, ValueError) as e:
-            logger.error(f"Invalid user-provided Embedding configuration: {e}")
+            logger.error(f"Invalid Embedding configuration: {e}")
             embedding_load_error = True
 
-    if not user_embedding_config_provided and not embedding_load_error:
-        logger.info(
-            "No user Embedding configuration provided. Applying default: "
-            f"Provider='{DEFAULT_EMBEDDING_PROVIDER_TYPE}', Model='{DEFAULT_EMBEDDING_MODEL_NAME}'"
-        )
-        try:
-            loaded_embedding_config = EmbeddingConfig(
-                provider=DEFAULT_EMBEDDING_PROVIDER_TYPE,
-                model_name=DEFAULT_EMBEDDING_MODEL_NAME,
-                dimension=DEFAULT_EMBEDDING_DIMENSION,
-                device=DEFAULT_EMBEDDING_DEVICE,
-            )
-        except (ValidationError, ValueError) as e:
-            logger.error(f"Failed to create default Embedding configuration: {e}")
-
-    elif loaded_embedding_config is None:
-        if embedding_load_error:
-            logger.warning(
-                "Embedding features disabled due to invalid user configuration."
-            )
-        elif user_embedding_config_provided:
-            logger.info(
-                "Embedding features disabled as per user configuration (provider='none')."
-            )
+    if loaded_embedding_config is None and embedding_load_error:
+        logger.warning("Embedding features disabled due to invalid configuration.")
 
     if loaded_embedding_config and loaded_embedding_config.dimension is not None:
         vdb_type = final_vector_db_config.get("type", "none")

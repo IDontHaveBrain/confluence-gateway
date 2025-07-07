@@ -95,14 +95,21 @@ Or config file at `~/.confluence_gateway_config.json`:
 **CLI:**
 ```bash
 # Index content
-uv run confluence-gateway index trigger --space-keys TECH --sync
+uv run confluence-gateway index trigger --space TECH
+uv run confluence-gateway index status
 
-# Search
+# Search with various modes
 uv run confluence-gateway search text "deployment guide"
 uv run confluence-gateway search semantic "how to deploy"
+uv run confluence-gateway search cql "space = TECH and text ~ deploy"
+
+# Advanced text search options
+uv run confluence-gateway search text "deployment" --type page --limit 10
+uv run confluence-gateway search text "guide" --hybrid --top-n 5
+uv run confluence-gateway search text "process" --sort-by updated_at --sort-dir desc
 
 # Get AI answers
-uv run confluence-gateway generate answer "What is our deployment process?"
+uv run confluence-gateway generate answer "What is our deployment process?" --top-k 5
 ```
 
 **API Server:**
@@ -111,17 +118,290 @@ uv run confluence-gateway generate answer "What is our deployment process?"
 uv run uvicorn confluence_gateway.api.app:app --reload
 # API docs: http://localhost:8000/docs
 
-# Search endpoints
-curl "http://localhost:8000/api/search?query=deployment&mode=hybrid"
+# Health check
+curl "http://localhost:8000/health"
+
+# Text search (GET)
+curl "http://localhost:8000/api/search?query=deployment&limit=20"
+
+# Hybrid search (GET with use_hybrid=true)
+curl "http://localhost:8000/api/search?query=deployment&use_hybrid=true"
+
+# Semantic search (POST)
 curl -X POST "http://localhost:8000/api/search/semantic" \
   -H "Content-Type: application/json" \
   -d '{"query": "deployment process", "top_k": 5}'
 
+# Advanced search (POST)
+curl -X POST "http://localhost:8000/api/search/advanced" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "deployment", 
+    "space_key": "TECH",
+    "content_type": "page",
+    "sort_by": ["updated_at"],
+    "sort_direction": ["desc"],
+    "limit": 10
+  }'
+
+# CQL search (POST)
+curl -X POST "http://localhost:8000/api/search/cql" \
+  -H "Content-Type: application/json" \
+  -d '{"cql": "space = TECH and text ~ deploy", "limit": 20}'
+
 # Generate answers
 curl -X POST "http://localhost:8000/api/generate/answer" \
   -H "Content-Type: application/json" \
-  -d '{"question": "What is our deployment process?"}'
+  -d '{"query": "What is our deployment process?", "top_k_retrieval": 5}'
+
+# Indexing
+curl -X POST "http://localhost:8000/api/indexing/trigger" \
+  -H "Content-Type: application/json" \
+  -d '{"space_keys": ["TECH"]}'
+
+curl "http://localhost:8000/api/indexing/status"
 ```
+
+### 📚 API Reference
+
+<details>
+<summary><strong>Complete API Endpoints Documentation</strong></summary>
+
+#### Health Check
+```http
+GET /health
+```
+Returns service health status and Confluence connectivity.
+
+**Response:**
+```json
+{
+  "status": "ok|degraded",
+  "version": "0.1.0",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "confluence_connection": "ok|error|authentication_error|api_error",
+  "confluence_error": "error message if any"
+}
+```
+
+#### Search Endpoints
+
+##### Text/Hybrid Search
+```http
+GET /api/search
+```
+**Query Parameters:**
+- `query` (required, min 2 chars): Search text
+- `space_key` (optional): Filter by space
+- `content_type` (optional): Filter by type (page|blogpost|attachment|comment)
+- `include_archived` (optional, default: false): Include archived content
+- `limit` (optional, default: 20): Max results
+- `start` (optional, default: 0): Pagination offset
+- `expand` (optional, array): Fields to expand
+- `use_hybrid` (optional, default: false): Enable hybrid search
+
+##### Semantic Search
+```http
+POST /api/search/semantic
+```
+**Request Body:**
+```json
+{
+  "query": "deployment process",
+  "top_k": 10,
+  "filters": {"space_key": "TECH"}
+}
+```
+
+##### Advanced Search
+```http
+POST /api/search/advanced
+```
+**Request Body:**
+```json
+{
+  "query": "deployment",
+  "space_key": "TECH",
+  "content_type": "page",
+  "include_archived": false,
+  "limit": 20,
+  "start": 0,
+  "expand": ["version", "history"],
+  "get_all_results": false,
+  "max_results": 100,
+  "min_relevance": 0.5,
+  "top_n": 10,
+  "sort_by": ["updated_at"],
+  "sort_direction": ["desc"],
+  "use_hybrid": false
+}
+```
+
+##### CQL Search
+```http
+POST /api/search/cql
+```
+**Request Body:**
+```json
+{
+  "cql": "space = TECH AND type = page",
+  "limit": 20,
+  "start": 0,
+  "expand": ["version"]
+}
+```
+
+#### Indexing Endpoints
+
+##### Trigger Indexing
+```http
+POST /api/indexing/trigger
+```
+**Request Body:**
+```json
+{
+  "space_keys": ["TECH", "DEV"]
+}
+```
+**Response:** 202 Accepted
+
+##### Get Indexing Status
+```http
+GET /api/indexing/status
+```
+**Response:**
+```json
+{
+  "status": "idle|running|success|failure",
+  "last_run_start_time": "2024-01-01T10:00:00Z",
+  "last_run_end_time": "2024-01-01T10:30:00Z",
+  "last_error_message": null
+}
+```
+
+#### Generation Endpoints
+
+##### Generate Answer
+```http
+POST /api/generate/answer
+```
+**Request Body:**
+```json
+{
+  "query": "What is our deployment process?",
+  "top_k_retrieval": 5,
+  "filters": {"space_key": "TECH"}
+}
+```
+**Response:**
+```json
+{
+  "answer": "Your deployment process involves...",
+  "sources": [
+    {
+      "id": "12345_chunk_0",
+      "score": 0.85,
+      "title": "Deployment Guide",
+      "url": "https://confluence.example.com/...",
+      "space_key": "TECH"
+    }
+  ]
+}
+```
+
+#### Response Formats
+
+All endpoints return standardized responses:
+
+**Success Response:**
+```json
+{
+  "results": [...],
+  "total": 42,
+  "start": 0,
+  "limit": 20,
+  "took_ms": 123.45,
+  "page_count": 3,
+  "current_page": 1,
+  "has_more": true,
+  "links": {
+    "next": "/api/search?query=api&start=20",
+    "previous": null
+  }
+}
+```
+
+**Error Response:**
+```json
+{
+  "status": "error",
+  "code": 400,
+  "message": "Invalid search parameters",
+  "details": {
+    "param": "query",
+    "reason": "Query must be at least 2 characters long"
+  }
+}
+```
+</details>
+
+### 📚 CLI Reference
+
+<details>
+<summary><strong>Complete CLI Commands and Options</strong></summary>
+
+#### Index Commands
+```bash
+# Trigger indexing
+uv run confluence-gateway index trigger [OPTIONS]
+  --space, -s TEXT        Space keys to index (repeatable)
+  --help                  Show help message
+
+# Check indexing status
+uv run confluence-gateway index status
+  --help                  Show help message
+```
+
+#### Search Commands
+```bash
+# Text search with advanced options
+uv run confluence-gateway search text QUERY [OPTIONS]
+  --space, -s TEXT        Filter by space key (repeatable)
+  --type, -t TEXT         Filter by type: page, blogpost, attachment, comment
+  --limit, -l INTEGER     Max results to return (default: 20)
+  --archived              Include archived content
+  --start INTEGER         Starting position for pagination
+  --expand TEXT           Fields to expand (repeatable)
+  --hybrid                Enable hybrid search (keyword + semantic)
+  --sort-by TEXT          Sort by: title, created_at, updated_at, score, space_key
+  --sort-dir TEXT         Sort direction: asc, desc
+  --min-relevance FLOAT   Minimum relevance score (0.0-1.0)
+  --top-n INTEGER         Return only top N results after fetching
+
+# Semantic search
+uv run confluence-gateway search semantic QUERY [OPTIONS]
+  --space, -s TEXT        Filter by space key (repeatable)
+  --type, -t TEXT         Filter by type
+  --top-k, -k INTEGER     Number of results (default: 10)
+  --min-relevance FLOAT   Minimum relevance score
+
+# CQL search
+uv run confluence-gateway search cql CQL_QUERY [OPTIONS]
+  --limit, -l INTEGER     Max results (default: 20)
+  --start INTEGER         Starting position
+  --expand TEXT           Fields to expand (repeatable)
+```
+
+#### Generate Commands
+```bash
+# Generate AI answers
+uv run confluence-gateway generate answer QUESTION [OPTIONS]
+  --space, -s TEXT        Filter by space key (repeatable)
+  --type, -t TEXT         Filter by type
+  --top-k, -k INTEGER     Number of context chunks (default: 5)
+  --search-mode TEXT      Search mode: hybrid, semantic, text (default: hybrid)
+```
+</details>
 
 ### ⚙️ Advanced Configuration
 
@@ -160,22 +440,33 @@ Note: You'll need an OpenRouter API key to use the default model. Get one at htt
   },
   "vector_db": {
     "type": "qdrant",
+    "collection_name": "confluence_embeddings",
+    "embedding_dimension": 384,
     "qdrant_url": "http://localhost:6333",
+    "qdrant_grpc_port": 6334,
+    "qdrant_prefer_grpc": false,
     "chunk_size": 512,
     "chunk_overlap": 50
   },
   "indexing": {
+    "include_spaces": null,
+    "exclude_spaces": null,
     "include_attachments": true,
     "max_attachment_size_mb": 10,
     "allowed_attachment_extensions": ["pdf", "docx", "txt", "md"],
-    "parser_type": "markitdown"
+    "html_parser": "markitdown",
+    "attachment_parser": "markitdown"
   },
   "generation": {
+    "enable": true,
     "provider": "litellm",
     "model_name": "openrouter/google/gemini-2.5-flash",
     "litellm_api_key": "YOUR_API_KEY",
+    "prompt_template": "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:",
     "max_context_tokens": 8000,
-    "temperature": 0.1
+    "max_output_tokens": 500,
+    "temperature": 0.1,
+    "generation_timeout": 60
   }
 }
 ```
@@ -332,14 +623,21 @@ export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 **CLI:**
 ```bash
 # 콘텐츠 인덱싱
-uv run confluence-gateway index trigger --space-keys TECH --sync
+uv run confluence-gateway index trigger --space TECH
+uv run confluence-gateway index status
 
-# 검색
+# 다양한 검색 모드
 uv run confluence-gateway search text "배포 가이드"
 uv run confluence-gateway search semantic "배포하는 방법"
+uv run confluence-gateway search cql "space = TECH and text ~ deploy"
+
+# 고급 텍스트 검색 옵션
+uv run confluence-gateway search text "배포" --type page --limit 10
+uv run confluence-gateway search text "가이드" --hybrid --top-n 5
+uv run confluence-gateway search text "프로세스" --sort-by updated_at --sort-dir desc
 
 # AI 답변 얻기
-uv run confluence-gateway generate answer "우리의 배포 프로세스는 무엇입니까?"
+uv run confluence-gateway generate answer "우리의 배포 프로세스는 무엇입니까?" --top-k 5
 ```
 
 **API 서버:**
@@ -348,17 +646,290 @@ uv run confluence-gateway generate answer "우리의 배포 프로세스는 무�
 uv run uvicorn confluence_gateway.api.app:app --reload
 # API 문서: http://localhost:8000/docs
 
-# 검색 엔드포인트
-curl "http://localhost:8000/api/search?query=배포&mode=hybrid"
+# 상태 확인
+curl "http://localhost:8000/health"
+
+# 텍스트 검색 (GET)
+curl "http://localhost:8000/api/search?query=배포&limit=20"
+
+# 하이브리드 검색 (GET with use_hybrid=true)
+curl "http://localhost:8000/api/search?query=배포&use_hybrid=true"
+
+# 시맨틱 검색 (POST)
 curl -X POST "http://localhost:8000/api/search/semantic" \
   -H "Content-Type: application/json" \
   -d '{"query": "배포 프로세스", "top_k": 5}'
 
+# 고급 검색 (POST)
+curl -X POST "http://localhost:8000/api/search/advanced" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "배포", 
+    "space_key": "TECH",
+    "content_type": "page",
+    "sort_by": ["updated_at"],
+    "sort_direction": ["desc"],
+    "limit": 10
+  }'
+
+# CQL 검색 (POST)
+curl -X POST "http://localhost:8000/api/search/cql" \
+  -H "Content-Type: application/json" \
+  -d '{"cql": "space = TECH and text ~ deploy", "limit": 20}'
+
 # 답변 생성
 curl -X POST "http://localhost:8000/api/generate/answer" \
   -H "Content-Type: application/json" \
-  -d '{"question": "우리의 배포 프로세스는 무엇입니까?"}'
+  -d '{"query": "우리의 배포 프로세스는 무엇입니까?", "top_k_retrieval": 5}'
+
+# 인덱싱
+curl -X POST "http://localhost:8000/api/indexing/trigger" \
+  -H "Content-Type: application/json" \
+  -d '{"space_keys": ["TECH"]}'
+
+curl "http://localhost:8000/api/indexing/status"
 ```
+
+### 📚 API 참조
+
+<details>
+<summary><strong>전체 API 엔드포인트 문서</strong></summary>
+
+#### 상태 확인
+```http
+GET /health
+```
+서비스 상태 및 Confluence 연결 상태를 반환합니다.
+
+**응답:**
+```json
+{
+  "status": "ok|degraded",
+  "version": "0.1.0",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "confluence_connection": "ok|error|authentication_error|api_error",
+  "confluence_error": "오류 메시지 (있는 경우)"
+}
+```
+
+#### 검색 엔드포인트
+
+##### 텍스트/하이브리드 검색
+```http
+GET /api/search
+```
+**쿼리 파라미터:**
+- `query` (필수, 최소 2자): 검색 텍스트
+- `space_key` (선택): 스페이스로 필터링
+- `content_type` (선택): 타입으로 필터링 (page|blogpost|attachment|comment)
+- `include_archived` (선택, 기본값: false): 보관된 콘텐츠 포함
+- `limit` (선택, 기본값: 20): 최대 결과 수
+- `start` (선택, 기본값: 0): 페이지네이션 오프셋
+- `expand` (선택, 배열): 확장할 필드
+- `use_hybrid` (선택, 기본값: false): 하이브리드 검색 활성화
+
+##### 시맨틱 검색
+```http
+POST /api/search/semantic
+```
+**요청 본문:**
+```json
+{
+  "query": "배포 프로세스",
+  "top_k": 10,
+  "filters": {"space_key": "TECH"}
+}
+```
+
+##### 고급 검색
+```http
+POST /api/search/advanced
+```
+**요청 본문:**
+```json
+{
+  "query": "배포",
+  "space_key": "TECH",
+  "content_type": "page",
+  "include_archived": false,
+  "limit": 20,
+  "start": 0,
+  "expand": ["version", "history"],
+  "get_all_results": false,
+  "max_results": 100,
+  "min_relevance": 0.5,
+  "top_n": 10,
+  "sort_by": ["updated_at"],
+  "sort_direction": ["desc"],
+  "use_hybrid": false
+}
+```
+
+##### CQL 검색
+```http
+POST /api/search/cql
+```
+**요청 본문:**
+```json
+{
+  "cql": "space = TECH AND type = page",
+  "limit": 20,
+  "start": 0,
+  "expand": ["version"]
+}
+```
+
+#### 인덱싱 엔드포인트
+
+##### 인덱싱 실행
+```http
+POST /api/indexing/trigger
+```
+**요청 본문:**
+```json
+{
+  "space_keys": ["TECH", "DEV"]
+}
+```
+**응답:** 202 Accepted
+
+##### 인덱싱 상태 확인
+```http
+GET /api/indexing/status
+```
+**응답:**
+```json
+{
+  "status": "idle|running|success|failure",
+  "last_run_start_time": "2024-01-01T10:00:00Z",
+  "last_run_end_time": "2024-01-01T10:30:00Z",
+  "last_error_message": null
+}
+```
+
+#### 생성 엔드포인트
+
+##### 답변 생성
+```http
+POST /api/generate/answer
+```
+**요청 본문:**
+```json
+{
+  "query": "우리의 배포 프로세스는 무엇입니까?",
+  "top_k_retrieval": 5,
+  "filters": {"space_key": "TECH"}
+}
+```
+**응답:**
+```json
+{
+  "answer": "배포 프로세스는 다음과 같습니다...",
+  "sources": [
+    {
+      "id": "12345_chunk_0",
+      "score": 0.85,
+      "title": "배포 가이드",
+      "url": "https://confluence.example.com/...",
+      "space_key": "TECH"
+    }
+  ]
+}
+```
+
+#### 응답 형식
+
+모든 엔드포인트는 표준화된 응답을 반환합니다:
+
+**성공 응답:**
+```json
+{
+  "results": [...],
+  "total": 42,
+  "start": 0,
+  "limit": 20,
+  "took_ms": 123.45,
+  "page_count": 3,
+  "current_page": 1,
+  "has_more": true,
+  "links": {
+    "next": "/api/search?query=api&start=20",
+    "previous": null
+  }
+}
+```
+
+**오류 응답:**
+```json
+{
+  "status": "error",
+  "code": 400,
+  "message": "잘못된 검색 파라미터",
+  "details": {
+    "param": "query",
+    "reason": "쿼리는 최소 2자 이상이어야 합니다"
+  }
+}
+```
+</details>
+
+### 📚 CLI 참조
+
+<details>
+<summary><strong>전체 CLI 명령어 및 옵션</strong></summary>
+
+#### 인덱싱 명령어
+```bash
+# 인덱싱 실행
+uv run confluence-gateway index trigger [OPTIONS]
+  --space, -s TEXT        인덱싱할 스페이스 키 (반복 가능)
+  --help                  도움말 표시
+
+# 인덱싱 상태 확인
+uv run confluence-gateway index status
+  --help                  도움말 표시
+```
+
+#### 검색 명령어
+```bash
+# 고급 옵션이 포함된 텍스트 검색
+uv run confluence-gateway search text QUERY [OPTIONS]
+  --space, -s TEXT        스페이스 키로 필터링 (반복 가능)
+  --type, -t TEXT         타입으로 필터링: page, blogpost, attachment, comment
+  --limit, -l INTEGER     최대 결과 수 (기본값: 20)
+  --archived              보관된 콘텐츠 포함
+  --start INTEGER         페이지네이션 시작 위치
+  --expand TEXT           확장할 필드 (반복 가능)
+  --hybrid                하이브리드 검색 활성화 (키워드 + 시맨틱)
+  --sort-by TEXT          정렬 기준: title, created_at, updated_at, score, space_key
+  --sort-dir TEXT         정렬 방향: asc, desc
+  --min-relevance FLOAT   최소 관련성 점수 (0.0-1.0)
+  --top-n INTEGER         페치 후 상위 N개 결과만 반환
+
+# 시맨틱 검색
+uv run confluence-gateway search semantic QUERY [OPTIONS]
+  --space, -s TEXT        스페이스 키로 필터링 (반복 가능)
+  --type, -t TEXT         타입으로 필터링
+  --top-k, -k INTEGER     결과 수 (기본값: 10)
+  --min-relevance FLOAT   최소 관련성 점수
+
+# CQL 검색
+uv run confluence-gateway search cql CQL_QUERY [OPTIONS]
+  --limit, -l INTEGER     최대 결과 수 (기본값: 20)
+  --start INTEGER         시작 위치
+  --expand TEXT           확장할 필드 (반복 가능)
+```
+
+#### 생성 명령어
+```bash
+# AI 답변 생성
+uv run confluence-gateway generate answer QUESTION [OPTIONS]
+  --space, -s TEXT        스페이스 키로 필터링 (반복 가능)
+  --type, -t TEXT         타입으로 필터링
+  --top-k, -k INTEGER     컨텍스트 청크 수 (기본값: 5)
+  --search-mode TEXT      검색 모드: hybrid, semantic, text (기본값: hybrid)
+```
+</details>
 
 ### ⚙️ 고급 구성
 
@@ -397,22 +968,33 @@ curl -X POST "http://localhost:8000/api/generate/answer" \
   },
   "vector_db": {
     "type": "qdrant",
+    "collection_name": "confluence_embeddings",
+    "embedding_dimension": 384,
     "qdrant_url": "http://localhost:6333",
+    "qdrant_grpc_port": 6334,
+    "qdrant_prefer_grpc": false,
     "chunk_size": 512,
     "chunk_overlap": 50
   },
   "indexing": {
+    "include_spaces": null,
+    "exclude_spaces": null,
     "include_attachments": true,
     "max_attachment_size_mb": 10,
     "allowed_attachment_extensions": ["pdf", "docx", "txt", "md"],
-    "parser_type": "markitdown"
+    "html_parser": "markitdown",
+    "attachment_parser": "markitdown"
   },
   "generation": {
+    "enable": true,
     "provider": "litellm",
     "model_name": "openrouter/google/gemini-2.5-flash",
     "litellm_api_key": "YOUR_API_KEY",
+    "prompt_template": "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:",
     "max_context_tokens": 8000,
-    "temperature": 0.1
+    "max_output_tokens": 500,
+    "temperature": 0.1,
+    "generation_timeout": 60
   }
 }
 ```

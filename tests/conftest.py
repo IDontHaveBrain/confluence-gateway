@@ -722,7 +722,7 @@ def test_app_client(
 
     def override_get_indexing_config():
         return indexing_config
-    
+
     def override_get_generation_config():
         return generation_config
 
@@ -731,18 +731,18 @@ def test_app_client(
     app.dependency_overrides[get_embedding_provider_dependency] = (
         override_get_embedding_provider_dependency
     )
-    
+
     # Override all lambda dependencies properly
     from confluence_gateway.api.dependencies import (
         get_generation_service,
         get_indexing_service,
     )
-    
+
     # For get_indexing_service dependencies
     app.dependency_overrides[lambda: indexing_config] = override_get_indexing_config
     app.dependency_overrides[lambda: search_config] = override_get_search_config
     app.dependency_overrides[lambda: vector_db_config] = override_get_vector_db_config
-    
+
     # For get_generation_service dependency
     app.dependency_overrides[lambda: generation_config] = override_get_generation_config
 

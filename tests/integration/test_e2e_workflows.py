@@ -1,5 +1,3 @@
-"""End-to-end workflow tests for Confluence Gateway."""
-
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -12,8 +10,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.api, pytest.mark.semantic]
 
 
 class TestE2EWorkflows:
-    """Test complete end-to-end workflows."""
-
     def test_full_indexing_search_generation_workflow_api(
         self,
         test_app_client: TestClient,
@@ -23,7 +19,6 @@ class TestE2EWorkflows:
         real_search_terms: list[str],
         mocker,
     ):
-        """Test the complete workflow: Index → Search → Generate via API using real test data."""
         if not is_semantic_search_possible:
             pytest.skip("Requires semantic search capabilities")
         if not is_generation_enabled:
@@ -102,16 +97,58 @@ class TestE2EWorkflows:
         real_search_terms: list[str],
         mocker,
         confluence_config,
+        generation_config,
+        embedding_service,
+        vector_db_adapter,
+        semantic_search_service,
+        generation_service,
+        index_semantic_test_data,  # Ensure test data is indexed
     ):
-        """Test the complete workflow: Index → Search → Generate via CLI using real search terms."""
         if not is_semantic_search_possible:
             pytest.skip("Requires semantic search capabilities")
         if not is_generation_enabled:
             pytest.skip("Generation feature is disabled")
 
-        with patch(
-            "confluence_gateway.cli.dependencies.confluence_config", confluence_config
+        with (
+            patch(
+                "confluence_gateway.cli.dependencies.confluence_config",
+                confluence_config,
+            ),
+            patch(
+                "confluence_gateway.cli.dependencies.generation_config",
+                generation_config,
+            ),
+            patch(
+                "confluence_gateway.cli.dependencies.embedding_config",
+                embedding_service.provider.config
+                if embedding_service and embedding_service.provider
+                else None,
+            ),
+            patch(
+                "confluence_gateway.cli.dependencies.vector_db_config",
+                vector_db_adapter.config
+                if vector_db_adapter and hasattr(vector_db_adapter, "config")
+                else None,
+            ),
         ):
+            # Patch the service getters
+            mocker.patch(
+                "confluence_gateway.cli.dependencies._get_embedding_service",
+                return_value=embedding_service,
+            )
+            mocker.patch(
+                "confluence_gateway.cli.dependencies._get_vector_db_adapter",
+                return_value=vector_db_adapter,
+            )
+            mocker.patch(
+                "confluence_gateway.cli.dependencies._get_search_service",
+                return_value=semantic_search_service,
+            )
+            mocker.patch(
+                "confluence_gateway.cli.dependencies._get_generation_service",
+                return_value=generation_service,
+            )
+
             status_result = runner.invoke(cli_app, ["index", "status"])
             assert status_result.exit_code == 0
 
@@ -158,7 +195,6 @@ class TestE2EWorkflows:
         test_space_with_content: dict | None,
         mocker,
     ):
-        """Test hybrid search combining keyword and semantic search with real data."""
         if not is_semantic_search_possible:
             pytest.skip("Hybrid search requires semantic search capabilities")
 
@@ -203,7 +239,6 @@ class TestE2EWorkflows:
         test_space_with_attachments: dict | None,
         mocker,
     ):
-        """Test indexing and searching attachments using real test data."""
         if not is_semantic_search_possible:
             pytest.skip("Requires semantic search capabilities")
 
@@ -254,7 +289,6 @@ class TestE2EWorkflows:
         is_real_config_available: bool,
         mocker,
     ):
-        """Test error handling throughout the workflow."""
         response = test_app_client.get("/api/search?query=a")
 
         if not is_real_config_available:
@@ -276,7 +310,6 @@ class TestE2EWorkflows:
         test_space_with_content: dict | None,
         real_search_terms: list[str],
     ):
-        """Test searching within specific spaces using real test data."""
         if not is_real_config_available:
             pytest.skip("Requires real Confluence configuration")
 
@@ -308,7 +341,6 @@ class TestE2EWorkflows:
         test_app_client: TestClient,
         is_real_config_available: bool,
     ):
-        """Test concurrent search operations."""
         if not is_real_config_available:
             pytest.skip("Requires real Confluence configuration")
 

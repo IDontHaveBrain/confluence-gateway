@@ -21,14 +21,18 @@
     "device": "cpu"
   },
   "vector_db": {
-    "type": "none",
+    "type": "qdrant",
     "collection_name": "confluence_embeddings",
+    "embedding_dimension": 384,
     "chunk_size": 512,
     "chunk_overlap": 50,
+    "qdrant_url": ":memory:",
     "qdrant_grpc_port": 6334,
     "qdrant_prefer_grpc": false
   },
   "indexing": {
+    "include_spaces": null,
+    "exclude_spaces": null,
     "html_parser": "markitdown",
     "include_attachments": false,
     "max_attachment_size_mb": 10,
@@ -42,7 +46,7 @@
     "attachment_parser": "markitdown"
   },
   "generation": {
-    "enable": true,
+    "enable": false,
     "provider": "litellm",
     "model_name": "openrouter/google/gemini-2.5-flash",
     "prompt_template": "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:",
