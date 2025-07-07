@@ -408,6 +408,20 @@ class ConfluenceClient:
                                     if k != "content" and k not in page_data
                                 }
                             )
+                            
+                            # Extract space key from URL if not in content
+                            if "url" in item and not page_data.get("space"):
+                                # URL format: /spaces/SPACEKEY/pages/...
+                                url_parts = item["url"].split("/")
+                                if len(url_parts) > 2 and url_parts[1] == "spaces":
+                                    space_key = url_parts[2]
+                                    page_data["space_key"] = space_key
+                                    # Also get space name from resultGlobalContainer if available
+                                    if "resultGlobalContainer" in item:
+                                        container = item["resultGlobalContainer"]
+                                        if isinstance(container, dict) and "title" in container:
+                                            page_data["space_name"] = container["title"]
+                            
                             page = self._parse_page(page_data)
                         else:
                             page = self._parse_page(item)
@@ -453,9 +467,16 @@ class ConfluenceClient:
             result["space_key"] = space_obj.get("key") or ""
             result["space_name"] = space_obj.get("name") or ""
         else:
-            # Ensure empty strings if space is None or unexpected type
-            result["space_key"] = ""
-            result["space_name"] = ""
+            # Check if space_key and space_name are stored as attributes
+            space_key = getattr(content, "space_key", None)
+            space_name = getattr(content, "space_name", None)
+            if space_key:
+                result["space_key"] = space_key
+                result["space_name"] = space_name or ""
+            else:
+                # Ensure empty strings if space is None or unexpected type
+                result["space_key"] = ""
+                result["space_name"] = ""
 
         # Extract type-specific fields using isinstance
         if isinstance(content, ConfluencePage):
@@ -469,8 +490,11 @@ class ConfluenceClient:
                 result["url"] = (
                     f"{self.base_url}/wiki/spaces/{result['space_key']}/pages/{content.id}"
                 )
-            elif hasattr(content, "_links") and content._links and content._links.webui:
-                result["url"] = f"{self.base_url}{content._links.webui}"
+            elif hasattr(content, "_links") and content._links:
+                if isinstance(content._links, dict) and "webui" in content._links:
+                    result["url"] = f"{self.base_url}{content._links['webui']}"
+                elif hasattr(content._links, "webui") and content._links.webui:
+                    result["url"] = f"{self.base_url}{content._links.webui}"
 
             # Handle comments specifically (they are often modeled as ConfluencePage by the lib)
             if content.content_type == ContentType.COMMENT:
@@ -494,8 +518,11 @@ class ConfluenceClient:
                 pass  # Prefer relying on the _links.download if available
 
             # Construct URL for attachments
-            if content._links and content._links.webui:
-                result["url"] = f"{self.base_url}{content._links.webui}"
+            if hasattr(content, "_links") and content._links:
+                if isinstance(content._links, dict) and "webui" in content._links:
+                    result["url"] = f"{self.base_url}{content._links['webui']}"
+                elif hasattr(content._links, "webui") and content._links.webui:
+                    result["url"] = f"{self.base_url}{content._links.webui}"
 
         # Return only keys that have non-None values if needed,
         # but returning the full structure might be more consistent.

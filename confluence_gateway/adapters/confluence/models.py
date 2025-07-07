@@ -88,10 +88,13 @@ class ConfluencePage(ConfluenceObject):
     body: BodyContent | None = None
     version: Version | None = None
     status: str | None = None
+    space_key: str | None = None
+    space_name: str | None = None
 
     model_config = {
         "populate_by_name": True,
         "str_strip_whitespace": True,
+        "extra": "allow",
     }
 
     @field_validator("content_type", mode="before")

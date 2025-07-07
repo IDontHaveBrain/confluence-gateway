@@ -29,14 +29,11 @@ class TestSearchServiceIntegration:
         test_space_with_content: dict | None,
     ):
         """Test keyword search with real Confluence instance using test data."""
-        if test_space_with_content:
-            space_key = test_space_with_content["key"]
-            query = f"space={space_key} AND {real_search_term}"
-        else:
-            query = real_search_term
+        space_key = test_space_with_content["key"] if test_space_with_content else None
 
         result = standard_search_service.search_by_text(
-            text=query,
+            text=real_search_term,
+            space_key=space_key,
             limit=5,
             return_enhanced_result=True,
         )
@@ -53,10 +50,9 @@ class TestSearchServiceIntegration:
             assert hasattr(first_result, "content_type")
 
             if test_space_with_content:
-                assert (
-                    hasattr(first_result, "space")
-                    and first_result.space.key == space_key
-                )
+                # Extract space_key using the client's method
+                fields = standard_search_service.client.extract_content_fields(first_result)
+                assert fields.get("space_key") == space_key
 
     def test_semantic_search_real_vector_db(
         self,
@@ -101,15 +97,11 @@ class TestSearchServiceIntegration:
         )
 
         query = real_search_terms[0] if real_search_terms else "confluence"
-
-        if test_space_with_content:
-            space_key = test_space_with_content["key"]
-            search_query = f"space={space_key} AND {query}"
-        else:
-            search_query = query
+        space_key = test_space_with_content["key"] if test_space_with_content else None
 
         result = semantic_search_service.search_hybrid(
-            text=search_query,
+            text=query,
+            space_key=space_key,
             limit=10,
             return_enhanced_result=True,
         )
@@ -123,10 +115,9 @@ class TestSearchServiceIntegration:
 
             if test_space_with_content:
                 for search_result in result.results.results:
-                    assert (
-                        hasattr(search_result, "space")
-                        and search_result.space.key == space_key
-                    )
+                    # Extract space_key using the client's method
+                    fields = semantic_search_service.client.extract_content_fields(search_result)
+                    assert fields.get("space_key") == space_key
 
 
 class TestIndexingServiceIntegration:
@@ -333,7 +324,8 @@ class TestServiceInteroperability:
         space_key = test_space_with_content["key"]
 
         search_result = confluence_client.search(
-            query=f"space={space_key}",
+            query="*",
+            space_key=space_key,
             limit=1,
         )
 

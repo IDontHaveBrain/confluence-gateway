@@ -902,8 +902,10 @@ def real_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] |
             spaces_dict = []
             for space in test_spaces:
                 try:
+                    # Use space_key parameter to search within the space
                     search_result = confluence_client.search(
-                        query=f"space={space.key}",
+                        query="*",  # Search for all content
+                        space_key=space.key,
                         limit=1,
                     )
                     page_count = (
