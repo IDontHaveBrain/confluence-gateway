@@ -142,7 +142,9 @@ def _load_config_from_file(path: Path) -> dict[str, Any]:
                 )
                 return {}
             logger.info(f"Loaded configuration from {path}")
-            logger.debug(f"Configuration content from {path}: {json.dumps(config_data, indent=2)}")
+            logger.debug(
+                f"Configuration content from {path}: {json.dumps(config_data, indent=2)}"
+            )
         except json.JSONDecodeError:
             logger.warning(
                 f"Could not parse JSON from config file at {path}. Ignoring."
@@ -166,6 +168,7 @@ class VectorDBConfig(BaseModel):
     chroma_host: str | None = None
     chroma_port: int | None = None
     qdrant_url: HttpUrl | Literal[":memory:"] | None = None
+    qdrant_local_path: str | None = None
     qdrant_api_key: str | None = None
     qdrant_grpc_port: int = 6334
     qdrant_prefer_grpc: bool = False
@@ -287,6 +290,7 @@ def _load_raw_vector_db_env() -> dict[str, Any]:
 
     for env_var, config_key in [
         ("QDRANT_URL", "qdrant_url"),
+        ("QDRANT_LOCAL_PATH", "qdrant_local_path"),
         ("QDRANT_API_KEY", "qdrant_api_key"),
     ]:
         if value := os.getenv(env_var):
@@ -461,7 +465,11 @@ def load_configurations() -> tuple[
 
     # Priority: user home config > env vars > default config
     # For each section, start with default, override with env vars, then override with user config
-    def merge_configs(default_section: dict[str, Any], env_section: dict[str, Any], user_section: dict[str, Any]) -> dict[str, Any]:
+    def merge_configs(
+        default_section: dict[str, Any],
+        env_section: dict[str, Any],
+        user_section: dict[str, Any],
+    ) -> dict[str, Any]:
         # Start with default
         result = default_section.copy() if default_section else {}
         # Override with env vars
@@ -474,37 +482,35 @@ def load_configurations() -> tuple[
     final_confluence_config = merge_configs(
         default_config.get("confluence", {}),
         env_confluence_raw,
-        user_config.get("confluence", {})
+        user_config.get("confluence", {}),
     )
 
     final_search_config = merge_configs(
-        default_config.get("search", {}),
-        env_search_raw,
-        user_config.get("search", {})
+        default_config.get("search", {}), env_search_raw, user_config.get("search", {})
     )
 
     final_vector_db_config = merge_configs(
         default_config.get("vector_db", {}),
         env_vector_db_raw,
-        user_config.get("vector_db", {})
+        user_config.get("vector_db", {}),
     )
 
     final_embedding_config = merge_configs(
         default_config.get("embedding", {}),
         env_embedding_raw,
-        user_config.get("embedding", {})
+        user_config.get("embedding", {}),
     )
 
     final_indexing_config = merge_configs(
         default_config.get("indexing", {}),
         env_indexing_raw,
-        user_config.get("indexing", {})
+        user_config.get("indexing", {}),
     )
 
     final_generation_config = merge_configs(
         default_config.get("generation", {}),
         env_generation_raw,
-        user_config.get("generation", {})
+        user_config.get("generation", {}),
     )
 
     loaded_confluence_config: ConfluenceConfig | None = None

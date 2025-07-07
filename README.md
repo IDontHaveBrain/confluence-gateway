@@ -36,7 +36,7 @@ Transform your Confluence into a smart knowledge base with semantic search, hybr
 - ✅ Content indexing with attachment support (PDF, DOCX, PPTX, TXT, MD)
 - ✅ RAG answer generation with source attribution
 - ✅ REST API + CLI with feature parity
-- ✅ Multi-provider architecture (Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
+- ✅ Multi-provider architecture (Qdrant/ChromaDB with local storage support, SentenceTransformers/LiteLLM)
 - ✅ Hierarchical configuration system
 - ✅ Comprehensive error handling and logging
 
@@ -415,6 +415,11 @@ uv run confluence-gateway generate answer QUESTION [OPTIONS]
 
 Note: You'll need an OpenRouter API key to use the default model. Get one at https://openrouter.ai/
 
+**Vector Database Options:**
+- **Qdrant**: Supports both local storage (`qdrant_local_path`) and remote server (`qdrant_url`)
+- **ChromaDB**: Supports local persistent storage (`chroma_persist_path`) and remote server (`chroma_host`, `chroma_port`)
+- Both databases automatically create directories for local storage when configured with paths containing `~`
+
 <details>
 <summary><strong>Complete Configuration Example</strong></summary>
 
@@ -439,14 +444,20 @@ Note: You'll need an OpenRouter API key to use the default model. Get one at htt
     "device": "cpu"
   },
   "vector_db": {
-    "type": "qdrant",
+    "type": "qdrant",  // or "chroma"
     "collection_name": "confluence_embeddings",
     "embedding_dimension": 384,
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    // Qdrant configuration
     "qdrant_url": "http://localhost:6333",
+    "qdrant_local_path": "~/.confluence_gateway/qdrant_storage",
     "qdrant_grpc_port": 6334,
     "qdrant_prefer_grpc": false,
-    "chunk_size": 512,
-    "chunk_overlap": 50
+    // ChromaDB configuration
+    "chroma_persist_path": "~/.confluence_gateway/chroma_storage",
+    "chroma_host": "localhost",
+    "chroma_port": 8000
   },
   "indexing": {
     "include_spaces": null,
@@ -482,9 +493,19 @@ export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
 export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
 
-# Vector database
+# Vector database (choose one)
+# For Qdrant:
 export VECTOR_DB_TYPE="qdrant"
 export VECTOR_DB_QDRANT_URL="http://localhost:6333"
+# Or for local Qdrant storage:
+export VECTOR_DB_QDRANT_LOCAL_PATH="~/.confluence_gateway/qdrant_storage"
+
+# For ChromaDB:
+export VECTOR_DB_TYPE="chroma"
+export CHROMA_PERSIST_PATH="~/.confluence_gateway/chroma_storage"
+# Or for remote ChromaDB:
+export CHROMA_HOST="localhost"
+export CHROMA_PORT="8000"
 ```
 
 ### 🧪 Testing
@@ -564,7 +585,7 @@ MIT License - see [LICENSE](LICENSE) file
 - ✅ 첨부 파일 지원 콘텐츠 인덱싱 (PDF, DOCX, PPTX, TXT, MD)
 - ✅ 출처 표시가 포함된 RAG 답변 생성
 - ✅ 기능 동등성을 갖춘 REST API + CLI
-- ✅ 다중 제공자 아키텍처 (Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
+- ✅ 다중 제공자 아키텍처 (로컬 저장소를 지원하는 Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
 - ✅ 계층적 구성 시스템
 - ✅ 포괄적인 오류 처리 및 로깅
 
@@ -943,6 +964,11 @@ uv run confluence-gateway generate answer QUESTION [OPTIONS]
 
 참고: 기본 모델을 사용하려면 OpenRouter API 키가 필요합니다. https://openrouter.ai/ 에서 받으세요.
 
+**벡터 데이터베이스 옵션:**
+- **Qdrant**: 로컬 저장소(`qdrant_local_path`)와 원격 서버(`qdrant_url`) 모두 지원
+- **ChromaDB**: 로컬 영구 저장소(`chroma_persist_path`)와 원격 서버(`chroma_host`, `chroma_port`) 지원
+- 두 데이터베이스 모두 `~`가 포함된 경로로 구성시 자동으로 디렉토리 생성
+
 <details>
 <summary><strong>전체 구성 예제</strong></summary>
 
@@ -967,14 +993,20 @@ uv run confluence-gateway generate answer QUESTION [OPTIONS]
     "device": "cpu"
   },
   "vector_db": {
-    "type": "qdrant",
+    "type": "qdrant",  // or "chroma"
     "collection_name": "confluence_embeddings",
     "embedding_dimension": 384,
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    // Qdrant configuration
     "qdrant_url": "http://localhost:6333",
+    "qdrant_local_path": "~/.confluence_gateway/qdrant_storage",
     "qdrant_grpc_port": 6334,
     "qdrant_prefer_grpc": false,
-    "chunk_size": 512,
-    "chunk_overlap": 50
+    // ChromaDB configuration
+    "chroma_persist_path": "~/.confluence_gateway/chroma_storage",
+    "chroma_host": "localhost",
+    "chroma_port": 8000
   },
   "indexing": {
     "include_spaces": null,
@@ -1010,9 +1042,19 @@ export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
 export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
 
-# 벡터 데이터베이스
+# 벡터 데이터베이스 (하나 선택)
+# Qdrant 사용시:
 export VECTOR_DB_TYPE="qdrant"
 export VECTOR_DB_QDRANT_URL="http://localhost:6333"
+# 또는 로컬 Qdrant 저장소 사용시:
+export VECTOR_DB_QDRANT_LOCAL_PATH="~/.confluence_gateway/qdrant_storage"
+
+# ChromaDB 사용시:
+export VECTOR_DB_TYPE="chroma"
+export CHROMA_PERSIST_PATH="~/.confluence_gateway/chroma_storage"
+# 또는 원격 ChromaDB 사용시:
+export CHROMA_HOST="localhost"
+export CHROMA_PORT="8000"
 ```
 
 ### 🧪 테스팅

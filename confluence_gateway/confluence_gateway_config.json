@@ -27,8 +27,12 @@
     "chunk_size": 512,
     "chunk_overlap": 50,
     "qdrant_url": ":memory:",
+    "qdrant_local_path": "~/.confluence_gateway/qdrant_storage",
     "qdrant_grpc_port": 6334,
-    "qdrant_prefer_grpc": false
+    "qdrant_prefer_grpc": false,
+    "chroma_persist_path": "~/.confluence_gateway/chroma_storage",
+    "chroma_host": null,
+    "chroma_port": null
   },
   "indexing": {
     "include_spaces": null,

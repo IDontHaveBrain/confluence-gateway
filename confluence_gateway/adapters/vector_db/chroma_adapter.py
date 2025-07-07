@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, cast
 
 import chromadb
@@ -35,11 +36,17 @@ class ChromaDBAdapter(VectorDBAdapter):
                     host=self.config.chroma_host, port=self.config.chroma_port
                 )
             elif self.config.chroma_persist_path:
+                # Expand user home directory if present
+                persist_path = Path(self.config.chroma_persist_path).expanduser()
+                # Create directory if it doesn't exist
+                persist_path.mkdir(parents=True, exist_ok=True)
+                persist_path_str = str(persist_path)
+
                 logger.info(
-                    f"Using PersistentClient: path={self.config.chroma_persist_path}"
+                    f"Using PersistentClient: path={persist_path_str}"
                 )
                 self.client = chromadb.PersistentClient(
-                    path=self.config.chroma_persist_path
+                    path=persist_path_str
                 )
             else:
                 logger.info("Using transient in-memory Client.")

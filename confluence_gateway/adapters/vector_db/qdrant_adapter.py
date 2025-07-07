@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any
 
 from qdrant_client import QdrantClient, models
@@ -35,7 +36,20 @@ class QdrantAdapter(VectorDBAdapter):
             client_url = None
             client_location = None
 
-            if self.config.qdrant_url == ":memory:":
+            # Check if local path is specified
+            if self.config.qdrant_local_path:
+                # Expand user home directory if present
+                local_path = Path(self.config.qdrant_local_path).expanduser()
+                # Create directory if it doesn't exist
+                local_path.mkdir(parents=True, exist_ok=True)
+                client_location = str(local_path)
+                logger.info(
+                    f"Initializing Qdrant with local storage at: {client_location}, "
+                    f"gRPC Port: {self.config.qdrant_grpc_port}, "
+                    f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
+                    f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
+                )
+            elif self.config.qdrant_url == ":memory:":
                 client_location = ":memory:"
                 logger.info(
                     f"Initializing Qdrant in memory mode, "
