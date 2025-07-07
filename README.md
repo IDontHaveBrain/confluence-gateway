@@ -127,6 +127,14 @@ curl -X POST "http://localhost:8000/api/generate/answer" \
 
 **Priority:** Environment Variables > `~/.confluence_gateway_config.json` > Defaults
 
+**Default Generation Settings:**
+- Model: `openrouter/google/gemini-2.5-flash`
+- Max Context Tokens: `8000`
+- Temperature: `0.1`
+- Provider: `litellm`
+
+Note: You'll need an OpenRouter API key to use the default model. Get one at https://openrouter.ai/
+
 <details>
 <summary><strong>Complete Configuration Example</strong></summary>
 
@@ -164,9 +172,9 @@ curl -X POST "http://localhost:8000/api/generate/answer" \
   },
   "generation": {
     "provider": "litellm",
-    "model_name": "openai/gpt-4",
+    "model_name": "openrouter/google/gemini-2.5-flash",
     "litellm_api_key": "YOUR_API_KEY",
-    "max_context_tokens": 3000,
+    "max_context_tokens": 8000,
     "temperature": 0.1
   }
 }
@@ -179,9 +187,9 @@ curl -X POST "http://localhost:8000/api/generate/answer" \
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
 export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
 
-# For AI features
-export GENERATION_MODEL_NAME="openai/gpt-4"
-export GENERATION_LITELLM_API_KEY="YOUR_API_KEY"
+# For AI features (defaults to openrouter/google/gemini-2.5-flash)
+export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
+export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
 
 # Vector database
 export VECTOR_DB_TYPE="qdrant"
@@ -198,7 +206,7 @@ uv run pytest
 uv run pytest -m unit
 
 # Specific test categories
-uv run pytest -m integration  # Requires external services
+uv run pytest -m integration # Requires external services
 uv run pytest -m api         # Requires Confluence API
 uv run pytest -m semantic    # Requires vector DB + embeddings
 
@@ -214,9 +222,9 @@ uv sync --group dev
 uv run pre-commit install
 
 # Code quality
-uv run ruff format confluence_gateway tests  # Format
-uv run ruff check confluence_gateway tests   # Lint
-uv run mypy confluence_gateway               # Type check
+uv run ruff format confluence_gateway tests # Format
+uv run ruff check confluence_gateway tests  # Lint
+uv run mypy confluence_gateway tests        # Type check
 uv run pre-commit run --all-files           # All checks
 ```
 
@@ -356,6 +364,14 @@ curl -X POST "http://localhost:8000/api/generate/answer" \
 
 **우선순위:** 환경 변수 > `~/.confluence_gateway_config.json` > 기본값
 
+**기본 생성 설정:**
+- 모델: `openrouter/google/gemini-2.5-flash`
+- 최대 컨텍스트 토큰: `8000`
+- 온도: `0.1`
+- 제공자: `litellm`
+
+참고: 기본 모델을 사용하려면 OpenRouter API 키가 필요합니다. https://openrouter.ai/ 에서 받으세요.
+
 <details>
 <summary><strong>전체 구성 예제</strong></summary>
 
@@ -393,9 +409,9 @@ curl -X POST "http://localhost:8000/api/generate/answer" \
   },
   "generation": {
     "provider": "litellm",
-    "model_name": "openai/gpt-4",
+    "model_name": "openrouter/google/gemini-2.5-flash",
     "litellm_api_key": "YOUR_API_KEY",
-    "max_context_tokens": 3000,
+    "max_context_tokens": 8000,
     "temperature": 0.1
   }
 }
@@ -408,9 +424,9 @@ curl -X POST "http://localhost:8000/api/generate/answer" \
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
 export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
 
-# AI 기능용
-export GENERATION_MODEL_NAME="openai/gpt-4"
-export GENERATION_LITELLM_API_KEY="YOUR_API_KEY"
+# AI 기능용 (기본값: openrouter/google/gemini-2.5-flash)
+export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
+export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
 
 # 벡터 데이터베이스
 export VECTOR_DB_TYPE="qdrant"
@@ -427,7 +443,7 @@ uv run pytest
 uv run pytest -m unit
 
 # 특정 테스트 카테고리
-uv run pytest -m integration  # 외부 서비스 필요
+uv run pytest -m integration # 외부 서비스 필요
 uv run pytest -m api         # Confluence API 필요
 uv run pytest -m semantic    # 벡터 DB + 임베딩 필요
 
@@ -446,7 +462,7 @@ uv run pre-commit install
 uv run ruff format confluence_gateway tests  # 포맷
 uv run ruff check confluence_gateway tests   # 린트
 uv run mypy confluence_gateway               # 타입 체크
-uv run pre-commit run --all-files           # 모든 검사
+uv run pre-commit run --all-files            # 모든 검사
 ```
 
 ### 🔒 프로덕션 보안

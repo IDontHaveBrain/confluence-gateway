@@ -181,11 +181,11 @@ class VectorDBConfig(BaseModel):
 class GenerationConfig(BaseModel):
     enable: bool = False
     provider: Literal["litellm"] = "litellm"
-    model_name: str | None = None
+    model_name: str | None = "openrouter/google/gemini-2.5-flash"
     litellm_api_key: str | None = Field(default=None, exclude=True)
     litellm_api_base: HttpUrl | None = None
     prompt_template: str = "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
-    max_context_tokens: int = Field(default=3000, gt=0)
+    max_context_tokens: int = Field(default=8000, gt=0)
     max_output_tokens: int = Field(default=500, gt=0)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     generation_timeout: int = Field(default=60, gt=0)
