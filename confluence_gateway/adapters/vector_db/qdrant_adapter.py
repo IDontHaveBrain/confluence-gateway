@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Union
+from typing import Any
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 class QdrantAdapter(VectorDBAdapter):
-    def __init__(self, config: "VectorDBConfig") -> None:
+    def __init__(self, config: VectorDBConfig) -> None:
         self.config = config
-        self.client: Optional[QdrantClient] = None
+        self.client: QdrantClient | None = None
         logger.info(f"Initializing QdrantAdapter with config: {config.type}")
 
     def initialize(self) -> None:
@@ -151,8 +151,8 @@ class QdrantAdapter(VectorDBAdapter):
             raise RuntimeError(f"Qdrant upsert failed: {e}") from e
 
     def _translate_filters(
-        self, filters: Optional[dict[str, Any]]
-    ) -> Optional[models.Filter]:
+        self, filters: dict[str, Any] | None
+    ) -> models.Filter | None:
         if not filters:
             return None
 
@@ -172,15 +172,15 @@ class QdrantAdapter(VectorDBAdapter):
         return QdrantFilter(must=must_conditions)
 
     def _build_qdrant_filter(
-        self, filters: Optional[dict[str, Any]]
-    ) -> Optional[QdrantFilter]:
+        self, filters: dict[str, Any] | None
+    ) -> QdrantFilter | None:
         if not filters:
             return None
 
         must_conditions = []
         for key, value in filters.items():
             condition = models.FieldCondition(
-                key=f"metadata.{key}",
+                key=key,
                 match=models.MatchValue(value=value),
             )
             must_conditions.append(condition)
@@ -194,7 +194,7 @@ class QdrantAdapter(VectorDBAdapter):
         self,
         query_embedding: list[float],
         top_k: int,
-        filters: Optional[dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[VectorSearchResultItem]:
         client = self._ensure_client()
         collection_name = self.config.collection_name
@@ -237,8 +237,8 @@ class QdrantAdapter(VectorDBAdapter):
     def search_by_metadata(
         self,
         filters: dict[str, Any],
-        select: Optional[list[str]] = None,
-        limit: Optional[int] = None,
+        select: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         client = self._ensure_client()
         collection_name = self.config.collection_name
@@ -248,11 +248,9 @@ class QdrantAdapter(VectorDBAdapter):
             logger.warning("search_by_metadata called with empty or invalid filters.")
             return []
 
-        payload_selector: Union[PayloadSelector, bool, None]
+        payload_selector: PayloadSelector | bool | None
         if select:
-            payload_selector = models.PayloadSelectorInclude(
-                include=[f"metadata.{key}" for key in select]
-            )
+            payload_selector = models.PayloadSelectorInclude(include=select)
         else:
             payload_selector = True
 
@@ -282,16 +280,16 @@ class QdrantAdapter(VectorDBAdapter):
                 )
 
                 for point in points:
-                    metadata_payload = (
-                        point.payload.get("metadata", {}) if point.payload else {}
-                    )
+                    payload = point.payload or {}
                     doc_data = {"id": str(point.id)}
                     if select:
                         for key in select:
-                            if key in metadata_payload:
-                                doc_data[key] = metadata_payload[key]
+                            if key in payload:
+                                doc_data[key] = payload[key]
                     else:
-                        doc_data.update(metadata_payload)
+                        doc_data.update(
+                            {k: v for k, v in payload.items() if k != "text"}
+                        )
 
                     results.append(doc_data)
                     retrieved_count += 1
@@ -377,10 +375,34 @@ class QdrantAdapter(VectorDBAdapter):
                 exact=True,
             )
             logger.info(f"Qdrant count result: {count_result.count}")
-            return count_result.count
+            return int(count_result.count)
         except Exception as e:
             logger.error(f"Qdrant count operation failed: {e}", exc_info=True)
             raise RuntimeError(f"Qdrant count failed: {e}") from e
+
+    def retrieve_by_ids(
+        self, ids: list[str], with_payload: bool = True, with_vector: bool = False
+    ) -> list[models.Record]:
+        client = self._ensure_client()
+        collection_name = self.config.collection_name
+        if not ids:
+            logger.warning("retrieve_by_ids called with empty ID list.")
+            return []
+        try:
+            logger.info(
+                f"Retrieving {len(ids)} points by ID from Qdrant collection '{collection_name}'"
+            )
+            records = client.retrieve(
+                collection_name=collection_name,
+                ids=ids,
+                with_payload=with_payload,
+                with_vectors=with_vector,
+            )
+            logger.info(f"Qdrant retrieve returned {len(records)} records.")
+            return list(records)
+        except Exception as e:
+            logger.error(f"Qdrant retrieve by ID operation failed: {e}", exc_info=True)
+            raise RuntimeError(f"Qdrant retrieve by ID failed: {e}") from e
 
     def close(self) -> None:
         if self.client:

@@ -12,7 +12,7 @@ def get_vector_db_adapter() -> Optional["VectorDBAdapter"]:
         logger.warning("Vector DB configuration is not loaded. Cannot get adapter.")
         return None
 
-    adapter: Optional[VectorDBAdapter] = None
+    adapter: VectorDBAdapter | None = None
     adapter_type = vector_db_config.type
     logger.info(f"Attempting to get Vector DB adapter for type: {adapter_type}")
 
@@ -40,10 +40,6 @@ def get_vector_db_adapter() -> Optional["VectorDBAdapter"]:
             adapter = QdrantAdapter(vector_db_config)
             adapter.initialize()
             logger.info("Qdrant adapter initialized successfully.")
-
-        else:
-            logger.error(f"Unsupported vector database type configured: {adapter_type}")
-            return None
 
         return adapter
 

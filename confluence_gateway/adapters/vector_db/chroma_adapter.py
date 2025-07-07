@@ -1,11 +1,11 @@
 import logging
 from collections.abc import Sequence
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import chromadb
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
-from chromadb.api.types import IncludeEnum, Metadata, Metadatas, Where
+from chromadb.api.types import Metadata, Metadatas, Where
 
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import (
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 class ChromaDBAdapter(VectorDBAdapter):
     def __init__(self, config: "VectorDBConfig") -> None:
         self.config = config
-        self.client: Optional[ClientAPI] = None
-        self.collection: Optional[Collection] = None
+        self.client: ClientAPI | None = None
+        self.collection: Collection | None = None
         logger.info(f"Initializing ChromaDBAdapter with config: {config.type}")
 
     def initialize(self) -> None:
@@ -83,7 +83,7 @@ class ChromaDBAdapter(VectorDBAdapter):
             collection.upsert(
                 ids=ids,
                 embeddings=cast(list[Sequence[float]], embeddings),
-                metadatas=cast(Optional[Metadatas], metadatas),
+                metadatas=cast(Metadatas | None, metadatas),
                 documents=texts,
             )
             logger.info(f"Successfully upserted {len(ids)} documents.")
@@ -95,10 +95,10 @@ class ChromaDBAdapter(VectorDBAdapter):
         self,
         query_embedding: list[float],
         top_k: int,
-        filters: Optional[dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[VectorSearchResultItem]:
         collection = self._ensure_collection()
-        chroma_where_filter = cast(Optional[Where], filters) if filters else None
+        chroma_where_filter = cast(Where | None, filters) if filters else None
 
         try:
             logger.info(
@@ -109,9 +109,9 @@ class ChromaDBAdapter(VectorDBAdapter):
                 n_results=top_k,
                 where=chroma_where_filter,
                 include=[
-                    IncludeEnum.metadatas,
-                    IncludeEnum.distances,
-                    IncludeEnum.documents,
+                    "metadatas",
+                    "distances",
+                    "documents",
                 ],
             )
             logger.info(
@@ -142,10 +142,10 @@ class ChromaDBAdapter(VectorDBAdapter):
                     )
                     metadatas_list = [{}] * len(ids)
 
-                documents_list: list[Optional[str]] = [None] * len(ids)
+                documents_list: list[str | None] = [None] * len(ids)
                 documents_outer = results.get("documents")
                 if documents_outer is not None and len(documents_outer) > 0:
-                    documents_list = cast(list[Optional[str]], documents_outer[0])
+                    documents_list = cast(list[str | None], documents_outer[0])
 
                 for i, item_id in enumerate(ids):
                     metadata = metadatas_list[i] if i < len(metadatas_list) else {}
@@ -176,11 +176,11 @@ class ChromaDBAdapter(VectorDBAdapter):
     def search_by_metadata(
         self,
         filters: dict[str, Any],
-        select: Optional[list[str]] = None,
-        limit: Optional[int] = None,
+        select: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         collection = self._ensure_collection()
-        chroma_where_filter = cast(Optional[Where], filters) if filters else None
+        chroma_where_filter = cast(Where | None, filters) if filters else None
 
         if not chroma_where_filter:
             logger.warning("search_by_metadata called with empty filters.")
@@ -193,7 +193,7 @@ class ChromaDBAdapter(VectorDBAdapter):
             get_results = collection.get(
                 where=chroma_where_filter,
                 limit=limit,
-                include=[IncludeEnum.metadatas],
+                include=["metadatas"],
             )
 
             output_results = []
@@ -242,7 +242,7 @@ class ChromaDBAdapter(VectorDBAdapter):
 
     def delete_by_metadata(self, filters: dict[str, Any]) -> None:
         collection = self._ensure_collection()
-        chroma_where_filter = cast(Optional[Where], filters) if filters else None
+        chroma_where_filter = cast(Where | None, filters) if filters else None
 
         if not chroma_where_filter:
             logger.warning("delete_by_metadata called with empty filters.")
@@ -270,7 +270,7 @@ class ChromaDBAdapter(VectorDBAdapter):
             )
             count_result = collection.count()
             logger.info(f"ChromaDB count result: {count_result}")
-            return count_result
+            return int(count_result)
         except Exception as e:
             logger.error(f"ChromaDB count operation failed: {e}", exc_info=True)
             raise RuntimeError(f"ChromaDB count failed: {e}") from e

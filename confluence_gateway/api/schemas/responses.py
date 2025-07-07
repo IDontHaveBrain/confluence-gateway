@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -7,8 +7,8 @@ from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
 
 
 class PaginationLinks(BaseModel):
-    next: Optional[str] = Field(None)
-    previous: Optional[str] = Field(None)
+    next: str | None = Field(None)
+    previous: str | None = Field(None)
 
 
 class SearchResultItem(BaseModel):
@@ -18,7 +18,7 @@ class SearchResultItem(BaseModel):
     space_key: str = Field(...)
     space_name: str = Field(...)
     url: str = Field(...)
-    excerpt: Optional[str] = Field(None)
+    excerpt: str | None = Field(None)
     last_modified: datetime = Field(...)
 
     model_config = {
@@ -43,13 +43,13 @@ class IndexingStatusResponse(BaseModel):
     status: Literal["idle", "running", "success", "failure"] = Field(
         ..., description="Current status of the indexing process."
     )
-    last_run_start_time: Optional[datetime] = Field(
+    last_run_start_time: datetime | None = Field(
         None, description="Timestamp when the last indexing run started."
     )
-    last_run_end_time: Optional[datetime] = Field(
+    last_run_end_time: datetime | None = Field(
         None, description="Timestamp when the last indexing run finished."
     )
-    last_error_message: Optional[str] = Field(
+    last_error_message: str | None = Field(
         None, description="Error message from the last failed run, if any."
     )
 
@@ -88,7 +88,7 @@ class SearchResponse(BaseModel):
     page_count: int = Field(...)
     current_page: int = Field(...)
     has_more: bool = Field(...)
-    links: Optional[PaginationLinks] = Field(None)
+    links: PaginationLinks | None = Field(None)
 
     model_config = {
         "json_schema_extra": {
@@ -127,7 +127,7 @@ class ErrorResponse(BaseModel):
     status: str = Field("error")
     code: int = Field(...)
     message: str = Field(...)
-    details: Optional[dict[str, Any]] = Field(None)
+    details: dict[str, Any] | None = Field(None)
 
     model_config = {
         "json_schema_extra": {
@@ -194,13 +194,13 @@ class SourceDocument(BaseModel):
     score: float = Field(
         ..., description="Relevance score of the chunk during retrieval."
     )
-    title: Optional[str] = Field(
+    title: str | None = Field(
         None, description="Title of the original Confluence page/attachment."
     )
-    url: Optional[str] = Field(
+    url: str | None = Field(
         None, description="URL of the original Confluence page/attachment."
     )
-    space_key: Optional[str] = Field(
+    space_key: str | None = Field(
         None, description="Space key of the original content."
     )
 

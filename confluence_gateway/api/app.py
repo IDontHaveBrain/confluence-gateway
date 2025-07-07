@@ -1,6 +1,7 @@
 import datetime
 import importlib.metadata
 import logging
+from typing import Any
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +47,9 @@ app.add_middleware(
 
 
 @app.get("/health", tags=["health"])
-def health_check(client: ConfluenceClient = Depends(get_confluence_client)):
+def health_check(
+    client: ConfluenceClient = Depends(get_confluence_client),
+) -> dict[str, Any]:
     health_info = {
         "status": "ok",
         "version": APP_VERSION,

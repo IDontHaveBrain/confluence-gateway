@@ -2,9 +2,10 @@ import functools
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional, TypeVar, Union
+from typing import Any, TypeVar, Union, cast
 
 from llama_index.core import VectorStoreIndex
 from pydantic import BaseModel, Field
@@ -19,11 +20,13 @@ from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
 from confluence_gateway.core.config import search_config
 from confluence_gateway.core.exceptions import (
+    ConfluenceAPIError,
     SearchParameterError,
     SemanticSearchError,
 )
 from confluence_gateway.services.embedding import EmbeddingError, EmbeddingService
 from confluence_gateway.services.indexing import IndexingService
+from confluence_gateway.services.ranking import reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +62,9 @@ class SearchStatistics(BaseModel):
 class EnhancedSearchResult(BaseModel):
     results: SearchResult
     statistics: SearchStatistics
-    query: Optional[str] = None
-    filters_applied: Optional[dict[str, Any]] = None
-    sort_criteria: Optional[list[dict[str, str]]] = None
+    query: str | None = None
+    filters_applied: dict[str, Any] | None = None
+    sort_criteria: list[dict[str, str]] | None = None
 
     def to_standard_result(self) -> SearchResult:
         return self.results
@@ -69,7 +72,7 @@ class EnhancedSearchResult(BaseModel):
 
 def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
         limit = kwargs.get("limit")
         original_start = kwargs.get("start")
 
@@ -98,15 +101,15 @@ class SearchService:
     def __init__(
         self,
         client: ConfluenceClient,
-        indexing_service: Optional[IndexingService] = None,
-        embedding_service: Optional[EmbeddingService] = None,
-        vector_db_adapter: Optional[VectorDBAdapter] = None,
+        indexing_service: IndexingService | None = None,
+        embedding_service: EmbeddingService | None = None,
+        vector_db_adapter: VectorDBAdapter | None = None,
     ):
         self.client = client
         self.indexing_service = indexing_service
         self.embedding_service = embedding_service
         self.vector_db_adapter = vector_db_adapter
-        self.vector_index: Optional[VectorStoreIndex] = None
+        self.vector_index: VectorStoreIndex | None = None
 
         if self.indexing_service:
             logger.info("SearchService initialized with IndexingService.")
@@ -129,9 +132,9 @@ class SearchService:
 
     def _prepare_sort_criteria(
         self,
-        sort_by: Optional[list[Union[SortField, str]]],
-        sort_direction: Optional[list[Union[SortDirection, str]]],
-    ) -> Optional[list[dict[str, str]]]:
+        sort_by: list[SortField | str] | None,
+        sort_direction: list[SortDirection | str] | None,
+    ) -> list[dict[str, str]] | None:
         if not sort_by:
             return None
 
@@ -159,7 +162,7 @@ class SearchService:
 
         return sort_criteria
 
-    def _sanitize_keywords(self, keywords: Union[str, list[str]]) -> str:
+    def _sanitize_keywords(self, keywords: str | list[str]) -> str:
         if isinstance(keywords, str):
             return self._sanitize_text(keywords)
 
@@ -172,19 +175,19 @@ class SearchService:
     @validate_search_params
     def search_by_text(
         self,
-        text: Union[str, list[str]],
-        content_type: Optional[Union[ContentType, str]] = None,
-        space_key: Optional[str] = None,
+        text: str | list[str],
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
         include_archived: bool = False,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
         min_relevance: float = 0.0,
-        top_n: Optional[int] = None,
-        sort_by: Optional[list[Union[SortField, str]]] = None,
-        sort_direction: Optional[list[Union[SortDirection, str]]] = None,
+        top_n: int | None = None,
+        sort_by: list[SortField | str] | None = None,
+        sort_direction: list[SortDirection | str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
         sanitized_text = self._sanitize_keywords(text)
@@ -243,7 +246,7 @@ class SearchService:
                 current_page=page_number,
             )
         else:
-            return search_result
+            return cast(SearchResult_T, search_result)
 
     def _sanitize_text(self, text: str) -> str:
         if not text:
@@ -267,9 +270,9 @@ class SearchService:
         self,
         result: SearchResult,
         execution_time_ms: float = 0,
-        query: Optional[str] = None,
-        filters: Optional[dict[str, Any]] = None,
-        sort_criteria: Optional[list[dict[str, str]]] = None,
+        query: str | None = None,
+        filters: dict[str, Any] | None = None,
+        sort_criteria: list[dict[str, str]] | None = None,
         current_page: int = 1,
     ) -> EnhancedSearchResult:
         items_per_page = result.limit or search_config.default_limit
@@ -299,7 +302,7 @@ class SearchService:
         return enhanced_result
 
     def _filter_by_relevance(
-        self, results: SearchResult, min_score: float = 0.0, top_n: Optional[int] = None
+        self, results: SearchResult, min_score: float = 0.0, top_n: int | None = None
     ) -> SearchResult:
         filtered_results = list(results.results)
 
@@ -316,8 +319,8 @@ class SearchService:
     def _sort_results(
         self,
         results: SearchResult,
-        sort_fields: list[Union[SortField, str]],
-        directions: Optional[list[Union[SortDirection, str]]] = None,
+        sort_fields: list[SortField | str],
+        directions: list[SortDirection | str] | None = None,
     ) -> SearchResult:
         if not results.results or not sort_fields:
             return results
@@ -389,7 +392,7 @@ class SearchService:
         self,
         query: str,
         top_k: int = 10,
-        filters: Optional[dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
     ) -> tuple[list[VectorSearchResultItem], float]:
         if not self.embedding_service:
             logger.error(
@@ -469,14 +472,14 @@ class SearchService:
     def search_by_cql(
         self,
         cql: str,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
-        top_n: Optional[int] = None,
-        sort_by: Optional[list[Union[SortField, str]]] = None,
-        sort_direction: Optional[list[Union[SortDirection, str]]] = None,
+        max_results: int | None = None,
+        top_n: int | None = None,
+        sort_by: list[SortField | str] | None = None,
+        sort_direction: list[SortDirection | str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
         if not cql or not cql.strip():
@@ -567,4 +570,213 @@ class SearchService:
                 current_page=page_number,
             )
         else:
-            return search_result
+            return cast(SearchResult_T, search_result)
+
+    @validate_search_params
+    def search_hybrid(
+        self,
+        text: str | list[str],
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
+        include_archived: bool = False,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
+        return_enhanced_result: bool = True,
+    ) -> SearchResult_T:
+        if not search_config.hybrid_search_enabled:
+            raise SemanticSearchError("Hybrid search is disabled in the configuration.")
+
+        if not self.embedding_service or not self.vector_db_adapter:
+            raise SemanticSearchError(
+                "Hybrid search requires EmbeddingService and VectorDBAdapter to be configured."
+            )
+
+        sanitized_text = self._sanitize_keywords(text)
+        actual_expand = expand if expand is not None else search_config.default_expand
+        start_time = time.time()
+
+        search_result_kw: SearchResult | None = None
+        keyword_ranks: dict[str, int] = {}
+        try:
+            logger.info(
+                f"Hybrid Search: Fetching keyword results (limit={search_config.hybrid_keyword_fetch_limit})..."
+            )
+            search_result_kw = self.client.search(
+                query=sanitized_text,
+                content_type=content_type,
+                space_key=space_key,
+                include_archived=include_archived,
+                limit=search_config.hybrid_keyword_fetch_limit,
+                start=0,
+                expand=actual_expand,
+                get_all_results=False,
+            )
+            keyword_ranks = {
+                doc.id: rank
+                for rank, doc in enumerate(
+                    search_result_kw.results if search_result_kw else [], 1
+                )
+            }
+            logger.info(f"Hybrid Search: Fetched {len(keyword_ranks)} keyword results.")
+        except Exception as e:
+            logger.error(f"Hybrid Search: Keyword search failed: {e}", exc_info=True)
+            raise
+
+        semantic_ranks: dict[str, int] = {}
+        semantic_results_list: list[tuple[str, float]] = []
+        try:
+            logger.info(
+                f"Hybrid Search: Fetching semantic results (limit={search_config.hybrid_semantic_fetch_limit})..."
+            )
+            semantic_filters = {}
+            if space_key:
+                semantic_filters["space_key"] = space_key
+            if content_type:
+                doc_type_key = "document_type"
+                semantic_filters[doc_type_key] = (
+                    str(content_type.value)
+                    if isinstance(content_type, ContentType)
+                    else content_type
+                )
+
+            semantic_results_raw, _ = self.search_semantic(
+                query=sanitized_text,
+                top_k=search_config.hybrid_semantic_fetch_limit,
+                filters=semantic_filters if semantic_filters else None,
+            )
+
+            semantic_page_scores: dict[str, float] = {}
+            for item in semantic_results_raw:
+                original_content_id = item.metadata.get("original_content_id")
+                if original_content_id:
+                    current_score = semantic_page_scores.get(original_content_id, -1.0)
+                    semantic_page_scores[original_content_id] = max(
+                        current_score, item.score
+                    )
+
+            sorted_semantic_pages = sorted(
+                semantic_page_scores.items(), key=lambda item: item[1], reverse=True
+            )
+            semantic_ranks = {
+                page_id: rank
+                for rank, (page_id, _) in enumerate(sorted_semantic_pages, 1)
+            }
+            semantic_results_list = list(sorted_semantic_pages)
+            logger.info(
+                f"Hybrid Search: Processed {len(semantic_ranks)} unique semantic results."
+            )
+
+        except SemanticSearchError as e:
+            logger.error(f"Hybrid Search: Semantic search failed: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(
+                f"Hybrid Search: Unexpected error during semantic search part: {e}",
+                exc_info=True,
+            )
+            raise
+
+        rrf_results: list[tuple[str, float]] = []
+        try:
+            logger.info("Hybrid Search: Performing Reciprocal Rank Fusion...")
+            keyword_result_ids_list = (
+                [doc.id for doc in search_result_kw.results] if search_result_kw else []
+            )
+
+            rrf_results = reciprocal_rank_fusion(
+                keyword_result_ids=keyword_result_ids_list,
+                semantic_results=semantic_results_list,
+                k=search_config.hybrid_rrf_k,
+            )
+            logger.info(
+                f"Hybrid Search: RRF completed, {len(rrf_results)} total ranked results."
+            )
+
+        except ValueError as e:
+            logger.error(
+                f"Hybrid Search: RRF input validation failed: {e}", exc_info=True
+            )
+            raise SearchParameterError(f"RRF failed: {e}") from e
+        except Exception as e:
+            logger.error(f"Hybrid Search: RRF failed: {e}", exc_info=True)
+            raise RuntimeError(f"Hybrid search failed during RRF: {e}") from e
+
+        total_hybrid_results = len(rrf_results)
+        final_start = start or 0
+        final_limit = limit or search_config.default_limit
+        paginated_rrf_results = rrf_results[final_start : final_start + final_limit]
+        final_doc_ids = [doc_id for doc_id, score in paginated_rrf_results]
+
+        logger.info(
+            f"Hybrid Search: Applied pagination (start={final_start}, limit={final_limit}), {len(final_doc_ids)} final IDs."
+        )
+
+        final_page_objects: list[ConfluencePage] = []
+        fetched_docs_cache: dict[str, ConfluencePage] = {
+            doc.id: doc
+            for doc in (search_result_kw.results if search_result_kw else [])
+        }
+
+        for doc_id in final_doc_ids:
+            if doc_id in fetched_docs_cache:
+                final_page_objects.append(fetched_docs_cache[doc_id])
+            else:
+                try:
+                    logger.debug(
+                        f"Hybrid Search: Fetching details for missing ID {doc_id}..."
+                    )
+                    page = self.client.get_page(doc_id, expand=actual_expand)
+                    final_page_objects.append(page)
+                    fetched_docs_cache[doc_id] = page
+                except ConfluenceAPIError as e:
+                    if e.status_code == 404:
+                        logger.warning(
+                            f"Hybrid Search: Document ID {doc_id} (from RRF) not found in Confluence. Skipping."
+                        )
+                    else:
+                        logger.error(
+                            f"Hybrid Search: Failed to fetch details for document ID {doc_id}: {e}",
+                            exc_info=True,
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Hybrid Search: Unexpected error fetching details for document ID {doc_id}: {e}",
+                        exc_info=True,
+                    )
+
+        logger.info(
+            f"Hybrid Search: Successfully prepared {len(final_page_objects)} final document objects."
+        )
+
+        final_search_result_obj = SearchResult(
+            results=final_page_objects,
+            total_size=total_hybrid_results,
+            start=final_start,
+            limit=final_limit,
+        )
+
+        execution_time_ms = (time.time() - start_time) * 1000
+
+        if return_enhanced_result:
+            page_number = (final_start // final_limit) + 1 if final_limit > 0 else 1
+            filters_applied = {
+                "content_type": content_type,
+                "space_key": space_key,
+                "include_archived": include_archived,
+                "hybrid_keyword_fetch_limit": search_config.hybrid_keyword_fetch_limit,
+                "hybrid_semantic_fetch_limit": search_config.hybrid_semantic_fetch_limit,
+                "hybrid_rrf_k": search_config.hybrid_rrf_k,
+            }
+            sort_criteria_applied = [{"field": "rrf_score", "direction": "desc"}]
+
+            return self._process_search_result(
+                final_search_result_obj,
+                execution_time_ms=execution_time_ms,
+                query=sanitized_text,
+                filters=filters_applied,
+                sort_criteria=sort_criteria_applied,
+                current_page=page_number,
+            )
+        else:
+            return final_search_result_obj

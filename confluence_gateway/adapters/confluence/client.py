@@ -1,8 +1,9 @@
 import logging
 import random
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Optional, TypeVar, Union
+from typing import Any, TypeVar
 
 import requests
 from atlassian import Confluence
@@ -33,10 +34,15 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-def with_backoff(max_retries=5, initial_delay=1, backoff_factor=2, jitter_factor=0.3):
-    def decorator(func):
+def with_backoff(
+    max_retries: int = 5,
+    initial_delay: float = 1,
+    backoff_factor: float = 2,
+    jitter_factor: float = 0.3,
+) -> Any:
+    def decorator(func: Any) -> Any:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             retries = 0
             delay = initial_delay
 
@@ -62,9 +68,9 @@ class ConfluenceClient:
     API_PATHS = ["wiki/rest/api", "rest/api"]
 
     config: ConfluenceConfig
-    _working_api_path: Optional[str] = None
+    _working_api_path: str | None = None
 
-    def __init__(self, config: Optional[ConfluenceConfig] = None):
+    def __init__(self, config: ConfluenceConfig | None = None):
         config_to_use = config or confluence_config
         if not config_to_use:
             raise ValueError("Confluence configuration is missing")
@@ -94,12 +100,12 @@ class ConfluenceClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[dict[str, Any]] = None,
-        data: Optional[dict[str, Any]] = None,
-        model_class: Optional[type[T]] = None,
-        api_version: Optional[str] = None,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        model_class: type[T] | None = None,
+        api_version: str | None = None,
         use_transformer: bool = True,
-    ) -> Union[dict[str, Any], T, None]:
+    ) -> dict[str, Any] | T | None:
         api_path_to_use = api_version or self._working_api_path
 
         if not api_path_to_use:
@@ -118,7 +124,7 @@ class ConfluenceClient:
         if response.status_code == 204:
             return None
 
-        response_data = response.json()
+        response_data: dict[str, Any] = response.json()
 
         if model_class:
             if use_transformer:
@@ -133,11 +139,11 @@ class ConfluenceClient:
     def _discover_working_api_path(
         self,
         endpoint: str,
-        params: Optional[dict[str, Any]],
-        data: Optional[dict[str, Any]],
+        params: dict[str, Any] | None,
+        data: dict[str, Any] | None,
         method: str,
-    ) -> Optional[str]:
-        last_exception: Optional[requests.exceptions.RequestException] = None
+    ) -> str | None:
+        last_exception: requests.exceptions.RequestException | None = None
 
         for api_path in self.API_PATHS:
             try:
@@ -167,11 +173,11 @@ class ConfluenceClient:
         self,
         method: str,
         url: str,
-        params: Optional[dict[str, Any]],
-        data: Optional[dict[str, Any]],
+        params: dict[str, Any] | None,
+        data: dict[str, Any] | None,
     ) -> requests.Response:
         try:
-            response = getattr(self.session, method.lower())(
+            response: requests.Response = getattr(self.session, method.lower())(
                 url, params=params, json=data, timeout=self.config.timeout
             )
 
@@ -194,7 +200,7 @@ class ConfluenceClient:
 
     def _get_transformer_for_model(
         self, model_class: type[T]
-    ) -> Optional[Callable[[dict[str, Any]], T]]:
+    ) -> Callable[[dict[str, Any]], T] | None:
         if model_class == ConfluenceSpace:
             return self._parse_space
         elif model_class == ConfluencePage:
@@ -305,9 +311,7 @@ class ConfluenceClient:
                 ) from e
             raise ConfluenceAPIError(error_message=str(e)) from e
 
-    def get_page(
-        self, page_id: str, expand: Optional[list[str]] = None
-    ) -> ConfluencePage:
+    def get_page(self, page_id: str, expand: list[str] | None = None) -> ConfluencePage:
         expand_str = "body.view,body.storage,space,version,metadata,children.page,children.attachment,history,ancestors"
         if expand:
             expand_str = ",".join(expand)
@@ -323,9 +327,17 @@ class ConfluenceClient:
                 ) from e
             if isinstance(e, requests.exceptions.RequestException):
                 raise ConfluenceConnectionError(cause=e)
-            if "404" in str(e):
+            error_str_lower = str(e).lower()
+            is_not_found_error = (
+                "404" in error_str_lower
+                or "no content with the given id" in error_str_lower
+                or "page not found" in error_str_lower
+                or "could not be found" in error_str_lower
+            )
+            if is_not_found_error:
                 raise ConfluenceAPIError(
-                    status_code=404, error_message=f"Page {page_id} not found"
+                    status_code=404,
+                    error_message=f"Page {page_id} not found or permission denied. (Original error: {e})",
                 ) from e
             raise ConfluenceAPIError(error_message=str(e)) from e
 
@@ -396,6 +408,23 @@ class ConfluenceClient:
                                     if k != "content" and k not in page_data
                                 }
                             )
+
+                            # Extract space key from URL if not in content
+                            if "url" in item and not page_data.get("space"):
+                                # URL format: /spaces/SPACEKEY/pages/...
+                                url_parts = item["url"].split("/")
+                                if len(url_parts) > 2 and url_parts[1] == "spaces":
+                                    space_key = url_parts[2]
+                                    page_data["space_key"] = space_key
+                                    # Also get space name from resultGlobalContainer if available
+                                    if "resultGlobalContainer" in item:
+                                        container = item["resultGlobalContainer"]
+                                        if (
+                                            isinstance(container, dict)
+                                            and "title" in container
+                                        ):
+                                            page_data["space_name"] = container["title"]
+
                             page = self._parse_page(page_data)
                         else:
                             page = self._parse_page(item)
@@ -411,7 +440,7 @@ class ConfluenceClient:
         return SearchResult(**data)
 
     def extract_content_fields(
-        self, content: Union[ConfluencePage, ConfluenceAttachment]
+        self, content: ConfluencePage | ConfluenceAttachment
     ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "id": content.id,
@@ -441,9 +470,16 @@ class ConfluenceClient:
             result["space_key"] = space_obj.get("key") or ""
             result["space_name"] = space_obj.get("name") or ""
         else:
-            # Ensure empty strings if space is None or unexpected type
-            result["space_key"] = ""
-            result["space_name"] = ""
+            # Check if space_key and space_name are stored as attributes
+            space_key = getattr(content, "space_key", None)
+            space_name = getattr(content, "space_name", None)
+            if space_key:
+                result["space_key"] = space_key
+                result["space_name"] = space_name or ""
+            else:
+                # Ensure empty strings if space is None or unexpected type
+                result["space_key"] = ""
+                result["space_name"] = ""
 
         # Extract type-specific fields using isinstance
         if isinstance(content, ConfluencePage):
@@ -457,8 +493,11 @@ class ConfluenceClient:
                 result["url"] = (
                     f"{self.base_url}/wiki/spaces/{result['space_key']}/pages/{content.id}"
                 )
-            elif hasattr(content, "_links") and content._links and content._links.webui:
-                result["url"] = f"{self.base_url}{content._links.webui}"
+            elif hasattr(content, "_links") and content._links:
+                if isinstance(content._links, dict) and "webui" in content._links:
+                    result["url"] = f"{self.base_url}{content._links['webui']}"
+                elif hasattr(content._links, "webui") and content._links.webui:
+                    result["url"] = f"{self.base_url}{content._links.webui}"
 
             # Handle comments specifically (they are often modeled as ConfluencePage by the lib)
             if content.content_type == ContentType.COMMENT:
@@ -469,7 +508,7 @@ class ConfluenceClient:
                 elif container is not None:
                     result["parent_id"] = getattr(container, "id", None)
 
-        elif isinstance(content, ConfluenceAttachment):
+        elif isinstance(content, ConfluenceAttachment):  # type: ignore[unreachable]
             result["file_name"] = content.title
             result["file_size"] = content.file_size
             result["media_type"] = content.media_type
@@ -482,8 +521,11 @@ class ConfluenceClient:
                 pass  # Prefer relying on the _links.download if available
 
             # Construct URL for attachments
-            if content._links and content._links.webui:
-                result["url"] = f"{self.base_url}{content._links.webui}"
+            if hasattr(content, "_links") and content._links:
+                if isinstance(content._links, dict) and "webui" in content._links:
+                    result["url"] = f"{self.base_url}{content._links['webui']}"
+                elif hasattr(content._links, "webui") and content._links.webui:
+                    result["url"] = f"{self.base_url}{content._links.webui}"
 
         # Return only keys that have non-None values if needed,
         # but returning the full structure might be more consistent.
@@ -493,8 +535,8 @@ class ConfluenceClient:
     def _build_search_cql(
         self,
         query: str,
-        content_type: Optional[Union[ContentType, str]] = None,
-        space_key: Optional[str] = None,
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
         include_archived: bool = False,
     ) -> str:
         # Consistently use manual CQL building for robustness
@@ -515,11 +557,11 @@ class ConfluenceClient:
     def search_by_cql(
         self,
         cql: str,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
         include_archived: bool = False,
     ) -> SearchResult:
         if not cql:
@@ -655,14 +697,14 @@ class ConfluenceClient:
     def search(
         self,
         query: str,
-        content_type: Optional[Union[ContentType, str]] = None,
-        space_key: Optional[str] = None,
+        content_type: ContentType | str | None = None,
+        space_key: str | None = None,
         include_archived: bool = False,
-        limit: Optional[int] = None,
-        start: Optional[int] = 0,
-        expand: Optional[list[str]] = None,
+        limit: int | None = None,
+        start: int | None = 0,
+        expand: list[str] | None = None,
         get_all_results: bool = False,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
     ) -> SearchResult:
         if not query:
             raise SearchParameterError("Query cannot be empty")
@@ -697,7 +739,7 @@ class ConfluenceClient:
                     query, content_type, space_key, include_archived
                 )
 
-                return self.search_by_cql(
+                result: SearchResult = self.search_by_cql(
                     cql=cql_query,
                     limit=limit,
                     start=start,
@@ -706,6 +748,7 @@ class ConfluenceClient:
                     max_results=max_results,
                     include_archived=include_archived,
                 )
+                return result
         except Exception as e:
             if "401" in str(e):
                 raise ConfluenceAuthenticationError(

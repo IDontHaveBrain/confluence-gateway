@@ -82,3 +82,11 @@ dmypy.json
 cython_debug/
 .*/
 !.g*/
+
+# Test data generation artifacts
+scripts/config/real_data/content_index.json
+scripts/config/real_data/raw_content/
+scripts/config/real_data/distribution_mapping.json
+scripts/config/synthetic_data/
+scripts/config/confluence_generation_tracking.json
+scripts/config/content_analysis.json

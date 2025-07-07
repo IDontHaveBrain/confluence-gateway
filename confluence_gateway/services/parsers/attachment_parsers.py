@@ -1,14 +1,15 @@
 import io
 import logging
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.services.parsers.base import ContentParser
 
-markitdown_module: Optional[ModuleType] = None
-MarkItDownClass: Optional[Any] = None
+markitdown_module: ModuleType | None = None
+MarkItDownClass: Any | None = None
 try:
     from markitdown import MarkItDown
 
@@ -17,11 +18,16 @@ except ImportError:
     MarkItDownClass = None
 
 
-unstructured_partition: Optional[Callable[..., list[Any]]] = None
-clean_extra_whitespace: Optional[Callable[[str], str]] = None
+unstructured_partition: Callable[..., list[Any]] | None = None
+clean_extra_whitespace: Callable[[str], str] | None = None
 try:
-    from unstructured.cleaners.core import clean_extra_whitespace
-    from unstructured.partition.auto import partition as unstructured_partition
+    from unstructured.cleaners.core import (
+        clean_extra_whitespace as _clean_extra_whitespace,
+    )
+    from unstructured.partition.auto import partition as _unstructured_partition
+
+    unstructured_partition = _unstructured_partition
+    clean_extra_whitespace = _clean_extra_whitespace
 except ImportError:
     unstructured_partition = None
     clean_extra_whitespace = None
@@ -35,7 +41,7 @@ if TYPE_CHECKING:
 
 
 class MarkitdownAttachmentParser(ContentParser):
-    def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]:
+    def parse(self, content: str | bytes, **kwargs: Any) -> str | None:
         if MarkItDownClass is None:
             logger.error(
                 "Markitdown library not installed or MarkItDown class not found. "
@@ -81,7 +87,7 @@ class MarkitdownAttachmentParser(ContentParser):
 
 
 class UnstructuredAttachmentParser(ContentParser):
-    def parse(self, content: Union[str, bytes], **kwargs: Any) -> Optional[str]:
+    def parse(self, content: str | bytes, **kwargs: Any) -> str | None:
         if unstructured_partition is None:
             logger.error(
                 "Unstructured library not installed or partition function not found. "

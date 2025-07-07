@@ -1,6 +1,6 @@
 from datetime import datetime
 from functools import wraps
-from typing import Optional
+from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -30,9 +30,9 @@ from confluence_gateway.services.search import SearchService
 router = APIRouter()
 
 
-def handle_search_exceptions(func):
+def handle_search_exceptions(func: Any) -> Any:
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return await func(*args, **kwargs)
         except SearchParameterError as e:
@@ -82,7 +82,7 @@ def handle_search_exceptions(func):
 
 
 def _build_search_response(
-    search_result, search_service, request: Optional[Request] = None
+    search_result: Any, search_service: Any, request: Request | None = None
 ) -> SearchResponse:
     search_items = [
         SearchResultItem(
@@ -158,30 +158,44 @@ def _build_search_response(
 async def search_content(
     request: Request,
     query: str = Query(..., description="Text to search for", min_length=2),
-    space_key: Optional[str] = Query(None, description="Filter by space key"),
-    content_type: Optional[str] = Query(
+    space_key: str | None = Query(None, description="Filter by space key"),
+    content_type: str | None = Query(
         None, description="Filter by content type (page, blogpost, attachment, comment)"
     ),
     include_archived: bool = Query(False, description="Include archived content"),
-    limit: Optional[int] = Query(
-        None, description="Maximum number of results to return"
-    ),
-    start: Optional[int] = Query(0, description="Starting position for pagination"),
-    expand: Optional[list[str]] = Query(
+    limit: int | None = Query(None, description="Maximum number of results to return"),
+    start: int | None = Query(0, description="Starting position for pagination"),
+    expand: list[str] | None = Query(
         None, description="Fields to expand in the response"
     ),
+    use_hybrid: bool = Query(
+        False,
+        description="Enable hybrid search (keyword + semantic with RRF re-ranking)",
+    ),
     search_service: SearchService = Depends(get_search_service),
-):
-    search_result = search_service.search_by_text(
-        text=query,
-        content_type=content_type,
-        space_key=space_key,
-        include_archived=include_archived,
-        limit=limit,
-        start=start,
-        expand=expand,
-        return_enhanced_result=True,
-    )
+) -> SearchResponse:
+    if use_hybrid:
+        search_result = search_service.search_hybrid(
+            text=query,
+            content_type=content_type,
+            space_key=space_key,
+            include_archived=include_archived,
+            limit=limit,
+            start=start,
+            expand=expand,
+            return_enhanced_result=True,
+        )
+    else:
+        search_result = search_service.search_by_text(
+            text=query,
+            content_type=content_type,
+            space_key=space_key,
+            include_archived=include_archived,
+            limit=limit,
+            start=start,
+            expand=expand,
+            return_enhanced_result=True,
+        )
 
     return _build_search_response(search_result, search_service, request)
 
@@ -208,7 +222,7 @@ async def semantic_search(
     request: Request,
     search_request: SemanticSearchRequest,
     search_service: SearchService = Depends(get_search_service),
-):
+) -> SemanticSearchResponse:
     results, took_ms = search_service.search_semantic(
         query=search_request.query,
         top_k=search_request.top_k,
@@ -236,23 +250,35 @@ async def advanced_search(
     request: Request,
     search_request: AdvancedSearchRequest,
     search_service: SearchService = Depends(get_search_service),
-):
-    search_result = search_service.search_by_text(
-        text=search_request.query,
-        content_type=search_request.content_type,
-        space_key=search_request.space_key,
-        include_archived=search_request.include_archived,
-        limit=search_request.limit,
-        start=search_request.start,
-        expand=search_request.expand,
-        get_all_results=search_request.get_all_results,
-        max_results=search_request.max_results,
-        min_relevance=search_request.min_relevance,
-        top_n=search_request.top_n,
-        sort_by=search_request.sort_by,
-        sort_direction=search_request.sort_direction,
-        return_enhanced_result=True,
-    )
+) -> SearchResponse:
+    if getattr(search_request, "use_hybrid", False):
+        search_result = search_service.search_hybrid(
+            text=search_request.query,
+            content_type=search_request.content_type,
+            space_key=search_request.space_key,
+            include_archived=search_request.include_archived,
+            limit=search_request.limit,
+            start=search_request.start,
+            expand=search_request.expand,
+            return_enhanced_result=True,
+        )
+    else:
+        search_result = search_service.search_by_text(
+            text=search_request.query,
+            content_type=search_request.content_type,
+            space_key=search_request.space_key,
+            include_archived=search_request.include_archived,
+            limit=search_request.limit,
+            start=search_request.start,
+            expand=search_request.expand,
+            get_all_results=search_request.get_all_results,
+            max_results=search_request.max_results,
+            min_relevance=search_request.min_relevance,
+            top_n=search_request.top_n,
+            sort_by=search_request.sort_by,
+            sort_direction=search_request.sort_direction,
+            return_enhanced_result=True,
+        )
 
     return _build_search_response(search_result, search_service, request)
 
@@ -271,7 +297,7 @@ async def cql_search(
     request: Request,
     search_request: CQLSearchRequest,
     search_service: SearchService = Depends(get_search_service),
-):
+) -> SearchResponse:
     search_result = search_service.search_by_cql(
         cql=search_request.cql,
         limit=search_request.limit,

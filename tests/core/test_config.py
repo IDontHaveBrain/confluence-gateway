@@ -1,10 +1,16 @@
-import json
+import os
+import pathlib
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from confluence_gateway.core.config import (
     ConfluenceConfig,
+    EmbeddingConfig,
+    GenerationConfig,
+    IndexingConfig,
     SearchConfig,
+    VectorDBConfig,
     get_user_config_path,
     load_configurations,
 )
@@ -12,421 +18,366 @@ from pydantic import ValidationError
 
 
 @pytest.fixture
-def mock_confluence_env(monkeypatch):
-    env_vars = {
-        "CONFLUENCE_URL": "https://test-confluence.atlassian.net",
-        "CONFLUENCE_USERNAME": "test-user@example.com",
-        "CONFLUENCE_API_TOKEN": "test-api-token-123",
-        "CONFLUENCE_TIMEOUT": "15",
-    }
-    for name, value in env_vars.items():
-        monkeypatch.setenv(name, value)
-    return env_vars
+def mock_path_home(mocker, tmp_path):
+    return mocker.patch.object(pathlib.Path, "home", return_value=tmp_path)
+
+
+pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("mock_path_home")]
 
 
 @pytest.fixture
-def mock_search_env(monkeypatch):
-    env_vars = {
-        "SEARCH_DEFAULT_LIMIT": "25",
-        "SEARCH_MAX_LIMIT": "200",
-        "SEARCH_DEFAULT_EXPAND": "body.storage,version,space",
-    }
-    for name, value in env_vars.items():
-        monkeypatch.setenv(name, value)
-    return env_vars
+def mock_env(mocker):
+    env_vars = {}
+
+    def _set_env(vars_dict):
+        nonlocal env_vars
+        env_vars = vars_dict
+        mocker.patch.dict(os.environ, env_vars, clear=True)
+
+    return _set_env
 
 
 @pytest.fixture
-def mock_vector_db_env(monkeypatch):
-    env_vars = {
-        "VECTOR_DB_TYPE": "chroma",
-        "VECTOR_DB_EMBEDDING_DIMENSION": "768",
-        "VECTOR_DB_COLLECTION_NAME": "test_collection",
-        "CHROMA_PERSIST_PATH": "/tmp/chroma",
-    }
-    for name, value in env_vars.items():
-        monkeypatch.setenv(name, value)
-    return env_vars
+def mock_config_file(mocker):
+    config_content = {}
 
+    def _set_content(content_dict):
+        nonlocal config_content
+        config_content = content_dict
+        mocker.patch(
+            "confluence_gateway.core.config._load_config_from_file",
+            return_value=config_content,
+        )
+        mocker.patch.object(Path, "exists", return_value=bool(config_content))
 
-@pytest.fixture
-def mock_user_config_file(tmp_path, monkeypatch):
-    config_path = tmp_path / ".confluence_gateway_config.json"
-
-    monkeypatch.setattr(
-        "confluence_gateway.core.config.get_user_config_path", lambda: config_path
+    mocker.patch(
+        "confluence_gateway.core.config._load_config_from_file", return_value={}
     )
-
-    def _create_config(content: dict):
-        config_path.write_text(json.dumps(content))
-        return config_path
-
-    if config_path.exists():
-        config_path.unlink()
-
-    return _create_config
+    mocker.patch.object(Path, "exists", return_value=False)
+    return _set_content
 
 
-class TestConfluenceConfig:
-    def test_valid_config(self):
-        config = ConfluenceConfig(
-            url="https://example.atlassian.net",
-            username="test@example.com",
-            api_token="test-token",
-        )
-        assert str(config.url) == "https://example.atlassian.net/"
-        assert config.username == "test@example.com"
-        assert config.api_token == "test-token"
-        assert config.timeout == 10
-
-    def test_missing_required_fields(self):
-        with pytest.raises(ValidationError):
-            ConfluenceConfig(username="test@example.com", api_token="test-token")
-
-        with pytest.raises(ValidationError):
-            ConfluenceConfig(
-                url="https://example.atlassian.net", api_token="test-token"
-            )
-
-        with pytest.raises(ValidationError):
-            ConfluenceConfig(
-                url="https://example.atlassian.net", username="test@example.com"
-            )
-
-    def test_invalid_url(self):
-        with pytest.raises(ValidationError):
-            ConfluenceConfig(
-                url="invalid-url",
-                username="test@example.com",
-                api_token="test-token",
-            )
-
-    def test_custom_timeout(self):
-        config = ConfluenceConfig(
-            url="https://example.atlassian.net",
-            username="test@example.com",
-            api_token="test-token",
-            timeout=30,
-        )
-        assert config.timeout == 30
+from confluence_gateway.core.config import (
+    DEFAULT_EMBEDDING_DEVICE,
+    DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL_NAME,
+    DEFAULT_EMBEDDING_PROVIDER_TYPE,
+)
 
 
-class TestSearchConfig:
-    def test_default_values(self):
-        config = SearchConfig()
-        assert config.default_limit == 20
-        assert config.max_limit == 100
-        assert config.default_expand == ["body.view", "space"]
+def test_load_defaults(mock_env, mock_config_file):
+    mock_env({})
+    mock_config_file({})
+    (conf_cfg, search_cfg, vdb_cfg, emb_cfg, idx_cfg, gen_cfg) = load_configurations()
 
-    def test_custom_values(self):
-        config = SearchConfig(
-            default_limit=10,
-            max_limit=50,
-            default_expand=["body.storage", "version"],
-        )
-        assert config.default_limit == 10
-        assert config.max_limit == 50
-        assert config.default_expand == ["body.storage", "version"]
+    assert conf_cfg is None
+    assert isinstance(search_cfg, SearchConfig)
+    assert search_cfg.default_limit == 20
+    assert vdb_cfg is None
+    assert isinstance(emb_cfg, EmbeddingConfig)
+    assert emb_cfg.provider == DEFAULT_EMBEDDING_PROVIDER_TYPE
+    assert emb_cfg.model_name == DEFAULT_EMBEDDING_MODEL_NAME
+    assert emb_cfg.dimension == DEFAULT_EMBEDDING_DIMENSION
+    assert emb_cfg.device == DEFAULT_EMBEDDING_DEVICE
+    assert isinstance(idx_cfg, IndexingConfig)
+    assert idx_cfg.html_parser == "markitdown"
+    assert gen_cfg is None
 
 
-class TestLoadConfigurations:
-    def test_load_from_environment_only(
-        self,
-        mock_confluence_env,
-        mock_search_env,
-        mock_vector_db_env,
-        mock_user_config_file,
-    ):
-        if Path(get_user_config_path()).exists():
-            Path(get_user_config_path()).unlink()
+def test_load_from_env(mock_env, mock_config_file):
+    mock_env(
+        {
+            "CONFLUENCE_URL": "https://test.atlassian.net",
+            "CONFLUENCE_USERNAME": "user@test.com",
+            "CONFLUENCE_API_TOKEN": "test_token",
+            "CONFLUENCE_TIMEOUT": "30",
+            "SEARCH_DEFAULT_LIMIT": "50",
+            "SEARCH_HYBRID_SEARCH_ENABLED": "true",
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "test-model",
+            "EMBEDDING_DIMENSION": "128",
+            "VECTOR_DB_TYPE": "qdrant",
+            "VECTOR_DB_EMBEDDING_DIMENSION": "128",
+            "QDRANT_URL": "http://localhost:6333",
+            "INDEXING_INCLUDE_SPACES": "DEV,PROD",
+            "INDEXING_HTML_PARSER": "unstructured",
+            "GENERATION_ENABLE": "true",
+            "GENERATION_MODEL_NAME": "gen-model",
+        }
+    )
+    mock_config_file({})
+    (conf_cfg, search_cfg, vdb_cfg, emb_cfg, idx_cfg, gen_cfg) = load_configurations()
 
-        (
-            confluence_config,
-            search_config,
-            vector_db_config,
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
+    assert isinstance(conf_cfg, ConfluenceConfig)
+    assert str(conf_cfg.url) == "https://test.atlassian.net/"
+    assert conf_cfg.username == "user@test.com"
+    assert conf_cfg.api_token == "test_token"
+    assert conf_cfg.timeout == 30
 
-        assert confluence_config is not None
-        assert str(confluence_config.url) == "https://test-confluence.atlassian.net/"
-        assert confluence_config.username == "test-user@example.com"
-        assert confluence_config.api_token == "test-api-token-123"
-        assert confluence_config.timeout == 15
+    assert isinstance(search_cfg, SearchConfig)
+    assert search_cfg.default_limit == 50
+    assert search_cfg.hybrid_search_enabled is True
 
-        assert search_config.default_limit == 25
-        assert search_config.max_limit == 200
-        assert search_config.default_expand == ["body.storage", "version", "space"]
+    assert isinstance(emb_cfg, EmbeddingConfig)
+    assert emb_cfg.provider == "sentence-transformers"
+    assert emb_cfg.model_name == "test-model"
+    assert emb_cfg.dimension == 128
 
-        assert vector_db_config is not None
-        assert vector_db_config.type == "chroma"
-        assert vector_db_config.embedding_dimension == 768
-        assert vector_db_config.collection_name == "test_collection"
-        assert vector_db_config.chroma_persist_path == "/tmp/chroma"
+    assert isinstance(vdb_cfg, VectorDBConfig)
+    assert vdb_cfg.type == "qdrant"
+    assert vdb_cfg.embedding_dimension == 128
+    assert str(vdb_cfg.qdrant_url) == "http://localhost:6333/"
 
-    def test_load_from_file_only(self, monkeypatch, mock_user_config_file):
-        for var in [
-            "CONFLUENCE_URL",
-            "CONFLUENCE_USERNAME",
-            "CONFLUENCE_API_TOKEN",
-            "CONFLUENCE_TIMEOUT",
-            "SEARCH_DEFAULT_LIMIT",
-            "SEARCH_MAX_LIMIT",
-            "SEARCH_DEFAULT_EXPAND",
-            "VECTOR_DB_TYPE",
-            "VECTOR_DB_EMBEDDING_DIMENSION",
-        ]:
-            monkeypatch.delenv(var, raising=False)
+    assert isinstance(idx_cfg, IndexingConfig)
+    assert idx_cfg.include_spaces == ["DEV", "PROD"]
+    assert idx_cfg.html_parser == "unstructured"
 
-        mock_user_config_file(
-            {
-                "confluence": {
-                    "url": "https://file-confluence.atlassian.net",
-                    "username": "file-user@example.com",
-                    "api_token": "file-api-token",
-                    "timeout": 30,
-                },
-                "search": {
-                    "default_limit": 50,
-                    "max_limit": 300,
-                    "default_expand": ["body.view", "version"],
-                },
-                "vector_db": {
-                    "type": "qdrant",
-                    "embedding_dimension": 384,
-                    "collection_name": "file_collection",
-                    "qdrant_url": "http://localhost:6333",
-                },
-            }
-        )
+    assert isinstance(gen_cfg, GenerationConfig)
+    assert gen_cfg.enable is True
+    assert gen_cfg.model_name == "gen-model"
 
-        (
-            confluence_config,
-            search_config,
-            vector_db_config,
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
 
-        assert confluence_config is not None
-        assert str(confluence_config.url) == "https://file-confluence.atlassian.net/"
-        assert confluence_config.username == "file-user@example.com"
-        assert confluence_config.api_token == "file-api-token"
-        assert confluence_config.timeout == 30
+def test_load_from_file(mock_env, mock_config_file):
+    mock_env({})
+    mock_config_file(
+        {
+            "confluence": {
+                "url": "https://file.atlassian.net",
+                "username": "file@test.com",
+                "api_token": "file_token",
+            },
+            "search": {
+                "default_limit": 15,
+            },
+            "embedding": {
+                "provider": "litellm",
+                "model_name": "file-model",
+                "dimension": 256,
+                "litellm_api_base": "http://localhost:8000",
+            },
+            "vector_db": {
+                "type": "chroma",
+                "embedding_dimension": 256,
+                "chroma_persist_path": "/data",
+            },
+            "indexing": {"exclude_spaces": ["ARCHIVE"]},
+            "generation": {"enable": True, "model_name": "file-gen-model"},
+        }
+    )
+    (conf_cfg, search_cfg, vdb_cfg, emb_cfg, idx_cfg, gen_cfg) = load_configurations()
 
-        assert search_config.default_limit == 50
-        assert search_config.max_limit == 300
-        assert search_config.default_expand == ["body.view", "version"]
+    assert isinstance(conf_cfg, ConfluenceConfig)
+    assert str(conf_cfg.url) == "https://file.atlassian.net/"
+    assert conf_cfg.username == "file@test.com"
 
-        assert vector_db_config is not None
-        assert vector_db_config.type == "qdrant"
-        assert vector_db_config.embedding_dimension == 384
-        assert vector_db_config.collection_name == "file_collection"
-        assert str(vector_db_config.qdrant_url) == "http://localhost:6333/"
+    assert search_cfg.default_limit == 15
 
-    def test_file_precedence_over_environment(
-        self,
-        mock_confluence_env,
-        mock_search_env,
-        mock_vector_db_env,
-        mock_user_config_file,
-    ):
-        mock_user_config_file(
-            {
-                "confluence": {
-                    "url": "https://file-confluence.atlassian.net",
-                    "username": "file-user@example.com",
-                    "api_token": "file-api-token",
-                    "timeout": 30,
-                },
-                "search": {"default_limit": 50, "max_limit": 300},
-                "vector_db": {
-                    "type": "qdrant",
-                    "embedding_dimension": 384,
-                    "qdrant_url": "http://localhost:6333",
-                },
-            }
-        )
+    assert isinstance(emb_cfg, EmbeddingConfig)
+    assert emb_cfg.provider == "litellm"
+    assert emb_cfg.model_name == "file-model"
+    assert emb_cfg.dimension == 256
+    assert str(emb_cfg.litellm_api_base) == "http://localhost:8000/"
 
-        (
-            confluence_config,
-            search_config,
-            vector_db_config,
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
+    assert isinstance(vdb_cfg, VectorDBConfig)
+    assert vdb_cfg.type == "chroma"
+    assert vdb_cfg.embedding_dimension == 256
+    assert vdb_cfg.chroma_persist_path == "/data"
 
-        assert confluence_config is not None
-        assert str(confluence_config.url) == "https://file-confluence.atlassian.net/"
-        assert confluence_config.username == "file-user@example.com"
-        assert confluence_config.api_token == "file-api-token"
-        assert confluence_config.timeout == 30
+    assert idx_cfg.exclude_spaces == ["ARCHIVE"]
 
-        assert search_config.default_limit == 50
-        assert search_config.max_limit == 300
-        assert "body.storage" in search_config.default_expand
-        assert "version" in search_config.default_expand
-        assert "space" in search_config.default_expand
+    assert isinstance(gen_cfg, GenerationConfig)
+    assert gen_cfg.enable is True
+    assert gen_cfg.model_name == "file-gen-model"
 
-        assert vector_db_config is not None
-        assert vector_db_config.type == "qdrant"
-        assert vector_db_config.embedding_dimension == 384
-        assert str(vector_db_config.qdrant_url) == "http://localhost:6333/"
-        assert vector_db_config.collection_name == "test_collection"
 
-    def test_merged_configuration(self, monkeypatch, mock_user_config_file):
-        monkeypatch.setenv("CONFLUENCE_URL", "https://env-confluence.atlassian.net")
-        monkeypatch.setenv("CONFLUENCE_USERNAME", "env-user@example.com")
-        monkeypatch.setenv("CONFLUENCE_API_TOKEN", "env-api-token")
-        monkeypatch.setenv("SEARCH_DEFAULT_LIMIT", "25")
-        monkeypatch.setenv("VECTOR_DB_COLLECTION_NAME", "env_collection")
+def test_env_overrides_file(mock_env, mock_config_file):
+    mock_env(
+        {
+            "CONFLUENCE_URL": "https://env.atlassian.net",
+            "CONFLUENCE_USERNAME": "env@test.com",
+            "CONFLUENCE_API_TOKEN": "env_token",
+            "SEARCH_DEFAULT_LIMIT": "99",
+        }
+    )
+    mock_config_file(
+        {
+            "confluence": {
+                "url": "https://file.atlassian.net",
+                "username": "file@test.com",
+                "api_token": "file_token",
+            },
+            "search": {
+                "default_limit": 15,
+            },
+        }
+    )
+    (conf_cfg, search_cfg, _, _, _, _) = load_configurations()
 
-        mock_user_config_file(
-            {
-                "confluence": {"timeout": 30},
-                "search": {"max_limit": 300},
-                "vector_db": {
-                    "type": "chroma",
-                    "embedding_dimension": 768,
-                    "chroma_persist_path": "/tmp/chroma_db",
-                },
-            }
-        )
+    assert isinstance(conf_cfg, ConfluenceConfig)
+    assert str(conf_cfg.url) == "https://env.atlassian.net/"
+    assert conf_cfg.username == "env@test.com"
+    assert conf_cfg.api_token == "env_token"
 
-        (
-            confluence_config,
-            search_config,
-            vector_db_config,
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
+    assert search_cfg.default_limit == 99
 
-        assert confluence_config is not None
-        assert str(confluence_config.url) == "https://env-confluence.atlassian.net/"
-        assert confluence_config.username == "env-user@example.com"
-        assert confluence_config.api_token == "env-api-token"
-        assert confluence_config.timeout == 30
 
-        assert search_config.default_limit == 25
-        assert search_config.max_limit == 300
-        assert search_config.default_expand == ["body.view", "space"]
+def test_missing_required_confluence_config(mock_env, mock_config_file):
+    mock_env(
+        {
+            "CONFLUENCE_URL": "https://test.atlassian.net",
+        }
+    )
+    mock_config_file({})
+    (conf_cfg, _, _, _, _, _) = load_configurations()
+    assert conf_cfg is None
 
-        assert vector_db_config is not None
-        assert vector_db_config.type == "chroma"
-        assert vector_db_config.embedding_dimension == 768
-        assert vector_db_config.collection_name == "env_collection"
-        assert vector_db_config.chroma_persist_path == "/tmp/chroma_db"
 
-    def test_invalid_json_file(self, monkeypatch, mock_user_config_file, caplog):
-        monkeypatch.setenv("CONFLUENCE_URL", "https://env-confluence.atlassian.net")
-        monkeypatch.setenv("CONFLUENCE_USERNAME", "env-user@example.com")
-        monkeypatch.setenv("CONFLUENCE_API_TOKEN", "env-api-token")
+def test_invalid_value_types(mock_env, mock_config_file, caplog):
+    mock_env(
+        {
+            "CONFLUENCE_URL": "https://test.atlassian.net",
+            "CONFLUENCE_USERNAME": "user@test.com",
+            "CONFLUENCE_API_TOKEN": "test_token",
+            "CONFLUENCE_TIMEOUT": "not-an-integer",
+            "SEARCH_DEFAULT_LIMIT": "also-not-int",
+        }
+    )
+    mock_config_file({})
 
-        config_path = mock_user_config_file({})
-        with open(config_path, "w") as f:
-            f.write("This is not valid JSON")
+    with patch("logging.Logger.warning") as mock_warning:
+        (conf_cfg, search_cfg, _, _, _, _) = load_configurations()
 
-        (
-            confluence_config,
-            _,  # search_config
-            _,  # vector_db_config
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
+        assert conf_cfg.timeout == 10
+        assert search_cfg.default_limit == 20
 
-        assert confluence_config is not None
-        assert str(confluence_config.url) == "https://env-confluence.atlassian.net/"
-        assert confluence_config.username == "env-user@example.com"
-        assert confluence_config.api_token == "env-api-token"
+        assert mock_warning.call_count >= 2
 
-    def test_file_not_json_object(self, monkeypatch, mock_user_config_file, caplog):
-        monkeypatch.setenv("CONFLUENCE_URL", "https://env-confluence.atlassian.net")
-        monkeypatch.setenv("CONFLUENCE_USERNAME", "env-user@example.com")
-        monkeypatch.setenv("CONFLUENCE_API_TOKEN", "env-api-token")
 
-        config_path = mock_user_config_file({})
-        with open(config_path, "w") as f:
-            f.write(json.dumps(["item1", "item2"]))
+def test_embedding_dimension_propagation(mock_env, mock_config_file):
+    mock_env(
+        {
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "test-model",
+            "EMBEDDING_DIMENSION": "384",
+            "VECTOR_DB_TYPE": "qdrant",
+            "QDRANT_URL": ":memory:",
+        }
+    )
+    mock_config_file({})
+    (_, _, vdb_cfg, emb_cfg, _, _) = load_configurations()
 
-        (
-            confluence_config,
-            _,  # search_config
-            _,  # vector_db_config
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
+    assert emb_cfg is not None
+    assert emb_cfg.dimension == 384
+    assert vdb_cfg is not None
+    assert vdb_cfg.embedding_dimension == 384
 
-        assert confluence_config is not None
-        assert str(confluence_config.url) == "https://env-confluence.atlassian.net/"
-        assert confluence_config.username == "env-user@example.com"
-        assert confluence_config.api_token == "env-api-token"
 
-    def test_missing_required_confluence_fields(
-        self, monkeypatch, mock_user_config_file
-    ):
-        for var in ["CONFLUENCE_URL", "CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]:
-            monkeypatch.delenv(var, raising=False)
+def test_embedding_dimension_mismatch_warning(mock_env, mock_config_file, caplog):
+    mock_env(
+        {
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "test-model",
+            "EMBEDDING_DIMENSION": "384",
+            "VECTOR_DB_TYPE": "qdrant",
+            "QDRANT_URL": ":memory:",
+            "VECTOR_DB_EMBEDDING_DIMENSION": "768",
+        }
+    )
+    mock_config_file({})
 
-        mock_user_config_file({"confluence": {"timeout": 30}})
+    with patch("logging.Logger.warning") as mock_warning:
+        (_, _, vdb_cfg, emb_cfg, _, _) = load_configurations()
 
-        (
-            confluence_config,
-            search_config,
-            _,  # vector_db_config
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
-
-        assert confluence_config is None
-        assert search_config is not None
-        assert search_config.default_limit == 20
-
-    def test_vector_db_type_validation(self, monkeypatch, mock_user_config_file):
-        mock_user_config_file({"vector_db": {"type": "qdrant"}})
-
-        (
-            _,  # confluence_config
-            _,  # search_config
-            vector_db_config,
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
-
-        assert vector_db_config is None
-
-    def test_vectordb_defaults_to_none(self, monkeypatch, mock_user_config_file):
-        for var in [
-            "VECTOR_DB_TYPE",
-            "VECTOR_DB_EMBEDDING_DIMENSION",
-            "VECTOR_DB_COLLECTION_NAME",
-        ]:
-            monkeypatch.delenv(var, raising=False)
-
-        mock_user_config_file(
-            {
-                "confluence": {
-                    "url": "https://file-confluence.atlassian.net",
-                    "username": "file-user@example.com",
-                    "api_token": "file-api-token",
-                }
-            }
+        assert emb_cfg.dimension == 384
+        assert vdb_cfg.embedding_dimension == 768
+        assert mock_warning.call_count >= 1
+        assert any(
+            "differs from EMBEDDING_DIMENSION" in call.args[0]
+            for call in mock_warning.call_args_list
         )
 
-        (
-            _,  # confluence_config
-            _,  # search_config
-            vector_db_config,
-            _,  # embedding_config
-            _,  # indexing_config
-            _,  # generation_config
-        ) = load_configurations()
 
-        assert vector_db_config is None
+def test_boolean_env_var_parsing(mock_env, mock_config_file):
+    mock_env(
+        {
+            "SEARCH_HYBRID_SEARCH_ENABLED": "true",
+            "INDEXING_INCLUDE_ATTACHMENTS": "1",
+            "GENERATION_ENABLE": "false",
+            "QDRANT_PREFER_GRPC": "0",
+        }
+    )
+    mock_config_file({})
+    (_, search_cfg, vdb_cfg, _, idx_cfg, gen_cfg) = load_configurations()
+
+    assert search_cfg.hybrid_search_enabled is True
+    assert idx_cfg.include_attachments is True
+
+    mock_env(
+        {
+            "SEARCH_HYBRID_SEARCH_ENABLED": "true",
+            "INDEXING_INCLUDE_ATTACHMENTS": "1",
+            "GENERATION_ENABLE": "false",
+            "GENERATION_MODEL_NAME": "gen-model",
+            "QDRANT_PREFER_GRPC": "0",
+            "VECTOR_DB_TYPE": "qdrant",
+            "VECTOR_DB_EMBEDDING_DIMENSION": "128",
+            "QDRANT_URL": ":memory:",
+        }
+    )
+    (_, search_cfg, vdb_cfg, _, idx_cfg, gen_cfg) = load_configurations()
+
+    assert search_cfg.hybrid_search_enabled is True
+    assert idx_cfg.include_attachments is True
+    assert gen_cfg is None
+    assert vdb_cfg.qdrant_prefer_grpc is False
+
+
+def test_comma_list_env_var_parsing(mock_env, mock_config_file):
+    mock_env(
+        {
+            "INDEXING_INCLUDE_SPACES": "DEV, PROD , TEST ",
+            "INDEXING_ALLOWED_ATTACHMENT_EXTENSIONS": "pdf,docx",
+        }
+    )
+    mock_config_file({})
+    (_, _, _, _, idx_cfg, _) = load_configurations()
+
+    assert idx_cfg.include_spaces == ["DEV", "PROD", "TEST"]
+    assert idx_cfg.allowed_attachment_extensions == ["pdf", "docx"]
+
+
+import logging
+
+
+def test_ollama_litellm_requires_api_base(mock_env, mock_config_file, caplog):
+    mock_env(
+        {
+            "EMBEDDING_PROVIDER": "litellm",
+            "EMBEDDING_MODEL_NAME": "ollama/nomic-embed-text",
+            "EMBEDDING_DIMENSION": "768",
+        }
+    )
+    mock_config_file({})
+
+    with caplog.at_level(logging.ERROR):
+        (_, _, _, emb_cfg, _, _) = load_configurations()
+
+    assert emb_cfg is None
+    assert "Invalid user-provided Embedding configuration" in caplog.text
+    assert "LITELLM_API_BASE must be set" in caplog.text
+
+
+def test_generation_requires_model_if_enabled(mock_env, mock_config_file, caplog):
+    mock_env(
+        {
+            "GENERATION_ENABLE": "true",
+        }
+    )
+    mock_config_file({})
+
+    with caplog.at_level(logging.ERROR):
+        (_, _, _, _, _, gen_cfg) = load_configurations()
+
+    assert gen_cfg is None
+    assert "Invalid Generation configuration" in caplog.text
+    assert "GENERATION_MODEL_NAME must be set" in caplog.text

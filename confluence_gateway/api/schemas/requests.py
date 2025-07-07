@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -6,12 +6,12 @@ from confluence_gateway.core.config import search_config
 
 
 class BaseSearchRequest(BaseModel):
-    limit: Optional[int] = None
-    start: Optional[int] = None
-    expand: Optional[list[str]] = None
+    limit: int | None = None
+    start: int | None = None
+    expand: list[str] | None = None
 
     @field_validator("limit")
-    def validate_limit(cls, v):
+    def validate_limit(cls, v: int | None) -> int | None:
         if v is not None:
             if v <= 0:
                 raise ValueError("Limit must be a positive integer")
@@ -20,7 +20,7 @@ class BaseSearchRequest(BaseModel):
         return v
 
     @field_validator("start")
-    def validate_start(cls, v):
+    def validate_start(cls, v: int | None) -> int | None:
         if v is not None and v < 0:
             raise ValueError("Start position cannot be negative")
         return v
@@ -28,18 +28,18 @@ class BaseSearchRequest(BaseModel):
 
 class TextSearchRequest(BaseSearchRequest):
     query: str
-    space_key: Optional[str] = None
-    content_type: Optional[str] = None
-    include_archived: Optional[bool] = False
+    space_key: str | None = None
+    content_type: str | None = None
+    include_archived: bool | None = False
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v
 
     @field_validator("content_type")
-    def validate_content_type(cls, v):
+    def validate_content_type(cls, v: str | None) -> str | None:
         if v is not None:
             valid_types = ["page", "blogpost", "attachment", "comment"]
             if v.lower() not in valid_types:
@@ -65,7 +65,7 @@ class TextSearchRequest(BaseSearchRequest):
 
 
 class IndexingTriggerRequest(BaseModel):
-    space_keys: Optional[list[str]] = Field(
+    space_keys: list[str] | None = Field(
         None,
     )
 
@@ -83,7 +83,7 @@ class CQLSearchRequest(BaseSearchRequest):
     cql: str
 
     @field_validator("cql")
-    def validate_cql(cls, v):
+    def validate_cql(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("CQL query cannot be empty")
 
@@ -106,24 +106,28 @@ class CQLSearchRequest(BaseSearchRequest):
 
 class AdvancedSearchRequest(BaseSearchRequest):
     query: str
-    space_key: Optional[str] = None
-    content_type: Optional[str] = None
-    include_archived: Optional[bool] = False
-    get_all_results: Optional[bool] = False
-    max_results: Optional[int] = None
-    min_relevance: Optional[float] = Field(None, ge=0.0, le=1.0)
-    top_n: Optional[int] = Field(None, gt=0)
-    sort_by: Optional[list[str]] = None
-    sort_direction: Optional[list[str]] = None
+    space_key: str | None = None
+    content_type: str | None = None
+    include_archived: bool | None = False
+    get_all_results: bool | None = False
+    max_results: int | None = None
+    min_relevance: float | None = Field(None, ge=0.0, le=1.0)
+    top_n: int | None = Field(None, gt=0)
+    sort_by: list[str] | None = None
+    sort_direction: list[str] | None = None
+    use_hybrid: bool | None = Field(
+        False,
+        description="Enable hybrid search (keyword + semantic with RRF re-ranking)",
+    )
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v
 
     @field_validator("content_type")
-    def validate_content_type(cls, v):
+    def validate_content_type(cls, v: str | None) -> str | None:
         if v is not None:
             valid_types = ["page", "blogpost", "attachment", "comment"]
             if v.lower() not in valid_types:
@@ -133,7 +137,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
         return v
 
     @field_validator("sort_by")
-    def validate_sort_by(cls, v):
+    def validate_sort_by(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             valid_fields = ["title", "created_at", "updated_at", "score", "space_key"]
             for field in v:
@@ -144,7 +148,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
         return v
 
     @field_validator("sort_direction")
-    def validate_sort_direction(cls, v):
+    def validate_sort_direction(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             valid_directions = ["asc", "desc"]
             for direction in v:
@@ -155,7 +159,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
         return v
 
     @field_validator("max_results")
-    def validate_max_results(cls, v, values):
+    def validate_max_results(cls, v: int | None, values: Any) -> int | None:
         if v is not None:
             if v <= 0:
                 raise ValueError("max_results must be a positive integer")
@@ -180,6 +184,7 @@ class AdvancedSearchRequest(BaseSearchRequest):
                     "top_n": 10,
                     "sort_by": ["updated_at", "title"],
                     "sort_direction": ["desc", "asc"],
+                    "use_hybrid": False,
                 }
             ]
         }
@@ -189,10 +194,10 @@ class AdvancedSearchRequest(BaseSearchRequest):
 class SemanticSearchRequest(BaseModel):
     query: str
     top_k: int = Field(default=10, gt=0)
-    filters: Optional[dict[str, Any]] = None
+    filters: dict[str, Any] | None = None
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v.strip()
@@ -212,16 +217,16 @@ class SemanticSearchRequest(BaseModel):
 
 class GenerateAnswerRequest(BaseModel):
     query: str = Field(...)
-    top_k_retrieval: Optional[int] = Field(
+    top_k_retrieval: int | None = Field(
         default=5,
         gt=0,
     )
-    filters: Optional[dict[str, Any]] = Field(
+    filters: dict[str, Any] | None = Field(
         default=None,
     )
 
     @field_validator("query")
-    def validate_query(cls, v):
+    def validate_query(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Query must be at least 2 characters long")
         return v.strip()
