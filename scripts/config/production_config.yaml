@@ -31,9 +31,19 @@ collection:
   
   # Rate limiting
   rate_limits:
-    requests_per_minute: 30
-    concurrent_requests: 5
-    retry_after_seconds: 60
+    requests_per_minute: 120
+    concurrent_requests: 20
+    concurrent_sources: 8
+    retry_after_seconds: 30
+  
+  # Timeout settings
+  timeout_settings:
+    default_timeout_seconds: 10
+    pdf_timeout_seconds: 60
+    large_file_timeout_seconds: 30
+    # File size thresholds (in MB) for extended timeouts
+    large_pdf_threshold_mb: 10
+    very_large_pdf_threshold_mb: 50
   
   # Content filtering
   content_filters:

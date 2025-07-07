@@ -104,14 +104,14 @@ import pytest
 
 @pytest.fixture(scope="session")
 def SEMANTIC_TEST_DOCS(
-    dummy_data_spaces: list[dict] | None, confluence_client
+    real_data_spaces: list[dict] | None, confluence_client
 ) -> list[dict]:
-    """Provides semantic test documents, preferring real generated content over fallback docs."""
-    if dummy_data_spaces and confluence_client:
+    """Provides semantic test documents, preferring real scraped content over fallback docs."""
+    if real_data_spaces and confluence_client:
         real_docs = []
         target_doc_count = 5
 
-        for space in dummy_data_spaces[:2]:
+        for space in real_data_spaces[:2]:
             if not space["has_content"]:
                 continue
 
@@ -884,23 +884,23 @@ def lazy_embedding_provider():
 
 
 @pytest.fixture(scope="session")
-def dummy_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] | None:
+def real_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] | None:
     """
-    Check for and return available dummy data spaces (TESTDUM*).
-    Returns None if no dummy data is found or confluence client is unavailable.
+    Check for and return available real test data spaces (TESTDUM*).
+    Returns None if no real test data is found or confluence client is unavailable.
     """
     if not confluence_client:
         return None
 
     try:
         all_spaces = confluence_client.list_all_spaces(limit=100)
-        dummy_spaces = [
+        test_spaces = [
             space for space in all_spaces if space.key.startswith("TESTDUM")
         ]
 
-        if dummy_spaces:
+        if test_spaces:
             spaces_dict = []
-            for space in dummy_spaces:
+            for space in test_spaces:
                 try:
                     search_result = confluence_client.search(
                         query=f"space={space.key}",
@@ -945,21 +945,21 @@ def dummy_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] 
 
 
 @pytest.fixture(scope="session")
-def test_space_with_content(dummy_data_spaces: list[dict] | None) -> dict | None:
+def test_space_with_content(real_data_spaces: list[dict] | None) -> dict | None:
     """
     Provides a single test space with content for tests that need a reliable space.
-    Prefers TESTDUMTECH spaces, falls back to any available dummy space with content.
+    Prefers TESTDUMTECH spaces, falls back to any available real test space with content.
     """
-    if not dummy_data_spaces:
+    if not real_data_spaces:
         return None
 
     tech_spaces = [
-        s for s in dummy_data_spaces if "TECH" in s["key"] and s["has_content"]
+        s for s in real_data_spaces if "TECH" in s["key"] and s["has_content"]
     ]
     if tech_spaces:
         return tech_spaces[0]
 
-    content_spaces = [s for s in dummy_data_spaces if s["has_content"]]
+    content_spaces = [s for s in real_data_spaces if s["has_content"]]
     if content_spaces:
         return content_spaces[0]
 
@@ -968,15 +968,15 @@ def test_space_with_content(dummy_data_spaces: list[dict] | None) -> dict | None
 
 @pytest.fixture(scope="session")
 def test_space_with_attachments(
-    dummy_data_spaces: list[dict] | None, confluence_client: ConfluenceClient | None
+    real_data_spaces: list[dict] | None, confluence_client: ConfluenceClient | None
 ) -> dict | None:
     """
     Provides a test space that has pages with attachments for attachment testing.
     """
-    if not dummy_data_spaces or not confluence_client:
+    if not real_data_spaces or not confluence_client:
         return None
 
-    for space in dummy_data_spaces:
+    for space in real_data_spaces:
         if not space["has_content"]:
             continue
 
@@ -1026,17 +1026,17 @@ def test_space_with_attachments(
 
 @pytest.fixture(scope="session")
 def real_search_terms(
-    dummy_data_spaces: list[dict] | None, confluence_client
+    real_data_spaces: list[dict] | None, confluence_client
 ) -> list[str]:
     """
-    Provides real search terms extracted from dummy data content for more realistic testing.
+    Provides real search terms extracted from real test data content for more realistic testing.
     """
-    if not dummy_data_spaces or not confluence_client:
+    if not real_data_spaces or not confluence_client:
         return ["confluence", "documentation", "test"]
 
     search_terms = set()
 
-    for space in dummy_data_spaces[:2]:
+    for space in real_data_spaces[:2]:
         if not space["has_content"]:
             continue
 
@@ -1073,17 +1073,17 @@ def real_search_terms(
 
 @pytest.fixture(scope="session")
 def real_content_samples(
-    dummy_data_spaces: list[dict] | None, confluence_client
+    real_data_spaces: list[dict] | None, confluence_client
 ) -> list[dict]:
     """
-    Provides samples of real content from dummy data for testing various content processing scenarios.
+    Provides samples of real content from real test data for testing various content processing scenarios.
     """
-    if not dummy_data_spaces or not confluence_client:
+    if not real_data_spaces or not confluence_client:
         return []
 
     content_samples = []
 
-    for space in dummy_data_spaces:
+    for space in real_data_spaces:
         if not space["has_content"] or len(content_samples) >= 5:
             continue
 
@@ -1112,7 +1112,7 @@ def real_content_samples(
                                 "space_key": space["key"],
                                 "content": content,
                                 "content_length": len(content),
-                                "source": "real_dummy_data",
+                                "source": "real_test_data",
                             }
                         )
 

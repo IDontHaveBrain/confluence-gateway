@@ -40,8 +40,8 @@ sources:
       type: "web_api_docs"
       base_url: "https://docs.aws.amazon.com/s3/"
       start_urls:
-        - "https://docs.aws.amazon.com/s3/latest/userguide/using-with-s3-actions.html"
-        - "https://docs.aws.amazon.com/s3/latest/userguide/Welcome.html"
+        - "https://docs.aws.amazon.com/AmazonS3/latest/userguide/GettingStartedS3CLI.html"
+        - "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html"
       categories: ["api_docs"]
       selector: "main"
       max_depth: 1
@@ -51,7 +51,9 @@ sources:
       base_url: "https://developer.paypal.com/docs/api/"
       start_urls:
         - "https://developer.paypal.com/docs/api/overview/"
-        - "https://developer.paypal.com/docs/api/payments/"
+        - "https://developer.paypal.com/docs/api/orders/v2/"
+        - "https://developer.paypal.com/docs/api/payments/v2/"
+        - "https://developer.paypal.com/docs/api/catalog-products/v1/"
       categories: ["api_docs"]
       selector: "main"
       max_depth: 1
@@ -101,11 +103,11 @@ sources:
       type: "web_tech_docs"
       base_url: "https://www.postgresql.org/docs/"
       start_urls:
-        - "https://www.postgresql.org/docs/current/"
         - "https://www.postgresql.org/docs/current/tutorial.html"
+        - "https://www.postgresql.org/docs/current/sql.html"
       categories: ["technical"]
-      selector: "div.NAVHEADER"
-      max_depth: 1
+      selector: "div#docContent"
+      max_depth: 0
       
     - name: "React Documentation"
       type: "web_tech_docs"
@@ -113,16 +115,6 @@ sources:
       start_urls:
         - "https://react.dev/learn"
         - "https://react.dev/reference/react"
-      categories: ["technical"]
-      selector: "main"
-      max_depth: 1
-      
-    - name: "MongoDB Documentation"
-      type: "web_tech_docs"
-      base_url: "https://docs.mongodb.com"
-      start_urls:
-        - "https://docs.mongodb.com/manual/"
-        - "https://docs.mongodb.com/manual/tutorial/"
       categories: ["technical"]
       selector: "main"
       max_depth: 1
@@ -142,10 +134,11 @@ sources:
       base_url: "https://nginx.org/en/docs/"
       start_urls:
         - "https://nginx.org/en/docs/beginners_guide.html"
-        - "https://nginx.org/en/docs/http/"
+        - "https://nginx.org/en/docs/http/configuring_https_servers.html"
+        - "https://nginx.org/en/docs/http/load_balancing.html"
       categories: ["technical"]
       selector: "div#content"
-      max_depth: 1
+      max_depth: 0
       
   knowledge_base:
     - name: "MDN Web Docs"
@@ -165,17 +158,17 @@ sources:
       base_url: "https://en.wikipedia.org"
       start_urls:
         - "https://en.wikipedia.org/wiki/Portal:Technology"
-        - "https://en.wikipedia.org/wiki/Portal:Computer_science"
+        - "https://en.wikipedia.org/wiki/Portal:Computer_programming"
       categories: ["knowledge_base"]
       selector: "div#mw-content-text"
       max_depth: 1
       
     - name: "Microsoft Azure Cloud Adoption Framework"
       type: "web_kb"
-      base_url: "https://docs.microsoft.com/en-us/azure/cloud-adoption-framework/"
+      base_url: "https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/"
       start_urls:
-        - "https://docs.microsoft.com/en-us/azure/cloud-adoption-framework/overview"
-        - "https://docs.microsoft.com/en-us/azure/cloud-adoption-framework/strategy/"
+        - "https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/overview"
+        - "https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/strategy/"
       categories: ["knowledge_base"]
       selector: "main"
       max_depth: 1

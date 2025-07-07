@@ -203,14 +203,14 @@ class TestE2EWorkflows:
         test_space_with_attachments: dict | None,
         mocker,
     ):
-        """Test indexing and searching attachments using dummy data."""
+        """Test indexing and searching attachments using real test data."""
         if not is_semantic_search_possible:
             pytest.skip("Requires semantic search capabilities")
 
         if not test_space_with_attachments:
             pytest.skip(
-                "No dummy data space with attachments available. "
-                "Run 'python scripts/generate_dummy_data.py create' to generate test data with attachments."
+                "No real test data space with attachments available. "
+                "Run 'python scripts/generate_real_data.py create' to generate test data with attachments."
             )
 
         space_key = test_space_with_attachments["key"]

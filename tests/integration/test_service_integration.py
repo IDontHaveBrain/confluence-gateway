@@ -320,14 +320,14 @@ class TestServiceInteroperability:
         confluence_client: ConfluenceClient,
         test_space_with_content: dict | None,
     ):
-        """Test that indexed content can be searched using dummy data."""
+        """Test that indexed content can be searched using real data."""
         if not indexing_service.vector_db_adapter:
             pytest.skip("Requires vector DB for indexing")
 
         if not test_space_with_content:
             pytest.skip(
-                "No dummy data space with content available. "
-                "Run 'python scripts/generate_dummy_data.py create' to generate test data."
+                "No real test data space with content available. "
+                "Run 'python scripts/generate_real_data.py create' to generate test data."
             )
 
         space_key = test_space_with_content["key"]
@@ -339,7 +339,7 @@ class TestServiceInteroperability:
 
         if not search_result.results:
             pytest.skip(
-                f"No pages found in space {space_key} (unexpected - dummy data may be corrupted)"
+                f"No pages found in space {space_key} (unexpected - real test data may be corrupted)"
             )
 
         page_title = search_result.results[0].title
