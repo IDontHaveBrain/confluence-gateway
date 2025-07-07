@@ -1,0 +1,54 @@
+{
+  "confluence": {
+    "timeout": 10
+  },
+  "search": {
+    "default_limit": 20,
+    "max_limit": 100,
+    "default_expand": [
+      "body.view",
+      "space"
+    ],
+    "hybrid_search_enabled": true,
+    "hybrid_keyword_fetch_limit": 50,
+    "hybrid_semantic_fetch_limit": 50,
+    "hybrid_rrf_k": 60
+  },
+  "embedding": {
+    "provider": "sentence-transformers",
+    "model_name": "all-MiniLM-L6-v2",
+    "dimension": 384,
+    "device": "cpu"
+  },
+  "vector_db": {
+    "type": "none",
+    "collection_name": "confluence_embeddings",
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "qdrant_grpc_port": 6334,
+    "qdrant_prefer_grpc": false
+  },
+  "indexing": {
+    "html_parser": "markitdown",
+    "include_attachments": false,
+    "max_attachment_size_mb": 10,
+    "allowed_attachment_extensions": [
+      "pdf",
+      "docx",
+      "pptx",
+      "txt",
+      "md"
+    ],
+    "attachment_parser": "markitdown"
+  },
+  "generation": {
+    "enable": true,
+    "provider": "litellm",
+    "model_name": "openrouter/google/gemini-2.5-flash",
+    "prompt_template": "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:",
+    "max_context_tokens": 8000,
+    "max_output_tokens": 500,
+    "temperature": 0.1,
+    "generation_timeout": 60
+  }
+}

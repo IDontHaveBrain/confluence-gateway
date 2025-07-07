@@ -1,0 +1,40 @@
+{
+  "confluence": {
+    "url": "https://your-instance.atlassian.net",
+    "username": "your-email@example.com",
+    "api_token": "YOUR_API_TOKEN",
+    "timeout": 15
+  },
+  "search": {
+    "default_limit": 20,
+    "max_limit": 100,
+    "hybrid_search_enabled": true,
+    "hybrid_rrf_k": 60
+  },
+  "embedding": {
+    "provider": "sentence-transformers",
+    "model_name": "all-MiniLM-L6-v2",
+    "dimension": 384,
+    "device": "cpu"
+  },
+  "vector_db": {
+    "type": "qdrant",
+    "qdrant_url": "http://localhost:6333",
+    "chunk_size": 512,
+    "chunk_overlap": 50
+  },
+  "indexing": {
+    "include_attachments": true,
+    "max_attachment_size_mb": 10,
+    "allowed_attachment_extensions": ["pdf", "docx", "txt", "md"],
+    "parser_type": "markitdown"
+  },
+  "generation": {
+    "enable": true,
+    "provider": "litellm",
+    "model_name": "openrouter/google/gemini-2.5-flash",
+    "litellm_api_key": "YOUR_OPENROUTER_API_KEY",
+    "max_context_tokens": 8000,
+    "temperature": 0.1
+  }
+}
