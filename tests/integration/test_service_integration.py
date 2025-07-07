@@ -51,7 +51,9 @@ class TestSearchServiceIntegration:
 
             if test_space_with_content:
                 # Extract space_key using the client's method
-                fields = standard_search_service.client.extract_content_fields(first_result)
+                fields = standard_search_service.client.extract_content_fields(
+                    first_result
+                )
                 assert fields.get("space_key") == space_key
 
     def test_semantic_search_real_vector_db(
@@ -116,7 +118,9 @@ class TestSearchServiceIntegration:
             if test_space_with_content:
                 for search_result in result.results.results:
                     # Extract space_key using the client's method
-                    fields = semantic_search_service.client.extract_content_fields(search_result)
+                    fields = semantic_search_service.client.extract_content_fields(
+                        search_result
+                    )
                     assert fields.get("space_key") == space_key
 
 

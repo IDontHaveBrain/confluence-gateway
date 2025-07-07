@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ContentType(str, Enum):
@@ -23,10 +23,10 @@ class ConfluenceObject(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    model_config = {
-        "populate_by_name": True,
-        "str_strip_whitespace": True,
-    }
+    model_config = ConfigDict(
+        populate_by_name=True,
+        str_strip_whitespace=True,
+    )
 
     def __init__(self, **data: Any) -> None:
         if "id" in data and not isinstance(data["id"], str):
@@ -91,11 +91,11 @@ class ConfluencePage(ConfluenceObject):
     space_key: str | None = None
     space_name: str | None = None
 
-    model_config = {
-        "populate_by_name": True,
-        "str_strip_whitespace": True,
-        "extra": "allow",
-    }
+    model_config = ConfigDict(
+        populate_by_name=True,
+        str_strip_whitespace=True,
+        extra="allow",
+    )
 
     @field_validator("content_type", mode="before")
     @classmethod

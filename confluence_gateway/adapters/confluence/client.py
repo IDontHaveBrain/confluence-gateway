@@ -408,7 +408,7 @@ class ConfluenceClient:
                                     if k != "content" and k not in page_data
                                 }
                             )
-                            
+
                             # Extract space key from URL if not in content
                             if "url" in item and not page_data.get("space"):
                                 # URL format: /spaces/SPACEKEY/pages/...
@@ -419,9 +419,12 @@ class ConfluenceClient:
                                     # Also get space name from resultGlobalContainer if available
                                     if "resultGlobalContainer" in item:
                                         container = item["resultGlobalContainer"]
-                                        if isinstance(container, dict) and "title" in container:
+                                        if (
+                                            isinstance(container, dict)
+                                            and "title" in container
+                                        ):
                                             page_data["space_name"] = container["title"]
-                            
+
                             page = self._parse_page(page_data)
                         else:
                             page = self._parse_page(item)

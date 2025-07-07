@@ -894,9 +894,7 @@ def real_data_spaces(confluence_client: ConfluenceClient | None) -> list[dict] |
 
     try:
         all_spaces = confluence_client.list_all_spaces(limit=100)
-        test_spaces = [
-            space for space in all_spaces if space.key.startswith("TESTDUM")
-        ]
+        test_spaces = [space for space in all_spaces if space.key.startswith("TESTDUM")]
 
         if test_spaces:
             spaces_dict = []
