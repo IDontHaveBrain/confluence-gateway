@@ -190,7 +190,8 @@ class TestApiFlows:
         else:
             assert response_trigger.status_code == 202
             data = response_trigger.json()
-            assert "accepted" in data.get("message", "").lower()
+            assert "status" in data
+            assert data["status"] in ["idle", "running"]
 
             import time
 
