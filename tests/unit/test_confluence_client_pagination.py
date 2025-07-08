@@ -60,7 +60,11 @@ class TestConfluenceClientPagination:
         assert spaces[1].key == "SPACE2"
 
         mock_confluence_api.get_all_spaces.assert_called_once_with(
-            start=0, limit=2, expand="description.plain", space_type=None, space_status=None
+            start=0,
+            limit=2,
+            expand="description.plain",
+            space_type=None,
+            space_status=None,
         )
 
     def test_list_spaces_paginated_with_descriptions(self, client, mock_confluence_api):

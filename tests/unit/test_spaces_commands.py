@@ -783,7 +783,7 @@ class TestSpacesListCommand:
 
         # Mock list_all_spaces to return only global spaces when space_type="global"
         def mock_list_all_spaces(**kwargs):
-            space_type = kwargs.get('space_type')
+            space_type = kwargs.get("space_type")
             if space_type == "global":
                 return [s for s in test_spaces if s.type == SpaceType.GLOBAL]
             return test_spaces
@@ -792,7 +792,16 @@ class TestSpacesListCommand:
 
         result = runner.invoke(
             app,
-            ["spaces", "list", "--type", "global", "--key-prefix", "DEV", "--sort", "key"],
+            [
+                "spaces",
+                "list",
+                "--type",
+                "global",
+                "--key-prefix",
+                "DEV",
+                "--sort",
+                "key",
+            ],
         )
 
         assert result.exit_code == 0
@@ -926,8 +935,8 @@ class TestSpacesListCommand:
         # Check CSV headers
         assert "Key,Name,Type,ID,Description" in result.output
         # Should have 10 data rows
-        lines = result.output.strip().split('\n')
-        csv_lines = [line for line in lines if line and not line.startswith('#')]
+        lines = result.output.strip().split("\n")
+        csv_lines = [line for line in lines if line and not line.startswith("#")]
         assert len(csv_lines) == 11  # 1 header + 10 data rows
         # No pagination comment when using --all
         assert "# Page" not in result.output
@@ -940,9 +949,14 @@ class TestSpacesListCommand:
 
         # For type filtering without other client-side filters, list_spaces_paginated is used
         global_spaces = [s for s in mock_spaces[:20] if s.type == SpaceType.GLOBAL]
-        mock_client.list_spaces_paginated.return_value = (global_spaces[:10], len(global_spaces))
+        mock_client.list_spaces_paginated.return_value = (
+            global_spaces[:10],
+            len(global_spaces),
+        )
 
-        result = runner.invoke(app, ["spaces", "list", "--format", "csv", "--type", "global"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--format", "csv", "--type", "global"]
+        )
 
         assert result.exit_code == 0
         # Check CSV headers
@@ -968,7 +982,7 @@ class TestSpacesListCommand:
                 name='Space with "quotes"',
                 title='Space with "quotes"',
                 type=SpaceType.GLOBAL,
-                description_text='Description with, comma and "quotes"'
+                description_text='Description with, comma and "quotes"',
             ),
             ConfluenceSpace(
                 id="2",
@@ -1037,19 +1051,31 @@ class TestSpacesListCommand:
 
         # Create unsorted spaces
         test_spaces = [
-            ConfluenceSpace(id="3", key="CCC", name="C Space", title="C", type=SpaceType.GLOBAL),
-            ConfluenceSpace(id="1", key="AAA", name="A Space", title="A", type=SpaceType.GLOBAL),
-            ConfluenceSpace(id="2", key="BBB", name="B Space", title="B", type=SpaceType.GLOBAL),
+            ConfluenceSpace(
+                id="3", key="CCC", name="C Space", title="C", type=SpaceType.GLOBAL
+            ),
+            ConfluenceSpace(
+                id="1", key="AAA", name="A Space", title="A", type=SpaceType.GLOBAL
+            ),
+            ConfluenceSpace(
+                id="2", key="BBB", name="B Space", title="B", type=SpaceType.GLOBAL
+            ),
         ]
 
         mock_client.list_all_spaces.return_value = test_spaces
 
-        result = runner.invoke(app, ["spaces", "list", "--format", "csv", "--sort", "key"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--format", "csv", "--sort", "key"]
+        )
 
         assert result.exit_code == 0
-        lines = result.output.strip().split('\n')
+        lines = result.output.strip().split("\n")
         # Find data rows (skip header and comments)
-        data_lines = [line for line in lines if line and not line.startswith('#') and not line.startswith('Key,')]
+        data_lines = [
+            line
+            for line in lines
+            if line and not line.startswith("#") and not line.startswith("Key,")
+        ]
 
         # Check order - AAA should come first, CCC last
         assert "AAA" in data_lines[0]
@@ -1064,8 +1090,16 @@ class TestSpacesListCommand:
 
         # Create spaces with varying key lengths
         test_spaces = [
-            ConfluenceSpace(id="1", key="A", name="Short", title="Short", type=SpaceType.GLOBAL),
-            ConfluenceSpace(id="2", key="VERYLONGKEY", name="Very Long Space Name Here", title="Long", type=SpaceType.GLOBAL),
+            ConfluenceSpace(
+                id="1", key="A", name="Short", title="Short", type=SpaceType.GLOBAL
+            ),
+            ConfluenceSpace(
+                id="2",
+                key="VERYLONGKEY",
+                name="Very Long Space Name Here",
+                title="Long",
+                type=SpaceType.GLOBAL,
+            ),
         ]
 
         mock_client.list_spaces_paginated.return_value = (test_spaces, 2)
@@ -1097,7 +1131,7 @@ class TestSpaceInfoCommand:
             type=SpaceType.GLOBAL,
             description_text="Main development team documentation space",
             created_at="2023-01-15",
-            updated_at="2025-01-07"
+            updated_at="2025-01-07",
         )
 
         mock_client.get_space.return_value = mock_space
@@ -1128,7 +1162,7 @@ class TestSpaceInfoCommand:
             key="MIN",
             name="Minimal Space",
             title="Minimal Space",
-            type=SpaceType.PERSONAL
+            type=SpaceType.PERSONAL,
         )
 
         mock_client.get_space.return_value = mock_space
@@ -1159,7 +1193,10 @@ class TestSpaceInfoCommand:
         result = runner.invoke(app, ["spaces", "info", "NOTFOUND"])
 
         assert result.exit_code == 1
-        assert "❌ Confluence API error during getting information for space 'NOTFOUND'" in result.output
+        assert (
+            "❌ Confluence API error during getting information for space 'NOTFOUND'"
+            in result.output
+        )
 
 
 class TestSpacesErrorHandling:
@@ -1251,7 +1288,9 @@ class TestSpacesErrorHandling:
         assert "Technical details: Invalid API token" in result.output
 
     @patch("confluence_gateway.cli.spaces_commands._get_confluence_client")
-    @patch("confluence_gateway.cli.spaces_commands.time.sleep")  # Mock sleep to speed up test
+    @patch(
+        "confluence_gateway.cli.spaces_commands.time.sleep"
+    )  # Mock sleep to speed up test
     def test_retry_logic_on_connection_error(self, mock_sleep, mock_get_client):
         """Test retry logic works for connection errors."""
         mock_client = MagicMock()
@@ -1261,7 +1300,7 @@ class TestSpacesErrorHandling:
         mock_client.list_spaces_paginated.side_effect = [
             ConfluenceConnectionError("Network error"),
             ConfluenceConnectionError("Network error"),
-            ([], 0)  # Success on third try
+            ([], 0),  # Success on third try
         ]
 
         result = runner.invoke(app, ["spaces", "list"])
@@ -1299,6 +1338,9 @@ class TestSpacesErrorHandling:
         result = runner.invoke(app, ["spaces", "info", "NOTFOUND", "--verbose"])
 
         assert result.exit_code == 1
-        assert "❌ Confluence API error during getting information for space 'NOTFOUND'" in result.output
+        assert (
+            "❌ Confluence API error during getting information for space 'NOTFOUND'"
+            in result.output
+        )
         assert "💡 Resource not found:" in result.output
         assert "API error details: Space not found" in result.output

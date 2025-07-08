@@ -53,7 +53,9 @@ class TestConfluenceClientSpaceFilters:
 
         mock_confluence_api.get_all_spaces.side_effect = mock_get_all_spaces
 
-        spaces = client.list_all_spaces(limit=50, space_type="global", space_status=None)
+        spaces = client.list_all_spaces(
+            limit=50, space_type="global", space_status=None
+        )
 
         assert len(spaces) == 2
         assert all(s.type == SpaceType.GLOBAL for s in spaces)
@@ -84,7 +86,9 @@ class TestConfluenceClientSpaceFilters:
 
         mock_confluence_api.get_all_spaces.side_effect = mock_get_all_spaces
 
-        spaces = client.list_all_spaces(limit=50, space_type=None, space_status="archived")
+        spaces = client.list_all_spaces(
+            limit=50, space_type=None, space_status="archived"
+        )
 
         assert len(spaces) == 1
         assert spaces[0].key == "ARCH1"
@@ -107,13 +111,18 @@ class TestConfluenceClientSpaceFilters:
 
         def mock_get_all_spaces(**kwargs):
             # Simulate API behavior - return filtered results
-            if kwargs.get("space_type") == "personal" and kwargs.get("space_status") == "current":
+            if (
+                kwargs.get("space_type") == "personal"
+                and kwargs.get("space_status") == "current"
+            ):
                 return mock_response
             return {"results": [], "size": 0, "_links": {}}
 
         mock_confluence_api.get_all_spaces.side_effect = mock_get_all_spaces
 
-        spaces = client.list_all_spaces(limit=50, space_type="personal", space_status="current")
+        spaces = client.list_all_spaces(
+            limit=50, space_type="personal", space_status="current"
+        )
 
         assert len(spaces) == 1
         assert spaces[0].type == SpaceType.PERSONAL
@@ -151,7 +160,11 @@ class TestConfluenceClientSpaceFilters:
         assert all(s.type == SpaceType.GLOBAL for s in spaces)
 
         mock_confluence_api.get_all_spaces.assert_called_once_with(
-            start=0, limit=2, expand="description.plain", space_type="global", space_status="current"
+            start=0,
+            limit=2,
+            expand="description.plain",
+            space_type="global",
+            space_status="current",
         )
 
     def test_list_all_spaces_no_filters_default(self, client, mock_confluence_api):

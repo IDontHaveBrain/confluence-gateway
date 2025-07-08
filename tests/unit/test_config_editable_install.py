@@ -25,7 +25,7 @@ def test_config_loads_from_source_directory():
     default_path = get_default_config_path()
 
     # Load the config file directly
-    with open(default_path) as f:
+    with Path(default_path).open() as f:
         direct_config = json.load(f)
 
     # Load through the configuration system

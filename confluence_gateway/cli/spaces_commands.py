@@ -29,7 +29,7 @@ def retry_on_network_error(
     func: Callable[[], T],
     operation_name: str,
     max_retries: int = 3,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> T:
     """
     Retry a function on network errors with exponential backoff.
@@ -54,7 +54,7 @@ def retry_on_network_error(
         except ConfluenceConnectionError as e:
             last_exception = e
             if attempt < max_retries:
-                delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                delay = 2**attempt  # Exponential backoff: 1s, 2s, 4s
                 if verbose:
                     console.print(
                         f"[yellow]Network error during {operation_name} (attempt {attempt + 1}/{max_retries + 1}). "
@@ -68,7 +68,9 @@ def retry_on_network_error(
             else:
                 # Final attempt failed
                 if verbose:
-                    console.print(f"[red]All {max_retries + 1} attempts failed for {operation_name}[/red]")
+                    console.print(
+                        f"[red]All {max_retries + 1} attempts failed for {operation_name}[/red]"
+                    )
                 break
         except (ConfluenceAuthenticationError, ConfluenceAPIError):
             # Don't retry authentication or API errors
@@ -117,7 +119,7 @@ def handle_spaces_error(e: Exception, operation: str, verbose: bool = False) -> 
 
     elif isinstance(e, ConfluenceAPIError):
         console.print(f"[red]❌ Confluence API error during {operation}[/red]")
-        if hasattr(e, 'status_code') and e.status_code:
+        if hasattr(e, "status_code") and e.status_code:
             if e.status_code == 403:
                 console.print("[yellow]💡 Permission denied:[/yellow]")
                 console.print("   • You may not have permission to view spaces")
@@ -137,7 +139,7 @@ def handle_spaces_error(e: Exception, operation: str, verbose: bool = False) -> 
             else:
                 console.print(f"[yellow]💡 HTTP {e.status_code} error[/yellow]")
 
-        if verbose and hasattr(e, 'error_message') and e.error_message:
+        if verbose and hasattr(e, "error_message") and e.error_message:
             console.print(f"[dim]API error details: {e.error_message}[/dim]")
 
     elif isinstance(e, ConfluenceGatewayError):
@@ -149,10 +151,13 @@ def handle_spaces_error(e: Exception, operation: str, verbose: bool = False) -> 
     else:
         console.print(f"[red]❌ Unexpected error during {operation}[/red]")
         console.print(f"[yellow]Error: {e}[/yellow]")
-        console.print("[yellow]💡 This may be a bug. Please report it with the error details.[/yellow]")
+        console.print(
+            "[yellow]💡 This may be a bug. Please report it with the error details.[/yellow]"
+        )
         if verbose:
             console.print(f"[dim]Error type: {type(e).__name__}[/dim]")
             import traceback
+
             console.print(f"[dim]Stack trace: {traceback.format_exc()}[/dim]")
 
 
@@ -282,9 +287,7 @@ def list_spaces(
                         )
 
                     spaces = retry_on_network_error(
-                        fetch_all_spaces,
-                        "fetching all spaces",
-                        verbose=verbose
+                        fetch_all_spaces, "fetching all spaces", verbose=verbose
                     )
 
                     status.update(f"[green]✓ Fetched {len(spaces)} spaces")
@@ -297,9 +300,7 @@ def list_spaces(
                     )
 
                 spaces = retry_on_network_error(
-                    fetch_all_spaces,
-                    "fetching all spaces",
-                    verbose=verbose
+                    fetch_all_spaces, "fetching all spaces", verbose=verbose
                 )
 
             # Apply client-side filtering
@@ -349,6 +350,7 @@ def list_spaces(
                         spinner="dots",
                         console=console,
                     ) as status:
+
                         def fetch_all_spaces_for_filtering() -> Any:
                             return client.list_all_spaces(
                                 space_type=space_type, space_status="current"
@@ -357,7 +359,7 @@ def list_spaces(
                         all_spaces = retry_on_network_error(
                             fetch_all_spaces_for_filtering,
                             "fetching spaces for filtering",
-                            verbose=verbose
+                            verbose=verbose,
                         )
                         status.update(
                             f"[green]✓ Fetched {len(all_spaces)} spaces for filtering"
@@ -372,7 +374,7 @@ def list_spaces(
                     all_spaces = retry_on_network_error(
                         fetch_all_spaces_for_filtering,
                         "fetching spaces for filtering",
-                        verbose=verbose
+                        verbose=verbose,
                     )
 
                 # Apply client-side filtering
@@ -423,6 +425,7 @@ def list_spaces(
                         spinner="dots",
                         console=console,
                     ) as status:
+
                         def fetch_spaces_paginated() -> Any:
                             return client.list_spaces_paginated(
                                 start=start,
@@ -434,7 +437,7 @@ def list_spaces(
                         spaces, total_count = retry_on_network_error(
                             fetch_spaces_paginated,
                             f"fetching page {page} of spaces",
-                            verbose=verbose
+                            verbose=verbose,
                         )
                         status.update(
                             f"[green]✓ Fetched {len(spaces)} spaces from page {page}"
@@ -452,7 +455,7 @@ def list_spaces(
                     spaces, total_count = retry_on_network_error(
                         fetch_spaces_paginated,
                         f"fetching page {page} of spaces",
-                        verbose=verbose
+                        verbose=verbose,
                     )
                 current_page = page
                 total_pages = (
@@ -609,13 +612,14 @@ def space_info(
             spinner="dots",
             console=console,
         ) as status:
+
             def fetch_space_info() -> Any:
                 return client.get_space(space_key)
 
             space = retry_on_network_error(
                 fetch_space_info,
                 f"fetching information for space '{space_key}'",
-                verbose=verbose
+                verbose=verbose,
             )
             status.update(f"[green]✓ Retrieved information for space '{space_key}'")
 
@@ -637,5 +641,7 @@ def space_info(
             console.print(f"[bold]Updated:[/bold] {space.updated_at}")
 
     except Exception as e:
-        handle_spaces_error(e, f"getting information for space '{space_key}'", verbose=verbose)
+        handle_spaces_error(
+            e, f"getting information for space '{space_key}'", verbose=verbose
+        )
         raise typer.Exit(1)

@@ -51,7 +51,9 @@ class TestSpacesListCommandIntegration:
         assert "Page 1" in result.output
 
         # Test page 2
-        result = runner.invoke(app, ["spaces", "list", "--page", "2", "--page-size", "5"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--page", "2", "--page-size", "5"]
+        )
         assert result.exit_code == 0
         if len(spaces) > 5:
             assert "Page 2" in result.output
@@ -76,14 +78,18 @@ class TestSpacesListCommandIntegration:
             # At least one space key should be visible (possibly truncated)
             # Check for first 20 chars of the key (before truncation)
             first_space_key = all_spaces[0].key
-            key_prefix = first_space_key[:20] if len(first_space_key) > 20 else first_space_key
+            key_prefix = (
+                first_space_key[:20] if len(first_space_key) > 20 else first_space_key
+            )
             assert key_prefix in result.output
 
     def test_list_spaces_json_format(
         self, confluence_client: ConfluenceClient, runner: CliRunner
     ):
         """Test JSON output format."""
-        result = runner.invoke(app, ["spaces", "list", "--format", "json", "--page-size", "5"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--format", "json", "--page-size", "5"]
+        )
 
         assert result.exit_code == 0
         # Parse JSON output
@@ -112,7 +118,9 @@ class TestSpacesListCommandIntegration:
         self, confluence_client: ConfluenceClient, runner: CliRunner
     ):
         """Test CSV output format."""
-        result = runner.invoke(app, ["spaces", "list", "--format", "csv", "--page-size", "5"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--format", "csv", "--page-size", "5"]
+        )
 
         assert result.exit_code == 0
 
@@ -146,7 +154,10 @@ class TestSpacesListCommandIntegration:
         assert "Error: type must be 'personal', 'global', or 'all'" in result.output
 
     def test_search_spaces(
-        self, confluence_client: ConfluenceClient, runner: CliRunner, test_space_with_content
+        self,
+        confluence_client: ConfluenceClient,
+        runner: CliRunner,
+        test_space_with_content,
     ):
         """Test searching spaces by name or key."""
         if not test_space_with_content:
@@ -160,7 +171,10 @@ class TestSpacesListCommandIntegration:
         assert space_key in result.output
 
     def test_filter_by_key_prefix(
-        self, confluence_client: ConfluenceClient, runner: CliRunner, test_space_with_content
+        self,
+        confluence_client: ConfluenceClient,
+        runner: CliRunner,
+        test_space_with_content,
     ):
         """Test filtering spaces by key prefix."""
         if not test_space_with_content:
@@ -173,35 +187,45 @@ class TestSpacesListCommandIntegration:
         assert result.exit_code == 0
         assert space_key in result.output
 
-    def test_sort_spaces(
-        self, confluence_client: ConfluenceClient, runner: CliRunner
-    ):
+    def test_sort_spaces(self, confluence_client: ConfluenceClient, runner: CliRunner):
         """Test sorting spaces by different fields."""
         # Sort by name
-        result = runner.invoke(app, ["spaces", "list", "--sort", "name", "--page-size", "10"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--sort", "name", "--page-size", "10"]
+        )
         assert result.exit_code == 0
 
         # Sort by key
-        result = runner.invoke(app, ["spaces", "list", "--sort", "key", "--page-size", "10"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--sort", "key", "--page-size", "10"]
+        )
         assert result.exit_code == 0
 
         # Sort by type
-        result = runner.invoke(app, ["spaces", "list", "--sort", "type", "--page-size", "10"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--sort", "type", "--page-size", "10"]
+        )
         assert result.exit_code == 0
 
         # Sort by ID
-        result = runner.invoke(app, ["spaces", "list", "--sort", "id", "--page-size", "10"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--sort", "id", "--page-size", "10"]
+        )
         assert result.exit_code == 0
 
         # Test reverse sort
-        result = runner.invoke(app, ["spaces", "list", "--sort", "name", "--reverse", "--page-size", "10"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--sort", "name", "--reverse", "--page-size", "10"]
+        )
         assert result.exit_code == 0
 
     def test_no_truncate_option(
         self, confluence_client: ConfluenceClient, runner: CliRunner
     ):
         """Test the no-truncate option for table output."""
-        result = runner.invoke(app, ["spaces", "list", "--no-truncate", "--page-size", "5"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--no-truncate", "--page-size", "5"]
+        )
         assert result.exit_code == 0
         assert "Confluence Spaces" in result.output
 
@@ -212,7 +236,16 @@ class TestSpacesListCommandIntegration:
         # This tests the client-side filtering logic
         result = runner.invoke(
             app,
-            ["spaces", "list", "--type", "global", "--sort", "name", "--page-size", "10"]
+            [
+                "spaces",
+                "list",
+                "--type",
+                "global",
+                "--sort",
+                "name",
+                "--page-size",
+                "10",
+            ],
         )
         assert result.exit_code == 0
 
@@ -224,21 +257,17 @@ class TestSpacesListCommandIntegration:
         # then applies filters and pagination client-side
         result = runner.invoke(
             app,
-            ["spaces", "list", "--search", "test", "--page", "1", "--page-size", "5"]
+            ["spaces", "list", "--search", "test", "--page", "1", "--page-size", "5"],
         )
         assert result.exit_code == 0
 
-    def test_error_handling_invalid_format(
-        self, runner: CliRunner
-    ):
+    def test_error_handling_invalid_format(self, runner: CliRunner):
         """Test error handling for invalid format option."""
         result = runner.invoke(app, ["spaces", "list", "--format", "invalid"])
         assert result.exit_code == 1
         assert "Error: format must be 'table', 'json', or 'csv'" in result.output
 
-    def test_error_handling_invalid_sort(
-        self, runner: CliRunner
-    ):
+    def test_error_handling_invalid_sort(self, runner: CliRunner):
         """Test error handling for invalid sort option."""
         result = runner.invoke(app, ["spaces", "list", "--sort", "invalid"])
         assert result.exit_code == 1
@@ -249,7 +278,10 @@ class TestSpacesInfoCommandIntegration:
     """Test the spaces info command with real Confluence API."""
 
     def test_space_info_valid_space(
-        self, confluence_client: ConfluenceClient, runner: CliRunner, test_space_with_content
+        self,
+        confluence_client: ConfluenceClient,
+        runner: CliRunner,
+        test_space_with_content,
     ):
         """Test getting info for a valid space."""
         if not test_space_with_content:
@@ -291,7 +323,7 @@ class TestSpacesInfoCommandIntegration:
                     assert result.exit_code == 0
                     assert "Description:" in result.output
                     break
-            except:
+            except Exception:
                 continue
 
 
@@ -300,13 +332,17 @@ class TestSpacesCommandsErrorScenarios:
 
     def test_no_confluence_config(self, runner: CliRunner, monkeypatch, tmp_path):
         """Test behavior when Confluence is not configured."""
-        pytest.skip("Configuration system always provides fallbacks - cannot test complete absence of config")
+        pytest.skip(
+            "Configuration system always provides fallbacks - cannot test complete absence of config"
+        )
 
         # This test is skipped because the application's configuration system
         # is designed to always provide fallback values from the default config file.
         # Testing "no configuration" scenarios requires deeper mocking of the config system.
 
-    def test_authentication_error(self, runner: CliRunner, monkeypatch, confluence_config):
+    def test_authentication_error(
+        self, runner: CliRunner, monkeypatch, confluence_config
+    ):
         """Test behavior with invalid credentials."""
         if not confluence_config:
             pytest.skip("No Confluence configuration available")
@@ -324,9 +360,16 @@ class TestSpacesCommandsErrorScenarios:
         if result.exit_code != 1:
             pytest.skip("Confluence instance handles invalid tokens gracefully")
 
-        assert "Error:" in result.output or "authentication" in result.output.lower() or "401" in result.output or "403" in result.output
+        assert (
+            "Error:" in result.output
+            or "authentication" in result.output.lower()
+            or "401" in result.output
+            or "403" in result.output
+        )
 
-    def test_network_error_simulation(self, runner: CliRunner, monkeypatch, confluence_config):
+    def test_network_error_simulation(
+        self, runner: CliRunner, monkeypatch, confluence_config
+    ):
         """Test behavior when network is unavailable."""
         if not confluence_config:
             pytest.skip("No Confluence configuration available")
@@ -341,9 +384,15 @@ class TestSpacesCommandsErrorScenarios:
 
         # Network errors should cause exit code 1
         if result.exit_code != 1:
-            pytest.skip("Network error did not result in exit code 1 - may have graceful fallback")
+            pytest.skip(
+                "Network error did not result in exit code 1 - may have graceful fallback"
+            )
 
-        assert "Error:" in result.output or "connection" in result.output.lower() or "network" in result.output.lower()
+        assert (
+            "Error:" in result.output
+            or "connection" in result.output.lower()
+            or "network" in result.output.lower()
+        )
 
 
 class TestSpacesCommandsPaginationEdgeCases:
@@ -353,7 +402,9 @@ class TestSpacesCommandsPaginationEdgeCases:
         self, confluence_client: ConfluenceClient, runner: CliRunner
     ):
         """Test requesting a page number beyond available pages."""
-        result = runner.invoke(app, ["spaces", "list", "--page", "9999", "--page-size", "25"])
+        result = runner.invoke(
+            app, ["spaces", "list", "--page", "9999", "--page-size", "25"]
+        )
         assert result.exit_code == 0
         assert "No spaces found on page 9999" in result.output
 
