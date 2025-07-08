@@ -161,7 +161,15 @@ class ChromaDBAdapter(VectorDBAdapter):
                         if i < len(distances) and distances[i] is not None
                         else 1.0
                     )
-                    similarity_score = 1.0 - float(distance)
+                    # ChromaDB distances can be > 1.0, so we need to normalize
+                    # Convert distance to similarity score (0 to 1, where 1 is most similar)
+                    if distance <= 0:
+                        similarity_score = 1.0
+                    elif distance >= 2.0:
+                        similarity_score = 0.0
+                    else:
+                        # Normalize: distance 0->1, distance 2->0
+                        similarity_score = max(0.0, 1.0 - (float(distance) / 2.0))
 
                     result = VectorSearchResultItem(
                         id=item_id,
