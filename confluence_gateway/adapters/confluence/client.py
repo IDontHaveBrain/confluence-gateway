@@ -242,14 +242,25 @@ class ConfluenceClient:
             raise ConfluenceAPIError(error_message=str(e)) from e
 
     @with_backoff()
-    def list_all_spaces(self, limit: int = 50) -> list[ConfluenceSpace]:
+    def list_all_spaces(
+        self,
+        limit: int = 50,
+        space_type: str | None = None,
+        space_status: str | None = None,
+    ) -> list[ConfluenceSpace]:
         all_spaces = []
         start = 0
         while True:
             try:
-                logger.debug(f"Fetching spaces, start={start}, limit={limit}")
+                logger.debug(
+                    f"Fetching spaces, start={start}, limit={limit}, type={space_type}, status={space_status}"
+                )
                 spaces_data = self.atlassian_api.get_all_spaces(
-                    start=start, limit=limit, expand="description.plain"
+                    start=start,
+                    limit=limit,
+                    expand="description.plain",
+                    space_type=space_type,
+                    space_status=space_status,
                 )
 
                 if not spaces_data or "results" not in spaces_data:
@@ -290,6 +301,76 @@ class ConfluenceClient:
 
         logger.info(f"Successfully fetched {len(all_spaces)} spaces in total.")
         return all_spaces
+
+    @with_backoff()
+    def list_spaces_paginated(
+        self,
+        start: int = 0,
+        limit: int = 25,
+        space_type: str | None = None,
+        space_status: str | None = None,
+    ) -> tuple[list[ConfluenceSpace], int]:
+        """
+        List Confluence spaces with pagination support.
+
+        Args:
+            start: The starting index for pagination
+            limit: The number of spaces to retrieve
+            space_type: Filter by space type ('global', 'personal', or None for all)
+            space_status: Filter by space status ('current', 'archived', or None for all)
+
+        Returns:
+            A tuple of (spaces, total_count) where:
+            - spaces: List of ConfluenceSpace objects for the current page
+            - total_count: Total number of spaces available
+        """
+        try:
+            logger.debug(
+                f"Fetching spaces page, start={start}, limit={limit}, type={space_type}, status={space_status}"
+            )
+            spaces_data = self.atlassian_api.get_all_spaces(
+                start=start,
+                limit=limit,
+                expand="description.plain",
+                space_type=space_type,
+                space_status=space_status,
+            )
+
+            if not spaces_data or "results" not in spaces_data:
+                logger.debug("No spaces found or unexpected response format.")
+                return [], 0
+
+            spaces = []
+            results = spaces_data.get("results", [])
+            for space_dict in results:
+                try:
+                    space = self._parse_space(space_dict)
+                    spaces.append(space)
+                except (ValidationError, TypeError) as parse_err:
+                    logger.warning(
+                        f"Failed to parse space data: {space_dict.get('key', 'N/A')}. Error: {parse_err}"
+                    )
+
+            # Get total count from response
+            total_count = spaces_data.get("size", 0)
+            if total_count == 0 and spaces:
+                # Fallback: estimate total based on whether there's a next page
+                has_next = "next" in spaces_data.get("_links", {})
+                total_count = start + len(spaces) + (1 if has_next else 0)
+
+            return spaces, total_count
+
+        except Exception as e:
+            if "401" in str(e):
+                raise ConfluenceAuthenticationError(
+                    "Authentication failed. Check username and API token."
+                ) from e
+            if isinstance(e, requests.exceptions.RequestException):
+                raise ConfluenceConnectionError(cause=e)
+            logger.error(
+                f"Error fetching spaces page at start={start}: {e}", exc_info=True
+            )
+            raise ConfluenceAPIError(error_message=str(e)) from e
 
     def get_space(self, space_key: str) -> ConfluenceSpace:
         try:
