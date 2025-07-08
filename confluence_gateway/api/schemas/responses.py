@@ -216,6 +216,34 @@ class SourceDocument(BaseModel):
         )
 
 
+class SpaceInfo(BaseModel):
+    id: str = Field(..., description="The unique ID of the space.")
+    key: str = Field(..., description="The unique key of the space.")
+    name: str = Field(..., description="The display name of the space.")
+    type: str = Field(..., description="The type of space (global or personal).")
+    description: str | None = Field(None, description="The description of the space.")
+    created_at: datetime | None = Field(None, description="When the space was created.")
+    updated_at: datetime | None = Field(
+        None, description="When the space was last updated."
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "12345",
+                    "key": "DEV",
+                    "name": "Development",
+                    "type": "global",
+                    "description": "Space for development documentation and resources",
+                    "created_at": "2023-01-15T10:00:00Z",
+                    "updated_at": "2023-12-01T14:30:00Z",
+                }
+            ]
+        }
+    }
+
+
 class GenerateAnswerResponse(BaseModel):
     answer: str = Field(
         ..., description="The generated answer based on the retrieved context."
