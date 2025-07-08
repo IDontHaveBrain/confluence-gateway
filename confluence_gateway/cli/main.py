@@ -1,6 +1,6 @@
 import typer
 
-from . import generate_commands, index_commands, search_commands
+from . import generate_commands, index_commands, search_commands, spaces_commands
 
 app = typer.Typer(
     help="Confluence Gateway CLI - Search, Index, and Generate.",
@@ -12,6 +12,7 @@ app.add_typer(index_commands.app, name="index", help="Manage content indexing.")
 app.add_typer(
     generate_commands.app, name="generate", help="Generate answers using RAG."
 )
+app.add_typer(spaces_commands.app, name="spaces", help="Manage Confluence spaces.")
 
 if __name__ == "__main__":
     app()
