@@ -182,9 +182,9 @@ class VectorDBConfig(BaseModel):
                 )
 
         if self.type == "qdrant":
-            if self.qdrant_url is None:
+            if self.qdrant_url is None and self.qdrant_local_path is None:
                 raise ValueError(
-                    "QDRANT_URL must be set if VECTOR_DB_TYPE is 'qdrant'."
+                    "Either QDRANT_URL or QDRANT_LOCAL_PATH must be set if VECTOR_DB_TYPE is 'qdrant'."
                 )
 
         return self

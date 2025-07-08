@@ -26,7 +26,7 @@
     "embedding_dimension": 384,
     "chunk_size": 512,
     "chunk_overlap": 50,
-    "qdrant_url": ":memory:",
+    "qdrant_url": null,
     "qdrant_local_path": "~/.confluence_gateway/qdrant_storage",
     "qdrant_grpc_port": 6334,
     "qdrant_prefer_grpc": false,

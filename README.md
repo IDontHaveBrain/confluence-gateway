@@ -94,8 +94,15 @@ Or config file at `~/.confluence_gateway_config.json`:
 
 **CLI:**
 ```bash
+# List and manage spaces
+uv run confluence-gateway spaces list
+uv run confluence-gateway spaces list --all
+uv run confluence-gateway spaces list --search "dev"
+uv run confluence-gateway spaces list --key-prefix TEAM
+
 # Index content
 uv run confluence-gateway index trigger --space TECH
+uv run confluence-gateway index trigger --all  # Index all accessible spaces
 uv run confluence-gateway index status
 
 # Search with various modes
@@ -120,6 +127,12 @@ uv run uvicorn confluence_gateway.api.app:app --reload
 
 # Health check
 curl "http://localhost:8000/health"
+
+# List spaces
+curl "http://localhost:8000/api/spaces"
+
+# Get space info
+curl "http://localhost:8000/api/spaces/TECH"
 
 # Text search (GET)
 curl "http://localhost:8000/api/search?query=deployment&limit=20"
@@ -159,6 +172,11 @@ curl -X POST "http://localhost:8000/api/indexing/trigger" \
   -H "Content-Type: application/json" \
   -d '{"space_keys": ["TECH"]}'
 
+# Index all accessible spaces
+curl -X POST "http://localhost:8000/api/indexing/trigger" \
+  -H "Content-Type: application/json" \
+  -d '{"index_all": true}'
+
 curl "http://localhost:8000/api/indexing/status"
 ```
 
@@ -181,6 +199,51 @@ Returns service health status and Confluence connectivity.
   "timestamp": "2024-01-01T12:00:00Z",
   "confluence_connection": "ok|error|authentication_error|api_error",
   "confluence_error": "error message if any"
+}
+```
+
+#### Spaces Endpoints
+
+##### List All Spaces
+```http
+GET /api/spaces
+```
+Returns a list of all accessible Confluence spaces.
+
+**Response:**
+```json
+[
+  {
+    "id": "12345",
+    "key": "DEV",
+    "name": "Development",
+    "type": "global",
+    "description": "Space for development documentation",
+    "created_at": "2023-01-15T10:00:00Z",
+    "updated_at": "2023-12-01T14:30:00Z"
+  }
+]
+```
+
+##### Get Space Details
+```http
+GET /api/spaces/{space_key}
+```
+Returns detailed information about a specific space.
+
+**Parameters:**
+- `space_key` (path, required): The unique key of the space
+
+**Response:**
+```json
+{
+  "id": "12345",
+  "key": "DEV",
+  "name": "Development",
+  "type": "global",
+  "description": "Space for development documentation",
+  "created_at": "2023-01-15T10:00:00Z",
+  "updated_at": "2023-12-01T14:30:00Z"
 }
 ```
 
@@ -350,11 +413,35 @@ All endpoints return standardized responses:
 <details>
 <summary><strong>Complete CLI Commands and Options</strong></summary>
 
+#### Spaces Commands
+```bash
+# List all Confluence spaces
+uv run confluence-gateway spaces list [OPTIONS]
+  --format, -f TEXT       Output format: table, json, or csv (default: table)
+  --page, -p INTEGER      Page number (starts from 1, default: 1)
+  --page-size, -s INTEGER Number of spaces per page (default: 25, max: 100)
+  --all, -a              Fetch all spaces (ignore pagination)
+  --type, -t TEXT        Filter by space type: personal, global, or all
+  --search TEXT          Search spaces by name or key (case-insensitive)
+  --key-prefix TEXT      Filter spaces by key prefix (case-insensitive)
+  --sort TEXT            Sort spaces by: name, key, type, or id
+  --reverse, -r          Reverse sort order
+  --no-truncate          Do not truncate long text in table format
+  --verbose, -v          Show detailed error messages and retry information
+  --help                 Show help message
+
+# Get detailed information about a specific space
+uv run confluence-gateway spaces info SPACE_KEY [OPTIONS]
+  --verbose, -v          Show detailed error messages and retry information
+  --help                 Show help message
+```
+
 #### Index Commands
 ```bash
 # Trigger indexing
 uv run confluence-gateway index trigger [OPTIONS]
   --space, -s TEXT        Space keys to index (repeatable)
+  --all, -a              Index all accessible spaces (ignores configuration filters)
   --help                  Show help message
 
 # Check indexing status
@@ -416,9 +503,14 @@ uv run confluence-gateway generate answer QUESTION [OPTIONS]
 Note: You'll need an OpenRouter API key to use the default model. Get one at https://openrouter.ai/
 
 **Vector Database Options:**
-- **Qdrant**: Supports both local storage (`qdrant_local_path`) and remote server (`qdrant_url`)
-- **ChromaDB**: Supports local persistent storage (`chroma_persist_path`) and remote server (`chroma_host`, `chroma_port`)
-- Both databases automatically create directories for local storage when configured with paths containing `~`
+- **Qdrant**: 
+  - Local storage mode: Set `qdrant_local_path` (e.g., `~/.confluence_gateway/qdrant_storage`) and `qdrant_url` to `null`
+  - Server mode: Set `qdrant_url` (e.g., `http://localhost:6333`) and `qdrant_local_path` to `null`
+  - Default: Local storage with persistence enabled
+- **ChromaDB**: 
+  - Local storage: Set `chroma_persist_path` (e.g., `~/.confluence_gateway/chroma_storage`)
+  - Remote server: Set `chroma_host` and `chroma_port`
+- Both databases automatically create directories for local storage when configured
 
 <details>
 <summary><strong>Complete Configuration Example</strong></summary>
@@ -449,9 +541,13 @@ Note: You'll need an OpenRouter API key to use the default model. Get one at htt
     "embedding_dimension": 384,
     "chunk_size": 512,
     "chunk_overlap": 50,
-    // Qdrant configuration
-    "qdrant_url": "http://localhost:6333",
+    // Qdrant configuration (choose one mode)
+    // For local storage (default):
+    "qdrant_url": null,
     "qdrant_local_path": "~/.confluence_gateway/qdrant_storage",
+    // For server mode:
+    // "qdrant_url": "http://localhost:6333",
+    // "qdrant_local_path": null,
     "qdrant_grpc_port": 6334,
     "qdrant_prefer_grpc": false,
     // ChromaDB configuration
@@ -494,11 +590,11 @@ export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
 
 # Vector database (choose one)
-# For Qdrant:
+# For Qdrant local storage (default, persistent):
 export VECTOR_DB_TYPE="qdrant"
-export VECTOR_DB_QDRANT_URL="http://localhost:6333"
-# Or for local Qdrant storage:
 export VECTOR_DB_QDRANT_LOCAL_PATH="~/.confluence_gateway/qdrant_storage"
+# For Qdrant server mode (unset QDRANT_LOCAL_PATH first):
+# export VECTOR_DB_QDRANT_URL="http://localhost:6333"
 
 # For ChromaDB:
 export VECTOR_DB_TYPE="chroma"
@@ -587,7 +683,8 @@ MIT License - see [LICENSE](LICENSE) file
 - ✅ 기능 동등성을 갖춘 REST API + CLI
 - ✅ 다중 제공자 아키텍처 (로컬 저장소를 지원하는 Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
 - ✅ 계층적 구성 시스템
-- ✅ 포괄적인 오류 처리 및 로깅
+- ✅ 재시도 로직과 사용자 친화적 메시지를 포함한 포괄적인 오류 처리
+- ✅ 고급 CLI 기능: 페이지네이션, 필터링, 정렬, 다중 출력 형식
 
 **계획된 기능:**
 - 🔄 MCP (Model Context Protocol) 서버
@@ -643,8 +740,15 @@ export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 
 **CLI:**
 ```bash
+# 스페이스 목록 조회
+uv run confluence-gateway spaces list
+uv run confluence-gateway spaces list --all
+uv run confluence-gateway spaces list --search "dev"
+uv run confluence-gateway spaces list --key-prefix TEAM
+
 # 콘텐츠 인덱싱
 uv run confluence-gateway index trigger --space TECH
+uv run confluence-gateway index trigger --all  # 모든 접근 가능한 스페이스 인덱싱
 uv run confluence-gateway index status
 
 # 다양한 검색 모드
@@ -669,6 +773,12 @@ uv run uvicorn confluence_gateway.api.app:app --reload
 
 # 상태 확인
 curl "http://localhost:8000/health"
+
+# 스페이스 목록 조회
+curl "http://localhost:8000/api/spaces"
+
+# 스페이스 정보 조회
+curl "http://localhost:8000/api/spaces/TECH"
 
 # 텍스트 검색 (GET)
 curl "http://localhost:8000/api/search?query=배포&limit=20"
@@ -708,6 +818,11 @@ curl -X POST "http://localhost:8000/api/indexing/trigger" \
   -H "Content-Type: application/json" \
   -d '{"space_keys": ["TECH"]}'
 
+# 모든 접근 가능한 스페이스 인덱싱
+curl -X POST "http://localhost:8000/api/indexing/trigger" \
+  -H "Content-Type: application/json" \
+  -d '{"index_all": true}'
+
 curl "http://localhost:8000/api/indexing/status"
 ```
 
@@ -730,6 +845,51 @@ GET /health
   "timestamp": "2024-01-01T12:00:00Z",
   "confluence_connection": "ok|error|authentication_error|api_error",
   "confluence_error": "오류 메시지 (있는 경우)"
+}
+```
+
+#### 스페이스 엔드포인트
+
+##### 모든 스페이스 목록 조회
+```http
+GET /api/spaces
+```
+접근 가능한 모든 Confluence 스페이스 목록을 반환합니다.
+
+**응답:**
+```json
+[
+  {
+    "id": "12345",
+    "key": "DEV",
+    "name": "Development",
+    "type": "global",
+    "description": "개발 문서를 위한 스페이스",
+    "created_at": "2023-01-15T10:00:00Z",
+    "updated_at": "2023-12-01T14:30:00Z"
+  }
+]
+```
+
+##### 스페이스 상세 정보 조회
+```http
+GET /api/spaces/{space_key}
+```
+특정 스페이스의 상세 정보를 반환합니다.
+
+**파라미터:**
+- `space_key` (경로, 필수): 스페이스의 고유 키
+
+**응답:**
+```json
+{
+  "id": "12345",
+  "key": "DEV",
+  "name": "Development",
+  "type": "global",
+  "description": "개발 문서를 위한 스페이스",
+  "created_at": "2023-01-15T10:00:00Z",
+  "updated_at": "2023-12-01T14:30:00Z"
 }
 ```
 
@@ -899,11 +1059,35 @@ POST /api/generate/answer
 <details>
 <summary><strong>전체 CLI 명령어 및 옵션</strong></summary>
 
+#### 스페이스 명령어
+```bash
+# 모든 Confluence 스페이스 목록 조회
+uv run confluence-gateway spaces list [OPTIONS]
+  --format, -f TEXT       출력 형식: table, json, 또는 csv (기본값: table)
+  --page, -p INTEGER      페이지 번호 (1부터 시작, 기본값: 1)
+  --page-size, -s INTEGER 페이지당 스페이스 수 (기본값: 25, 최대: 100)
+  --all, -a              모든 스페이스 가져오기 (페이지네이션 무시)
+  --type, -t TEXT        스페이스 타입으로 필터링: personal, global, 또는 all
+  --search TEXT          이름 또는 키로 스페이스 검색 (대소문자 구분 없음)
+  --key-prefix TEXT      키 접두사로 스페이스 필터링 (대소문자 구분 없음)
+  --sort TEXT            정렬 기준: name, key, type, 또는 id
+  --reverse, -r          역순 정렬
+  --no-truncate          테이블 형식에서 긴 텍스트를 자르지 않음
+  --verbose, -v          상세한 오류 메시지 및 재시도 정보 표시
+  --help                 도움말 표시
+
+# 특정 스페이스의 상세 정보 조회
+uv run confluence-gateway spaces info SPACE_KEY [OPTIONS]
+  --verbose, -v          상세한 오류 메시지 및 재시도 정보 표시
+  --help                 도움말 표시
+```
+
 #### 인덱싱 명령어
 ```bash
 # 인덱싱 실행
 uv run confluence-gateway index trigger [OPTIONS]
   --space, -s TEXT        인덱싱할 스페이스 키 (반복 가능)
+  --all, -a              모든 접근 가능한 스페이스 인덱싱 (구성 필터 무시)
   --help                  도움말 표시
 
 # 인덱싱 상태 확인
@@ -965,9 +1149,14 @@ uv run confluence-gateway generate answer QUESTION [OPTIONS]
 참고: 기본 모델을 사용하려면 OpenRouter API 키가 필요합니다. https://openrouter.ai/ 에서 받으세요.
 
 **벡터 데이터베이스 옵션:**
-- **Qdrant**: 로컬 저장소(`qdrant_local_path`)와 원격 서버(`qdrant_url`) 모두 지원
-- **ChromaDB**: 로컬 영구 저장소(`chroma_persist_path`)와 원격 서버(`chroma_host`, `chroma_port`) 지원
-- 두 데이터베이스 모두 `~`가 포함된 경로로 구성시 자동으로 디렉토리 생성
+- **Qdrant**: 
+  - 로컬 저장소 모드: `qdrant_local_path` 설정 (예: `~/.confluence_gateway/qdrant_storage`) 및 `qdrant_url`을 `null`로 설정
+  - 서버 모드: `qdrant_url` 설정 (예: `http://localhost:6333`) 및 `qdrant_local_path`를 `null`로 설정
+  - 기본값: 영구 저장이 활성화된 로컬 저장소
+- **ChromaDB**: 
+  - 로컬 저장소: `chroma_persist_path` 설정 (예: `~/.confluence_gateway/chroma_storage`)
+  - 원격 서버: `chroma_host`와 `chroma_port` 설정
+- 두 데이터베이스 모두 구성시 자동으로 디렉토리 생성
 
 <details>
 <summary><strong>전체 구성 예제</strong></summary>
@@ -998,9 +1187,13 @@ uv run confluence-gateway generate answer QUESTION [OPTIONS]
     "embedding_dimension": 384,
     "chunk_size": 512,
     "chunk_overlap": 50,
-    // Qdrant configuration
-    "qdrant_url": "http://localhost:6333",
+    // Qdrant configuration (choose one mode)
+    // For local storage (default):
+    "qdrant_url": null,
     "qdrant_local_path": "~/.confluence_gateway/qdrant_storage",
+    // For server mode:
+    // "qdrant_url": "http://localhost:6333",
+    // "qdrant_local_path": null,
     "qdrant_grpc_port": 6334,
     "qdrant_prefer_grpc": false,
     // ChromaDB configuration
@@ -1043,11 +1236,11 @@ export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
 
 # 벡터 데이터베이스 (하나 선택)
-# Qdrant 사용시:
+# Qdrant 로컬 저장소 사용시 (기본값, 영구 저장):
 export VECTOR_DB_TYPE="qdrant"
-export VECTOR_DB_QDRANT_URL="http://localhost:6333"
-# 또는 로컬 Qdrant 저장소 사용시:
 export VECTOR_DB_QDRANT_LOCAL_PATH="~/.confluence_gateway/qdrant_storage"
+# Qdrant 서버 모드 사용시 (QDRANT_LOCAL_PATH를 먼저 해제):
+# export VECTOR_DB_QDRANT_URL="http://localhost:6333"
 
 # ChromaDB 사용시:
 export VECTOR_DB_TYPE="chroma"
