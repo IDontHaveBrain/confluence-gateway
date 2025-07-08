@@ -42,12 +42,8 @@ class ChromaDBAdapter(VectorDBAdapter):
                 persist_path.mkdir(parents=True, exist_ok=True)
                 persist_path_str = str(persist_path)
 
-                logger.info(
-                    f"Using PersistentClient: path={persist_path_str}"
-                )
-                self.client = chromadb.PersistentClient(
-                    path=persist_path_str
-                )
+                logger.info(f"Using PersistentClient: path={persist_path_str}")
+                self.client = chromadb.PersistentClient(path=persist_path_str)
             else:
                 logger.info("Using transient in-memory Client.")
                 self.client = chromadb.Client()

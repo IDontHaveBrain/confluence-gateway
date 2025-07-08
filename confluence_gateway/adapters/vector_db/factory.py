@@ -2,18 +2,23 @@ import logging
 from typing import Optional
 
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
-from confluence_gateway.core.config import vector_db_config
+from confluence_gateway.core.config import VectorDBConfig, vector_db_config
 
 logger = logging.getLogger(__name__)
 
 
-def get_vector_db_adapter() -> Optional["VectorDBAdapter"]:
-    if vector_db_config is None:
+def get_vector_db_adapter(
+    config: VectorDBConfig | None = None,
+) -> Optional["VectorDBAdapter"]:
+    # Use the provided config or fall back to global config
+    effective_config = config if config is not None else vector_db_config
+
+    if effective_config is None:
         logger.warning("Vector DB configuration is not loaded. Cannot get adapter.")
         return None
 
     adapter: VectorDBAdapter | None = None
-    adapter_type = vector_db_config.type
+    adapter_type = effective_config.type
     logger.info(f"Attempting to get Vector DB adapter for type: {adapter_type}")
 
     try:
@@ -27,7 +32,7 @@ def get_vector_db_adapter() -> Optional["VectorDBAdapter"]:
             )
 
             logger.info("Creating ChromaDB adapter.")
-            adapter = ChromaDBAdapter(vector_db_config)
+            adapter = ChromaDBAdapter(effective_config)
             adapter.initialize()
             logger.info("ChromaDB adapter initialized successfully.")
 
@@ -37,7 +42,7 @@ def get_vector_db_adapter() -> Optional["VectorDBAdapter"]:
             )
 
             logger.info("Creating Qdrant adapter.")
-            adapter = QdrantAdapter(vector_db_config)
+            adapter = QdrantAdapter(effective_config)
             adapter.initialize()
             logger.info("Qdrant adapter initialized successfully.")
 

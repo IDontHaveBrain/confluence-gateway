@@ -36,6 +36,10 @@ class QdrantAdapter(VectorDBAdapter):
             client_url = None
             client_location = None
 
+            logger.debug(
+                f"Config values: qdrant_url={self.config.qdrant_url!r}, qdrant_local_path={self.config.qdrant_local_path!r}"
+            )
+
             # Check if local path is specified
             if self.config.qdrant_local_path:
                 # Expand user home directory if present
@@ -57,6 +61,9 @@ class QdrantAdapter(VectorDBAdapter):
                     f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
                     f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
                 )
+                logger.debug(
+                    f"Memory mode confirmed: qdrant_url='{self.config.qdrant_url}', type={type(self.config.qdrant_url)}"
+                )
             else:
                 client_url = (
                     str(self.config.qdrant_url) if self.config.qdrant_url else None
@@ -68,13 +75,23 @@ class QdrantAdapter(VectorDBAdapter):
                     f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
                 )
 
-            self.client = QdrantClient(
-                url=client_url,
-                location=client_location,
-                api_key=self.config.qdrant_api_key,
-                grpc_port=self.config.qdrant_grpc_port,
-                prefer_grpc=self.config.qdrant_prefer_grpc,
+            logger.debug(
+                f"Creating QdrantClient with url={client_url}, location={client_location}"
             )
+
+            # For local mode, use path parameter
+            if client_location:
+                self.client = QdrantClient(
+                    path=client_location,
+                )
+            else:
+                # For server mode, pass url and other parameters
+                self.client = QdrantClient(
+                    url=client_url,
+                    api_key=self.config.qdrant_api_key,
+                    grpc_port=self.config.qdrant_grpc_port,
+                    prefer_grpc=self.config.qdrant_prefer_grpc,
+                )
 
             collection_name = self.config.collection_name
             logger.info(f"Checking for Qdrant collection: {collection_name}")
