@@ -29,6 +29,12 @@ def trigger_indexing(
         help="Specific space keys to index (optional, defaults to configured spaces).",
         show_default=False,
     ),
+    all_spaces: bool = typer.Option(
+        False,
+        "--all",
+        "-a",
+        help="Index all accessible spaces (ignores configuration filters).",
+    ),
 ) -> None:
     indexing_service: IndexingService | None = _get_indexing_service()
 
@@ -40,14 +46,39 @@ def trigger_indexing(
         print_status("Indexing process is already running.", "warning")
         raise typer.Exit(code=0)
 
+    # Validate mutually exclusive options
+    if space_keys and all_spaces:
+        print_status(
+            "Cannot use --space and --all options together. Please choose one.",
+            "error",
+        )
+        raise typer.Exit(code=1)
+
+    # Determine what to index
+    if all_spaces:
+        target_description = "All accessible spaces"
+        # Pass a special marker to indicate all spaces should be indexed
+        space_keys_to_index = []  # Empty list will trigger all spaces in service
+        index_all = True
+    elif space_keys:
+        target_description = f"Specified spaces: {', '.join(space_keys)}"
+        space_keys_to_index = space_keys
+        index_all = False
+    else:
+        target_description = "Configured spaces"
+        space_keys_to_index = None
+        index_all = False
+
     print_status(
-        f"Starting synchronous indexing... Target spaces: {space_keys or 'Configured'}",
+        f"Starting synchronous indexing... Target: {target_description}",
         "info",
     )
     print_status("(This may take a while depending on the content size)", "dim")
 
     try:
-        indexing_service._run_indexing_sync(space_keys=space_keys)
+        indexing_service._run_indexing_sync(
+            space_keys=space_keys_to_index, index_all=index_all
+        )
         print_status("Synchronous indexing completed successfully.", "success")
     except Exception as e:
         logger.error(f"Synchronous indexing failed: {e}", exc_info=True)

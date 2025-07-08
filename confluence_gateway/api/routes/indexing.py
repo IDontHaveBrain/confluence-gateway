@@ -57,10 +57,17 @@ async def trigger_indexing(
             ).model_dump(),
         )
 
-    logger.info(
-        f"Adding indexing task to background. Target spaces: {request.space_keys or 'Configured'}"
+    if request.index_all:
+        target_description = "All accessible spaces"
+    elif request.space_keys:
+        target_description = f"{request.space_keys}"
+    else:
+        target_description = "Configured spaces"
+
+    logger.info(f"Adding indexing task to background. Target: {target_description}")
+    background_tasks.add_task(
+        indexing_service.run_indexing, request.space_keys, request.index_all
     )
-    background_tasks.add_task(indexing_service.run_indexing, request.space_keys)
 
     # Return current status after triggering
     status_data = indexing_service.status
