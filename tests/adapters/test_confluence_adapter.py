@@ -26,7 +26,7 @@ def test_confluence_connection(client: ConfluenceClient):
 
 
 def test_list_all_spaces(client: ConfluenceClient):
-    spaces = client.list_all_spaces(limit=5)
+    spaces = client.list_all_spaces(limit=5, space_type=None, space_status=None)
     assert isinstance(spaces, list)
     if spaces:
         assert all(isinstance(s, ConfluenceSpace) for s in spaces)
@@ -35,7 +35,7 @@ def test_list_all_spaces(client: ConfluenceClient):
 
 
 def test_get_space(client: ConfluenceClient):
-    spaces = client.list_all_spaces(limit=1)
+    spaces = client.list_all_spaces(limit=1, space_type=None, space_status=None)
     if not spaces:
         pytest.skip("No spaces found to test get_space.")
 

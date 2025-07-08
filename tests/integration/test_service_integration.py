@@ -141,7 +141,9 @@ class TestIndexingServiceIntegration:
         if test_space_with_content:
             space_key = test_space_with_content["key"]
         else:
-            spaces = confluence_client.list_all_spaces(limit=1)
+            spaces = confluence_client.list_all_spaces(
+                limit=1, space_type=None, space_status=None
+            )
             if not spaces:
                 pytest.skip("No spaces available for testing")
             space_key = spaces[0].key
