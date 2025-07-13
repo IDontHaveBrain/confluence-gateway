@@ -1,15 +1,17 @@
 import logging
 from typing import Any
 
-import litellm
-from litellm.exceptions import (
-    APIConnectionError,
-    AuthenticationError,
-    BadRequestError,
-    RateLimitError,
-    ServiceUnavailableError,
-    Timeout,
+from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
+from confluence_gateway.core.config import (
+    GenerationConfig,
+    dev_mode_log_stub,
+    is_dev_mode,
 )
+from confluence_gateway.core.exceptions import (
+    GenerationError,
+    SemanticSearchError,
+)
+from confluence_gateway.services.search import SearchService
 
 try:
     import tiktoken
@@ -18,13 +20,51 @@ try:
 except ImportError:
     _tiktoken_available = False
 
-from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
-from confluence_gateway.core.config import GenerationConfig
-from confluence_gateway.core.exceptions import (
-    GenerationError,
-    SemanticSearchError,
-)
-from confluence_gateway.services.search import SearchService
+# Lazy loading for LiteLLM
+_litellm = None
+_litellm_available = None
+_litellm_exceptions = None
+
+
+def _get_litellm() -> Any:
+    global _litellm, _litellm_available
+    if _litellm is None:
+        try:
+            import litellm
+
+            _litellm = litellm
+            _litellm_available = True
+        except ImportError:
+            _litellm_available = False
+            raise ImportError("litellm is required for generation features")
+    return _litellm
+
+
+def _get_litellm_exceptions() -> dict[str, Any]:
+    global _litellm_exceptions
+    if _litellm_exceptions is None:
+        try:
+            from litellm.exceptions import (
+                APIConnectionError,
+                AuthenticationError,
+                BadRequestError,
+                RateLimitError,
+                ServiceUnavailableError,
+                Timeout,
+            )
+
+            _litellm_exceptions = {
+                "APIConnectionError": APIConnectionError,
+                "AuthenticationError": AuthenticationError,
+                "BadRequestError": BadRequestError,
+                "RateLimitError": RateLimitError,
+                "ServiceUnavailableError": ServiceUnavailableError,
+                "Timeout": Timeout,
+            }
+        except ImportError:
+            raise ImportError("litellm is required for generation features")
+    return _litellm_exceptions
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +78,14 @@ class GenerationService:
         self.search_service = search_service
         self.config = config
         self.tokenizer = None
+        self.dev_mode = is_dev_mode()
+
+        if self.dev_mode:
+            dev_mode_log_stub("GenerationService (LiteLLM)")
+            logger.info(
+                "GenerationService initialized in DEV MODE - stub implementation only."
+            )
+            return
 
         if not _tiktoken_available:
             logger.warning(
@@ -140,6 +188,13 @@ class GenerationService:
         top_k_retrieval: int = 5,
         filters: dict[str, Any] | None = None,
     ) -> tuple[str, list[VectorSearchResultItem]]:
+        if self.dev_mode:
+            logger.info(
+                f"DEV MODE: Generating stub answer for query: '{query[:50]}...'"
+            )
+            stub_answer = f"[DEV MODE STUB] This is a placeholder answer for the query: '{query}'. In production, this would be generated using LiteLLM and the configured model."
+            return stub_answer, []
+
         if not self.config or not self.config.enable:
             logger.error(
                 "Attempted to generate answer, but generation is disabled in configuration."
@@ -204,6 +259,7 @@ class GenerationService:
         llm_response = None
         try:
             logger.info(f"Calling LLM model '{self.config.model_name}'...")
+            litellm = _get_litellm()
             llm_response = await litellm.acompletion(
                 model=self.config.model_name,
                 messages=messages,
@@ -217,14 +273,7 @@ class GenerationService:
             )
             logger.info(f"LLM call successful for model '{self.config.model_name}'.")
 
-        except (
-            APIConnectionError,
-            AuthenticationError,
-            BadRequestError,
-            RateLimitError,
-            ServiceUnavailableError,
-            Timeout,
-        ) as e:
+        except tuple(_get_litellm_exceptions().values()) as e:
             error_type = type(e).__name__
             logger.error(
                 f"LiteLLM API error calling model '{self.config.model_name}': {error_type}: {e}",

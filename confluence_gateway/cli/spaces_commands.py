@@ -5,9 +5,7 @@ from typing import Any, TypeVar
 
 import typer
 
-from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.cli.common import handle_cli_errors
-from confluence_gateway.cli.dependencies import _get_confluence_client
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
     ConfluenceAuthenticationError,
@@ -224,6 +222,8 @@ def list_spaces(
         confluence-gateway spaces list --sort type --reverse
         confluence-gateway spaces list --all
     """
+    from confluence_gateway.adapters.confluence.client import ConfluenceClient
+    from confluence_gateway.cli.dependencies import _get_confluence_client
 
     # Validate type parameter
     if type and type.lower() not in ["personal", "global", "all"]:
@@ -435,6 +435,9 @@ def space_info(
     """
     Get detailed information about a specific Confluence space.
     """
+    from confluence_gateway.adapters.confluence.client import ConfluenceClient
+    from confluence_gateway.cli.dependencies import _get_confluence_client
+
     try:
         client: ConfluenceClient = _get_confluence_client()
 

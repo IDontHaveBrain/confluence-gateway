@@ -5,18 +5,13 @@ from typing import Any, cast
 
 import typer
 
-from confluence_gateway.adapters.confluence.client import ConfluenceClient
-from confluence_gateway.adapters.confluence.models import ConfluencePage
-from confluence_gateway.api.schemas.responses import SearchResultItem
 from confluence_gateway.cli.common import (
     handle_cli_errors,
     print_search_results,
     print_semantic_search_results,
     print_status,
 )
-from confluence_gateway.cli.dependencies import _get_search_service
 from confluence_gateway.core.exceptions import SearchParameterError
-from confluence_gateway.services.search import EnhancedSearchResult, SearchService
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +21,9 @@ app = typer.Typer(
 )
 
 
-def _convert_to_search_result_items(
-    pages: list[ConfluencePage], client: ConfluenceClient
-) -> list[SearchResultItem]:
+def _convert_to_search_result_items(pages: list[Any], client: Any) -> list[Any]:
+    from confluence_gateway.api.schemas.responses import SearchResultItem
+
     items = []
     for page in pages:
         extracted = client.extract_content_fields(page)
@@ -104,6 +99,9 @@ def text_search(
         None, "--top-n", help="Return only the top N results after fetching."
     ),
 ) -> None:
+    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.services.search import EnhancedSearchResult, SearchService
+
     search_service: SearchService = _get_search_service()
 
     enhanced_result: EnhancedSearchResult
@@ -170,6 +168,9 @@ def cql_search(
         None, "--expand", help="Fields to expand (repeatable)."
     ),
 ) -> None:
+    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.services.search import EnhancedSearchResult, SearchService
+
     search_service: SearchService = _get_search_service()
     print_status(f"Performing CQL Search: '{cql_query}'", "info")
 
@@ -209,6 +210,9 @@ def semantic_search(
         help='JSON string for metadata filtering, e.g., \'{"space_key": "DEV"}\'.',
     ),
 ) -> None:
+    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.services.search import SearchService
+
     search_service: SearchService = _get_search_service()
     print_status("Performing Semantic Search...", "info")
 

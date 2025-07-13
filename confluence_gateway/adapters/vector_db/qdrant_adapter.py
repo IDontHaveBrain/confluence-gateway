@@ -7,7 +7,12 @@ from confluence_gateway.adapters.vector_db.models import (
     Document,
     VectorSearchResultItem,
 )
-from confluence_gateway.core.config import VectorDBConfig
+from confluence_gateway.core.config import (
+    VectorDBConfig,
+    dev_mode_log_skip,
+    dev_mode_log_stub,
+    is_dev_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +68,15 @@ class QdrantAdapter(VectorDBAdapter):
     def __init__(self, config: VectorDBConfig) -> None:
         self.config = config
         self.client: Any | None = None  # QdrantClient will be loaded lazily
-        logger.info(f"Initializing QdrantAdapter with config: {config.type}")
+        self.dev_mode = is_dev_mode()
+
+        if self.dev_mode:
+            dev_mode_log_stub("QdrantAdapter")
+            logger.info(
+                "QdrantAdapter initialized in DEV MODE - stub implementation only"
+            )
+        else:
+            logger.info(f"Initializing QdrantAdapter with config: {config.type}")
 
     def initialize(self) -> None:
         # Lightweight configuration validation only - no network calls
@@ -71,6 +84,13 @@ class QdrantAdapter(VectorDBAdapter):
             raise ValueError(
                 "Qdrant adapter requires VECTOR_DB_EMBEDDING_DIMENSION to be set."
             )
+
+        if self.dev_mode:
+            dev_mode_log_skip("Qdrant client dependencies and connection")
+            logger.info(
+                "QdrantAdapter initialized in DEV MODE - dependencies validation skipped"
+            )
+            return
 
         # Validate dependencies are available
         try:

@@ -8,7 +8,12 @@ from confluence_gateway.adapters.vector_db.models import (
     Document,
     VectorSearchResultItem,
 )
-from confluence_gateway.core.config import VectorDBConfig
+from confluence_gateway.core.config import (
+    VectorDBConfig,
+    dev_mode_log_skip,
+    dev_mode_log_stub,
+    is_dev_mode,
+)
 
 # Lazy loading for ChromaDB dependencies
 _chromadb = None
@@ -51,10 +56,25 @@ class ChromaDBAdapter(VectorDBAdapter):
         self.config = config
         self.client: Any | None = None  # Will be ClientAPI after lazy loading
         self.collection: Any | None = None  # Will be Collection after lazy loading
-        logger.info(f"Initializing ChromaDBAdapter with config: {config.type}")
+        self.dev_mode = is_dev_mode()
+
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDBAdapter")
+            logger.info(
+                "ChromaDBAdapter initialized in DEV MODE - stub implementation only"
+            )
+        else:
+            logger.info(f"Initializing ChromaDBAdapter with config: {config.type}")
 
     def initialize(self) -> None:
         # Lightweight configuration validation only - no network calls
+        if self.dev_mode:
+            dev_mode_log_skip("ChromaDB client dependencies and connection")
+            logger.info(
+                "ChromaDBAdapter initialized in DEV MODE - dependencies validation skipped"
+            )
+            return
+
         try:
             # Validate dependencies are available
             _get_chroma_deps()

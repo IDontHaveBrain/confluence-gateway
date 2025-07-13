@@ -137,7 +137,7 @@ class TestBasicRAGPipeline:
 
                 result = subprocess.run(
                     [
-                        "/home/skawn/.local/bin/uv",
+                        "uv",
                         "run",
                         "confluence-gateway",
                         "generate",
@@ -186,7 +186,7 @@ class TestBasicGeneration:
 
                 result = subprocess.run(
                     [
-                        "/home/skawn/.local/bin/uv",
+                        "uv",
                         "run",
                         "confluence-gateway",
                         "generate",
@@ -236,7 +236,7 @@ class TestProviderCompatibility:
 
                 result = subprocess.run(
                     [
-                        "/home/skawn/.local/bin/uv",
+                        "uv",
                         "run",
                         "confluence-gateway",
                         "generate",

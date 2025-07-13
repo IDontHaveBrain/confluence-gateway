@@ -114,7 +114,7 @@ class TestBasicIndexingWorkflow:
             # Step 1: List available spaces
             spaces_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "spaces",
@@ -134,7 +134,7 @@ class TestBasicIndexingWorkflow:
             test_space_key = spaces_data["spaces"][0]["key"]
             index_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "index",
@@ -153,7 +153,7 @@ class TestBasicIndexingWorkflow:
             # Check indexing status via status command to get JSON data
             status_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "index",
@@ -189,7 +189,7 @@ class TestBasicTextSearchWorkflow:
         try:
             search_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "search",
@@ -231,7 +231,7 @@ class TestBasicSemanticSearchWorkflow:
             # First index some content
             spaces_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "spaces",
@@ -249,7 +249,7 @@ class TestBasicSemanticSearchWorkflow:
             # Index the space
             index_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "index",
@@ -267,7 +267,7 @@ class TestBasicSemanticSearchWorkflow:
             # Perform semantic search
             search_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "search",
@@ -309,7 +309,7 @@ class TestBasicHybridSearchWorkflow:
             # First index some content
             spaces_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "spaces",
@@ -327,7 +327,7 @@ class TestBasicHybridSearchWorkflow:
             # Index the space
             index_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "index",
@@ -345,7 +345,7 @@ class TestBasicHybridSearchWorkflow:
             # Perform hybrid search
             search_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "search",
@@ -396,7 +396,7 @@ class TestBasicRAGWorkflow:
             # First index some content
             spaces_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "spaces",
@@ -414,7 +414,7 @@ class TestBasicRAGWorkflow:
             # Index the space
             index_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "index",
@@ -439,7 +439,7 @@ class TestBasicRAGWorkflow:
 
                 generate_result = subprocess.run(
                     [
-                        "/home/skawn/.local/bin/uv",
+                        "uv",
                         "run",
                         "confluence-gateway",
                         "generate",

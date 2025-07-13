@@ -83,7 +83,7 @@ class TestEssentialConfigurationMatrix:
         try:
             # Test that the CLI can initialize without errors
             result = subprocess.run(
-                ["/home/skawn/.local/bin/uv", "run", "confluence-gateway", "--help"],
+                ["uv", "run", "confluence-gateway", "--help"],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -96,7 +96,7 @@ class TestEssentialConfigurationMatrix:
 
             # Test that version command works (verifies basic initialization)
             result = subprocess.run(
-                ["/home/skawn/.local/bin/uv", "run", "confluence-gateway", "--version"],
+                ["uv", "run", "confluence-gateway", "--version"],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -135,7 +135,7 @@ class TestEssentialConfigurationMatrix:
             if expected_features["text_search"]:
                 result = subprocess.run(
                     [
-                        "/home/skawn/.local/bin/uv",
+                        "uv",
                         "run",
                         "confluence-gateway",
                         "search",
@@ -154,7 +154,7 @@ class TestEssentialConfigurationMatrix:
             if expected_features["semantic_search"]:
                 result = subprocess.run(
                     [
-                        "/home/skawn/.local/bin/uv",
+                        "uv",
                         "run",
                         "confluence-gateway",
                         "search",
@@ -192,7 +192,7 @@ class TestEssentialConfigurationMatrix:
             # Test spaces list command (basic Confluence connectivity)
             spaces_result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "spaces",
@@ -212,7 +212,7 @@ class TestEssentialConfigurationMatrix:
                 # If no Confluence connection, at least verify CLI doesn't crash
                 help_result = subprocess.run(
                     [
-                        "/home/skawn/.local/bin/uv",
+                        "uv",
                         "run",
                         "confluence-gateway",
                         "search",
@@ -279,7 +279,7 @@ class TestProviderCompatibility:
         try:
             # Test basic CLI initialization
             result = subprocess.run(
-                ["/home/skawn/.local/bin/uv", "run", "confluence-gateway", "--version"],
+                ["uv", "run", "confluence-gateway", "--version"],
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -304,7 +304,7 @@ class TestProviderCompatibility:
         try:
             # Test basic CLI initialization
             result = subprocess.run(
-                ["/home/skawn/.local/bin/uv", "run", "confluence-gateway", "--version"],
+                ["uv", "run", "confluence-gateway", "--version"],
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -329,7 +329,7 @@ class TestProviderCompatibility:
         try:
             # Test basic CLI initialization
             result = subprocess.run(
-                ["/home/skawn/.local/bin/uv", "run", "confluence-gateway", "--version"],
+                ["uv", "run", "confluence-gateway", "--version"],
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -342,7 +342,7 @@ class TestProviderCompatibility:
             # Test that text search help works
             result = subprocess.run(
                 [
-                    "/home/skawn/.local/bin/uv",
+                    "uv",
                     "run",
                     "confluence-gateway",
                     "search",
