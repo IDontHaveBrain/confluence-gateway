@@ -51,23 +51,11 @@ jobs:
           ${{ runner.os }}-uv-3.13-
           ${{ runner.os }}-uv-
 
-    - name: Run Ruff linting
-      run: |
-        uv run ruff check --output-format=github .
-
-    - name: Run Ruff formatting check
-      run: |
-        uv run ruff format --check .
-
-    - name: Run MyPy type checking
-      run: |
-        uv run mypy confluence_gateway/
-
     - name: Setup pre-commit
       run: |
         uv run pre-commit install
 
-    - name: Run pre-commit hooks
+    - name: Run pre-commit hooks (includes ruff, mypy, etc.)
       run: |
         uv run pre-commit run --all-files
 
@@ -132,17 +120,7 @@ jobs:
       run: |
         uv run confluence-gateway --help
 
-    - name: Run CLI E2E tests
-      run: |
-        uv run pytest tests/cli/ -v --tb=short
-      continue-on-error: false
-
-    - name: Run API E2E tests
-      run: |
-        uv run pytest tests/api/ -v --tb=short
-      continue-on-error: false
-
-    - name: Run all E2E tests with coverage
+    - name: Run all E2E tests
       run: |
         uv run pytest tests/ -v --tb=short
       continue-on-error: false
