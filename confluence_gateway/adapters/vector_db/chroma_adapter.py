@@ -3,11 +3,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
-import chromadb
-from chromadb.api import ClientAPI
-from chromadb.api.models.Collection import Collection
-from chromadb.api.types import Metadata, Metadatas, Where
-
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import (
     Document,
@@ -15,19 +10,68 @@ from confluence_gateway.adapters.vector_db.models import (
 )
 from confluence_gateway.core.config import VectorDBConfig
 
+# Lazy loading for ChromaDB dependencies
+_chromadb = None
+_chroma_client_api = None
+_chroma_collection = None
+_chroma_types = None
+
+
+def _get_chroma_deps() -> tuple[Any, Any, Any, dict[str, Any]]:
+    """Lazy load ChromaDB dependencies with caching."""
+    global _chromadb, _chroma_client_api, _chroma_collection, _chroma_types
+    if _chromadb is None:
+        try:
+            import chromadb
+            from chromadb.api import ClientAPI
+            from chromadb.api.models.Collection import Collection
+            from chromadb.api.types import Metadata, Metadatas, Where
+
+            _chromadb = chromadb
+            _chroma_client_api = ClientAPI
+            _chroma_collection = Collection
+            _chroma_types = {
+                "Metadata": Metadata,
+                "Metadatas": Metadatas,
+                "Where": Where,
+            }
+        except ImportError as e:
+            raise ImportError(
+                "chromadb is required for ChromaDB vector database. "
+                "Install it with: pip install chromadb"
+            ) from e
+    return _chromadb, _chroma_client_api, _chroma_collection, _chroma_types
+
+
 logger = logging.getLogger(__name__)
 
 
 class ChromaDBAdapter(VectorDBAdapter):
     def __init__(self, config: "VectorDBConfig") -> None:
         self.config = config
-        self.client: ClientAPI | None = None
-        self.collection: Collection | None = None
+        self.client: Any | None = None  # Will be ClientAPI after lazy loading
+        self.collection: Any | None = None  # Will be Collection after lazy loading
         logger.info(f"Initializing ChromaDBAdapter with config: {config.type}")
 
     def initialize(self) -> None:
+        # Lightweight configuration validation only - no network calls
         try:
-            logger.info("Connecting to ChromaDB...")
+            # Validate dependencies are available
+            _get_chroma_deps()
+        except ImportError as e:
+            logger.error(f"ChromaDB dependencies not available: {e}", exc_info=True)
+            raise
+
+        logger.info("ChromaDBAdapter initialized with config validation complete")
+
+    def _ensure_collection(self) -> Any:  # Returns Collection after lazy loading
+        if self.collection is not None:
+            return self.collection
+
+        try:
+            logger.info("Establishing ChromaDB connection...")
+            chromadb, _, _, _ = _get_chroma_deps()
+
             if self.config.chroma_host and self.config.chroma_port:
                 logger.info(
                     f"Using HttpClient: host={self.config.chroma_host}, port={self.config.chroma_port}"
@@ -52,20 +96,17 @@ class ChromaDBAdapter(VectorDBAdapter):
             logger.info(f"Getting or creating ChromaDB collection: {collection_name}")
             self.collection = self.client.get_or_create_collection(name=collection_name)
             logger.info(
-                f"Successfully initialized ChromaDB and collection '{collection_name}'."
+                f"Successfully established ChromaDB connection and collection '{collection_name}'."
             )
 
         except Exception as e:
-            logger.error(f"ChromaDB initialization failed: {e}", exc_info=True)
+            logger.error(
+                f"ChromaDB connection establishment failed: {e}", exc_info=True
+            )
             self.client = None
             self.collection = None
-            raise RuntimeError(f"ChromaDB initialization failed: {e}") from e
+            raise RuntimeError(f"ChromaDB connection establishment failed: {e}") from e
 
-    def _ensure_collection(self) -> Collection:
-        if not self.collection:
-            raise RuntimeError(
-                "ChromaDB collection not initialized. Call initialize() first."
-            )
         return self.collection
 
     def upsert(self, documents: list[Document]) -> None:
@@ -86,7 +127,7 @@ class ChromaDBAdapter(VectorDBAdapter):
             collection.upsert(
                 ids=ids,
                 embeddings=cast(list[Sequence[float]], embeddings),
-                metadatas=cast(Metadatas | None, metadatas),
+                metadatas=metadatas,  # Type checking will be done at runtime by ChromaDB
                 documents=texts,
             )
             logger.info(f"Successfully upserted {len(ids)} documents.")
@@ -101,7 +142,9 @@ class ChromaDBAdapter(VectorDBAdapter):
         filters: dict[str, Any] | None = None,
     ) -> list[VectorSearchResultItem]:
         collection = self._ensure_collection()
-        chroma_where_filter = cast(Where | None, filters) if filters else None
+        chroma_where_filter = (
+            filters  # Type checking will be done at runtime by ChromaDB
+        )
 
         try:
             logger.info(
@@ -135,7 +178,9 @@ class ChromaDBAdapter(VectorDBAdapter):
                     )
                     distances = [1.0] * len(ids)
 
-                metadatas_list: list[Metadata] = []
+                metadatas_list: list[
+                    Any
+                ] = []  # Will be list[Metadata] after lazy loading
                 metadatas_outer = results.get("metadatas")
                 if metadatas_outer is not None and len(metadatas_outer) > 0:
                     metadatas_list = metadatas_outer[0]
@@ -191,7 +236,9 @@ class ChromaDBAdapter(VectorDBAdapter):
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         collection = self._ensure_collection()
-        chroma_where_filter = cast(Where | None, filters) if filters else None
+        chroma_where_filter = (
+            filters  # Type checking will be done at runtime by ChromaDB
+        )
 
         if not chroma_where_filter:
             logger.warning("search_by_metadata called with empty filters.")
@@ -253,7 +300,9 @@ class ChromaDBAdapter(VectorDBAdapter):
 
     def delete_by_metadata(self, filters: dict[str, Any]) -> None:
         collection = self._ensure_collection()
-        chroma_where_filter = cast(Where | None, filters) if filters else None
+        chroma_where_filter = (
+            filters  # Type checking will be done at runtime by ChromaDB
+        )
 
         if not chroma_where_filter:
             logger.warning("delete_by_metadata called with empty filters.")
