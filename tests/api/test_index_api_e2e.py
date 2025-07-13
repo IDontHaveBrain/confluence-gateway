@@ -1,5 +1,5 @@
-import pytest
 import httpx
+import pytest
 
 
 def test_trigger_indexing_endpoint(api_client):

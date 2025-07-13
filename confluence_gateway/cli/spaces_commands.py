@@ -367,7 +367,7 @@ def list_spaces(
 
         if not spaces:
             if page > 1:
-                result = {
+                result: dict[str, Any] = {
                     "error": f"No spaces found on page {page}. Try a lower page number.",
                     "spaces": [],
                     "pagination": {

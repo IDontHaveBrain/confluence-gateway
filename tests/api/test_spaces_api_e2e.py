@@ -1,5 +1,5 @@
-import pytest
 import httpx
+import pytest
 
 
 def test_list_spaces_endpoint(api_client):
@@ -21,6 +21,5 @@ def test_get_space_endpoint(api_client):
     # First get actual space_key from spaces list
     spaces_response = api_client.get("/api/spaces")
     if spaces_response.status_code == 200:
-        spaces_data = spaces_response.json()
         # Test with first space (data parsing needed in actual implementation)
         pass
