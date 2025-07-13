@@ -1,13 +1,9 @@
-import csv
-import io
+import json
 import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 import typer
-from rich.console import Console
-from rich.status import Status
-from rich.table import Table
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
 from confluence_gateway.cli.common import handle_cli_errors
@@ -20,7 +16,6 @@ from confluence_gateway.core.exceptions import (
 )
 
 app = typer.Typer()
-console = Console()
 
 T = TypeVar("T")
 
@@ -56,21 +51,19 @@ def retry_on_network_error(
             if attempt < max_retries:
                 delay = 2**attempt  # Exponential backoff: 1s, 2s, 4s
                 if verbose:
-                    console.print(
-                        f"[yellow]Network error during {operation_name} (attempt {attempt + 1}/{max_retries + 1}). "
-                        f"Retrying in {delay} seconds...[/yellow]"
+                    print(
+                        f"Network error during {operation_name} (attempt {attempt + 1}/{max_retries + 1}). "
+                        f"Retrying in {delay} seconds..."
                     )
                 else:
-                    console.print(
-                        f"[yellow]Network error. Retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries + 1})[/yellow]"
+                    print(
+                        f"Network error. Retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries + 1})"
                     )
                 time.sleep(delay)
             else:
                 # Final attempt failed
                 if verbose:
-                    console.print(
-                        f"[red]All {max_retries + 1} attempts failed for {operation_name}[/red]"
-                    )
+                    print(f"All {max_retries + 1} attempts failed for {operation_name}")
                 break
         except (ConfluenceAuthenticationError, ConfluenceAPIError):
             # Don't retry authentication or API errors
@@ -98,78 +91,70 @@ def handle_spaces_error(e: Exception, operation: str, verbose: bool = False) -> 
         verbose: Whether to show detailed error information
     """
     if isinstance(e, ConfluenceAuthenticationError):
-        console.print(f"[red]❌ Authentication failed during {operation}[/red]")
-        console.print("[yellow]💡 Check your credentials:[/yellow]")
-        console.print("   • Verify your Confluence URL is correct")
-        console.print("   • Ensure your username/email is correct")
-        console.print("   • Check that your API token is valid and not expired")
-        console.print("   • Confirm you have permission to access spaces")
+        print(f"❌ Authentication failed during {operation}")
+        print("💡 Check your credentials:")
+        print("   • Verify your Confluence URL is correct")
+        print("   • Ensure your username/email is correct")
+        print("   • Check that your API token is valid and not expired")
+        print("   • Confirm you have permission to access spaces")
         if verbose:
-            console.print(f"[dim]Technical details: {e}[/dim]")
+            print(f"Technical details: {e}")
 
     elif isinstance(e, ConfluenceConnectionError):
-        console.print(f"[red]❌ Network connection failed during {operation}[/red]")
-        console.print("[yellow]💡 Troubleshooting steps:[/yellow]")
-        console.print("   • Check your internet connection")
-        console.print("   • Verify the Confluence URL is reachable")
-        console.print("   • Check if there's a firewall or proxy blocking the request")
-        console.print("   • Try again in a few moments")
+        print(f"❌ Network connection failed during {operation}")
+        print("💡 Troubleshooting steps:")
+        print("   • Check your internet connection")
+        print("   • Verify the Confluence URL is reachable")
+        print("   • Check if there's a firewall or proxy blocking the request")
+        print("   • Try again in a few moments")
         if verbose:
-            console.print(f"[dim]Technical details: {e}[/dim]")
+            print(f"Technical details: {e}")
 
     elif isinstance(e, ConfluenceAPIError):
-        console.print(f"[red]❌ Confluence API error during {operation}[/red]")
+        print(f"❌ Confluence API error during {operation}")
         if hasattr(e, "status_code") and e.status_code:
             if e.status_code == 403:
-                console.print("[yellow]💡 Permission denied:[/yellow]")
-                console.print("   • You may not have permission to view spaces")
-                console.print("   • Contact your Confluence administrator")
+                print("💡 Permission denied:")
+                print("   • You may not have permission to view spaces")
+                print("   • Contact your Confluence administrator")
             elif e.status_code == 404:
-                console.print("[yellow]💡 Resource not found:[/yellow]")
-                console.print("   • The space or API endpoint may not exist")
-                console.print("   • Check your Confluence URL and space key")
+                print("💡 Resource not found:")
+                print("   • The space or API endpoint may not exist")
+                print("   • Check your Confluence URL and space key")
             elif e.status_code == 429:
-                console.print("[yellow]💡 Rate limit exceeded:[/yellow]")
-                console.print("   • Too many requests sent to Confluence")
-                console.print("   • Wait a few minutes before trying again")
+                print("💡 Rate limit exceeded:")
+                print("   • Too many requests sent to Confluence")
+                print("   • Wait a few minutes before trying again")
             elif e.status_code >= 500:
-                console.print("[yellow]💡 Server error:[/yellow]")
-                console.print("   • Confluence server is experiencing issues")
-                console.print("   • Try again later or contact your administrator")
+                print("💡 Server error:")
+                print("   • Confluence server is experiencing issues")
+                print("   • Try again later or contact your administrator")
             else:
-                console.print(f"[yellow]💡 HTTP {e.status_code} error[/yellow]")
+                print(f"💡 HTTP {e.status_code} error")
 
         if verbose and hasattr(e, "error_message") and e.error_message:
-            console.print(f"[dim]API error details: {e.error_message}[/dim]")
+            print(f"API error details: {e.error_message}")
 
     elif isinstance(e, ConfluenceGatewayError):
-        console.print(f"[red]❌ Application error during {operation}[/red]")
-        console.print(f"[yellow]Error: {e}[/yellow]")
+        print(f"❌ Application error during {operation}")
+        print(f"Error: {e}")
         if verbose:
-            console.print(f"[dim]Error type: {type(e).__name__}[/dim]")
+            print(f"Error type: {type(e).__name__}")
 
     else:
-        console.print(f"[red]❌ Unexpected error during {operation}[/red]")
-        console.print(f"[yellow]Error: {e}[/yellow]")
-        console.print(
-            "[yellow]💡 This may be a bug. Please report it with the error details.[/yellow]"
-        )
+        print(f"❌ Unexpected error during {operation}")
+        print(f"Error: {e}")
+        print("💡 This may be a bug. Please report it with the error details.")
         if verbose:
-            console.print(f"[dim]Error type: {type(e).__name__}[/dim]")
+            print(f"Error type: {type(e).__name__}")
             import traceback
 
-            console.print(f"[dim]Stack trace: {traceback.format_exc()}[/dim]")
+            print(f"Stack trace: {traceback.format_exc()}")
 
 
 @app.command("list")
 @handle_cli_errors
 def list_spaces(
-    format: str = typer.Option(
-        "table",
-        "--format",
-        "-f",
-        help="Output format: table, json, or csv",
-    ),
     page: int = typer.Option(
         1,
         "--page",
@@ -218,11 +203,6 @@ def list_spaces(
         "-r",
         help="Reverse sort order",
     ),
-    no_truncate: bool = typer.Option(
-        False,
-        "--no-truncate",
-        help="Do not truncate long text in table format",
-    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -233,13 +213,8 @@ def list_spaces(
     """
     List Confluence spaces with pagination support.
 
-    Displays accessible Confluence spaces with their keys, names, and types.
+    Displays accessible Confluence spaces with their keys, names, and types in JSON format.
     By default shows 25 spaces per page. Use --all to fetch all spaces at once.
-
-    Output formats:
-    - table: Rich formatted table with auto-adjusted column widths (default)
-    - json: JSON format with pagination metadata
-    - csv: CSV format with headers
 
     Examples:
         confluence-gateway spaces list --type global
@@ -247,21 +222,17 @@ def list_spaces(
         confluence-gateway spaces list --key-prefix TEAM
         confluence-gateway spaces list --sort name
         confluence-gateway spaces list --sort type --reverse
-        confluence-gateway spaces list --format csv --all
-        confluence-gateway spaces list --no-truncate
+        confluence-gateway spaces list --all
     """
-    if format not in ["table", "json", "csv"]:
-        console.print("[red]Error: format must be 'table', 'json', or 'csv'[/red]")
-        raise typer.Exit(1)
 
     # Validate type parameter
     if type and type.lower() not in ["personal", "global", "all"]:
-        console.print("[red]Error: type must be 'personal', 'global', or 'all'[/red]")
+        print("Error: type must be 'personal', 'global', or 'all'")
         raise typer.Exit(1)
 
     # Validate sort parameter
     if sort and sort.lower() not in ["name", "key", "type", "id"]:
-        console.print("[red]Error: sort must be 'name', 'key', 'type', or 'id'[/red]")
+        print("Error: sort must be 'name', 'key', 'type', or 'id'")
         raise typer.Exit(1)
 
     try:
@@ -272,36 +243,15 @@ def list_spaces(
 
         if all:
             # Fetch all spaces at once
-            if format not in ["json", "csv"]:
-                # Show progress indicator for table format
-                with Status(
-                    "[cyan]Fetching all spaces...", spinner="dots", console=console
-                ) as status:
-                    spaces = []
-
-                    # Use retry logic for network errors
-                    def fetch_all_spaces() -> Any:
-                        return client.list_all_spaces(
-                            space_type=space_type,
-                            space_status="current",
-                        )
-
-                    spaces = retry_on_network_error(
-                        fetch_all_spaces, "fetching all spaces", verbose=verbose
-                    )
-
-                    status.update(f"[green]✓ Fetched {len(spaces)} spaces")
-            else:
-                # For JSON and CSV output, fetch without progress indicator
-                def fetch_all_spaces() -> Any:
-                    return client.list_all_spaces(
-                        space_type=space_type,
-                        space_status="current",
-                    )
-
-                spaces = retry_on_network_error(
-                    fetch_all_spaces, "fetching all spaces", verbose=verbose
+            def fetch_all_spaces() -> Any:
+                return client.list_all_spaces(
+                    space_type=space_type,
+                    space_status="current",
                 )
+
+            spaces = retry_on_network_error(
+                fetch_all_spaces, "fetching all spaces", verbose=verbose
+            )
 
             # Apply client-side filtering
             if search:
@@ -344,38 +294,16 @@ def list_spaces(
 
             if search or key_prefix or sort:
                 # If we have client-side filters or sorting, we need to fetch all spaces first
-                if format not in ["json", "csv"]:
-                    with Status(
-                        "[cyan]Fetching spaces for filtering...",
-                        spinner="dots",
-                        console=console,
-                    ) as status:
-
-                        def fetch_all_spaces_for_filtering() -> Any:
-                            return client.list_all_spaces(
-                                space_type=space_type, space_status="current"
-                            )
-
-                        all_spaces = retry_on_network_error(
-                            fetch_all_spaces_for_filtering,
-                            "fetching spaces for filtering",
-                            verbose=verbose,
-                        )
-                        status.update(
-                            f"[green]✓ Fetched {len(all_spaces)} spaces for filtering"
-                        )
-                else:
-                    # For JSON and CSV output, fetch without progress indicator
-                    def fetch_all_spaces_for_filtering() -> Any:
-                        return client.list_all_spaces(
-                            space_type=space_type, space_status="current"
-                        )
-
-                    all_spaces = retry_on_network_error(
-                        fetch_all_spaces_for_filtering,
-                        "fetching spaces for filtering",
-                        verbose=verbose,
+                def fetch_all_spaces_for_filtering() -> Any:
+                    return client.list_all_spaces(
+                        space_type=space_type, space_status="current"
                     )
+
+                all_spaces = retry_on_network_error(
+                    fetch_all_spaces_for_filtering,
+                    "fetching spaces for filtering",
+                    verbose=verbose,
+                )
 
                 # Apply client-side filtering
                 if search:
@@ -419,44 +347,19 @@ def list_spaces(
                 )
             else:
                 # No client-side filtering or sorting, use server-side pagination
-                if format not in ["json", "csv"]:
-                    with Status(
-                        f"[cyan]Fetching page {page} of spaces...",
-                        spinner="dots",
-                        console=console,
-                    ) as status:
-
-                        def fetch_spaces_paginated() -> Any:
-                            return client.list_spaces_paginated(
-                                start=start,
-                                limit=page_size,
-                                space_type=space_type,
-                                space_status="current",
-                            )
-
-                        spaces, total_count = retry_on_network_error(
-                            fetch_spaces_paginated,
-                            f"fetching page {page} of spaces",
-                            verbose=verbose,
-                        )
-                        status.update(
-                            f"[green]✓ Fetched {len(spaces)} spaces from page {page}"
-                        )
-                else:
-                    # For JSON and CSV output, fetch without progress indicator
-                    def fetch_spaces_paginated() -> Any:
-                        return client.list_spaces_paginated(
-                            start=start,
-                            limit=page_size,
-                            space_type=space_type,
-                            space_status="current",
-                        )
-
-                    spaces, total_count = retry_on_network_error(
-                        fetch_spaces_paginated,
-                        f"fetching page {page} of spaces",
-                        verbose=verbose,
+                def fetch_spaces_paginated() -> Any:
+                    return client.list_spaces_paginated(
+                        start=start,
+                        limit=page_size,
+                        space_type=space_type,
+                        space_status="current",
                     )
+
+                spaces, total_count = retry_on_network_error(
+                    fetch_spaces_paginated,
+                    f"fetching page {page} of spaces",
+                    verbose=verbose,
+                )
                 current_page = page
                 total_pages = (
                     (total_count + page_size - 1) // page_size if total_count > 0 else 1
@@ -464,126 +367,54 @@ def list_spaces(
 
         if not spaces:
             if page > 1:
-                console.print(
-                    f"[yellow]No spaces found on page {page}. Try a lower page number.[/yellow]"
-                )
+                result = {
+                    "error": f"No spaces found on page {page}. Try a lower page number.",
+                    "spaces": [],
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total_pages": 0,
+                        "total_count": 0,
+                    },
+                }
             else:
-                console.print(
-                    "[yellow]No spaces found or no access to any spaces.[/yellow]"
-                )
+                result = {
+                    "error": "No spaces found or no access to any spaces.",
+                    "spaces": [],
+                    "pagination": {
+                        "page": 1,
+                        "page_size": page_size,
+                        "total_pages": 0,
+                        "total_count": 0,
+                    },
+                }
+            print(json.dumps(result, indent=2))
             return
 
-        if format == "json":
-            import json
-
-            # Convert spaces to JSON-serializable format
-            spaces_data = []
-            for space in spaces:
-                space_dict = {
-                    "id": space.id,
-                    "key": space.key,
-                    "name": space.name or space.title,
-                    "title": space.title,
-                    "type": space.type.value if space.type else "unknown",
-                }
-                if hasattr(space, "description_text") and space.description_text:
-                    space_dict["description"] = space.description_text
-                spaces_data.append(space_dict)
-
-            result = {
-                "spaces": spaces_data,
-                "pagination": {
-                    "page": current_page,
-                    "page_size": page_size if not all else len(spaces),
-                    "total_pages": total_pages,
-                    "total_count": total_count,
-                },
+        # Convert spaces to JSON-serializable format
+        spaces_data = []
+        for space in spaces:
+            space_dict = {
+                "id": space.id,
+                "key": space.key,
+                "name": space.name or space.title,
+                "title": space.title,
+                "type": space.type.value if space.type else "unknown",
             }
-            console.print(json.dumps(result, indent=2))
-        elif format == "csv":
-            # CSV format output
-            output = io.StringIO()
-            writer = csv.writer(output)
+            if hasattr(space, "description_text") and space.description_text:
+                space_dict["description"] = space.description_text
+            spaces_data.append(space_dict)
 
-            # Write header
-            headers = ["Key", "Name", "Type", "ID", "Description"]
-            writer.writerow(headers)
-
-            # Write data rows
-            for space in spaces:
-                row = [
-                    space.key,
-                    space.name or space.title,
-                    space.type.value if space.type else "unknown",
-                    space.id,
-                    getattr(space, "description_text", "") or "",
-                ]
-                writer.writerow(row)
-
-            # Print CSV output
-            console.print(output.getvalue().rstrip(), highlight=False)
-
-            # Add pagination info as CSV comment if not showing all
-            if not all and total_pages > 1:
-                console.print(
-                    f"\n# Page {current_page} of {total_pages}, {total_count} total spaces",
-                    style="dim",
-                )
-        else:
-            # Table format
-            if all:
-                table = Table(title=f"Confluence Spaces ({total_count} total)")
-            else:
-                table = Table(
-                    title=f"Confluence Spaces (Page {current_page}/{total_pages}, {total_count} total)"
-                )
-
-            # Calculate column widths based on content
-            key_width = max((len(s.key) for s in spaces), default=3)
-            name_width = max((len(s.name or s.title) for s in spaces), default=4)
-            type_width = max(
-                (len(s.type.value if s.type else "unknown") for s in spaces), default=4
-            )
-            id_width = max((len(s.id) for s in spaces), default=2)
-
-            # Add some padding
-            key_width = max(key_width + 2, 10)
-            name_width = max(name_width + 2, 20)
-            type_width = max(type_width + 2, 10)
-            id_width = max(id_width + 2, 10)
-
-            # If no_truncate is False, apply maximum widths
-            if not no_truncate:
-                name_width = min(name_width, 50)  # Max 50 chars for name
-                id_width = min(id_width, 20)  # Max 20 chars for ID
-
-            table.add_column("Key", style="cyan", no_wrap=True, width=key_width)
-            table.add_column(
-                "Name",
-                style="green",
-                width=name_width if not no_truncate else None,
-                overflow="ellipsis" if not no_truncate else "fold",
-            )
-            table.add_column("Type", style="magenta", width=type_width)
-            table.add_column(
-                "ID",
-                style="dim",
-                width=id_width if not no_truncate else None,
-                overflow="ellipsis" if not no_truncate else "fold",
-            )
-
-            for space in spaces:
-                space_type = space.type.value if space.type else "unknown"
-                space_name = space.name or space.title
-                table.add_row(space.key, space_name, space_type, space.id)
-
-            console.print(table)
-
-            if not all and total_pages > 1:
-                console.print(
-                    f"\n[dim]Showing page {current_page} of {total_pages}. "
-                    f"Use --page to navigate or --all to show all spaces.[/dim]"
-                )
+        result = {
+            "spaces": spaces_data,
+            "pagination": {
+                "page": current_page,
+                "page_size": page_size if not all else len(spaces),
+                "total_pages": total_pages,
+                "total_count": total_count,
+            },
+        }
+        print(json.dumps(result, indent=2))
 
     except Exception as e:
         handle_spaces_error(e, "listing spaces", verbose=verbose)
@@ -607,38 +438,34 @@ def space_info(
     try:
         client: ConfluenceClient = _get_confluence_client()
 
-        with Status(
-            f"[cyan]Fetching information for space '{space_key}'...",
-            spinner="dots",
-            console=console,
-        ) as status:
+        def fetch_space_info() -> Any:
+            return client.get_space(space_key)
 
-            def fetch_space_info() -> Any:
-                return client.get_space(space_key)
-
-            space = retry_on_network_error(
-                fetch_space_info,
-                f"fetching information for space '{space_key}'",
-                verbose=verbose,
-            )
-            status.update(f"[green]✓ Retrieved information for space '{space_key}'")
-
-        console.print("\n[bold cyan]Space Information[/bold cyan]")
-        console.print(f"[bold]Key:[/bold] {space.key}")
-        console.print(f"[bold]Name:[/bold] {space.name or space.title}")
-        console.print(f"[bold]ID:[/bold] {space.id}")
-        console.print(
-            f"[bold]Type:[/bold] {space.type.value if space.type else 'unknown'}"
+        space = retry_on_network_error(
+            fetch_space_info,
+            f"fetching information for space '{space_key}'",
+            verbose=verbose,
         )
 
+        # Convert space to JSON-serializable format
+        space_dict = {
+            "id": space.id,
+            "key": space.key,
+            "name": space.name or space.title,
+            "title": space.title,
+            "type": space.type.value if space.type else "unknown",
+        }
+
         if hasattr(space, "description_text") and space.description_text:
-            console.print(f"[bold]Description:[/bold] {space.description_text}")
+            space_dict["description"] = space.description_text
 
         if space.created_at:
-            console.print(f"[bold]Created:[/bold] {space.created_at}")
+            space_dict["created_at"] = str(space.created_at)
 
         if space.updated_at:
-            console.print(f"[bold]Updated:[/bold] {space.updated_at}")
+            space_dict["updated_at"] = str(space.updated_at)
+
+        print(json.dumps(space_dict, indent=2))
 
     except Exception as e:
         handle_spaces_error(
