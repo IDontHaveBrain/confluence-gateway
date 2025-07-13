@@ -10,10 +10,10 @@ requires-python = ">=3.10"
 dependencies = [
     "atlassian-python-api>=4.0.4",
     "chromadb>=1.0.15",
-    "fastapi>=0.115.14",
+    "fastapi>=0.116.1",
     "httpx>=0.28.1",
-    "litellm>=1.74.0",
-    "llama-index-core>=0.12.46",
+    "litellm>=1.74.0.post2",
+    "llama-index-core>=0.12.48",
     "markitdown>=0.1.2",
     "multidict>=6.6.3",
     "pydantic>=2.11.7",
@@ -22,8 +22,8 @@ dependencies = [
     "requests>=2.32.4",
     "sentence-transformers>=5.0.0",
     "tiktoken>=0.9.0",
-    "typer>=0.15.4",
-    "unstructured>=0.18.3",
+    "typer>=0.16.0",
+    "unstructured>=0.18.5",
 ]
 
 [project.scripts]
@@ -42,7 +42,7 @@ dev = [
     "pytest-lazy-fixture>=0.6.3",
     "pytest-mock>=3.14.1",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.12.2",
+    "ruff>=0.12.3",
     "types-requests>=2.32.4.20250611",
 ]
 
