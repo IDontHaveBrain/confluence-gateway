@@ -76,9 +76,9 @@ def api_server():
         process.terminate()
         process.wait()
         raise RuntimeError("API server failed to start within 30 seconds")
-    
+
     # Additional startup time for model loading and initialization
-    print(f"API server started, allowing 5 seconds for model initialization...")
+    print("API server started, allowing 5 seconds for model initialization...")
     time.sleep(5)
 
     yield base_url
@@ -93,7 +93,7 @@ def api_client(api_server):
     """API client fixture with extended timeout for AI operations"""
     return httpx.Client(
         base_url=api_server,
-        timeout=httpx.Timeout(30.0)  # 30 second timeout for AI model operations
+        timeout=httpx.Timeout(30.0),  # 30 second timeout for AI model operations
     )
 
 
