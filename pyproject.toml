@@ -37,11 +37,6 @@ dev = [
     "black>=25.1.0",
     "mypy>=1.16.1",
     "pre-commit>=4.2.0",
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.0.0",
-    "pytest-lazy-fixture>=0.6.3",
-    "pytest-mock>=3.14.1",
-    "pytest-xdist>=3.8.0",
     "ruff>=0.12.3",
     "types-requests>=2.32.4.20250611",
 ]
