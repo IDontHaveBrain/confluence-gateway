@@ -1,10 +1,11 @@
-import typer
 from importlib.metadata import version
+
+import typer
 
 from . import generate_commands, index_commands, search_commands, spaces_commands
 
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
     if value:
         try:
             app_version = version("confluence-gateway")
@@ -24,10 +25,11 @@ app = typer.Typer(
 def main(
     version_flag: bool = typer.Option(
         None, "--version", callback=version_callback, is_eager=True, help="Show version"
-    )
-):
+    ),
+) -> None:
     """Confluence Gateway CLI - Search, Index, and Generate."""
     pass
+
 
 app.add_typer(search_commands.app, name="search", help="Search Confluence content.")
 app.add_typer(index_commands.app, name="index", help="Manage content indexing.")
