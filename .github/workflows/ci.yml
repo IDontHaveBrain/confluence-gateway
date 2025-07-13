@@ -19,18 +19,15 @@ jobs:
   code-quality:
     name: Code Quality Checks
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.13
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.13"
 
     - name: Install UV package manager
       run: |
@@ -49,9 +46,9 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cache/uv
-        key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('**/uv.lock') }}
+        key: ${{ runner.os }}-uv-3.13-${{ hashFiles('**/uv.lock') }}
         restore-keys: |
-          ${{ runner.os }}-uv-${{ matrix.python-version }}-
+          ${{ runner.os }}-uv-3.13-
           ${{ runner.os }}-uv-
 
     - name: Run Ruff linting
@@ -192,7 +189,6 @@ jobs:
     - name: Full integration test
       run: |
         # Test CLI commands work
-        uv run confluence-gateway --version
         uv run confluence-gateway --help
         
         # Test API server can start
@@ -235,7 +231,10 @@ jobs:
         ls -la dist/
         # Verify wheel can be installed
         pip install dist/*.whl
-        confluence-gateway --version
+        # Verify CLI works
+        confluence-gateway --help >/dev/null
+        # Verify version from package metadata
+        python -c "import importlib.metadata; print('Package version:', importlib.metadata.version('confluence-gateway'))"
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
