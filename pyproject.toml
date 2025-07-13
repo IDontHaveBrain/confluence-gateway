@@ -41,6 +41,7 @@ dev = [
     "httpx>=0.28.1",
     "mypy>=1.16.1",
     "pre-commit>=4.2.0",
+    "psutil>=6.1.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",
     "ruff>=0.12.3",
