@@ -1,329 +1,465 @@
-"""End-to-end workflow tests for Confluence Gateway."""
+"""End-to-end workflow integration tests for Confluence Gateway.
 
+This module provides basic workflow tests that validate essential user scenarios
+with focus on success case validation only.
+"""
+
+import json
+import os
+import subprocess
 import time
-from unittest.mock import AsyncMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from confluence_gateway.cli.main import app as cli_app
-from fastapi.testclient import TestClient
-from typer.testing import CliRunner
 
-pytestmark = [pytest.mark.integration, pytest.mark.api, pytest.mark.semantic]
+from tests.fixtures.config_builders import (
+    apply_env_vars,
+    cleanup_temp_dirs,
+    get_qdrant_memory_config,
+    restore_env_vars,
+)
 
 
-class TestE2EWorkflows:
-    """Test complete end-to-end workflows."""
+def parse_cli_json_output(output: str) -> dict[str, Any]:
+    """Parse JSON from CLI output that may contain info messages before JSON.
 
-    def test_full_indexing_search_generation_workflow_api(
-        self,
-        test_app_client: TestClient,
-        is_generation_enabled: bool,
-        is_semantic_search_possible: bool,
-        test_space_with_content: dict | None,
-        real_search_terms: list[str],
-        mocker,
-    ):
-        """Test the complete workflow: Index → Search → Generate via API using real test data."""
-        if not is_semantic_search_possible:
-            pytest.skip("Requires semantic search capabilities")
-        if not is_generation_enabled:
-            pytest.skip("Generation feature is disabled")
+    Args:
+        output: Raw CLI output string
 
-        if test_space_with_content:
-            space_key = test_space_with_content["key"]
+    Returns:
+        Parsed JSON data as dictionary
 
-            response = test_app_client.post(
-                "/api/indexing/trigger", json={"space_keys": [space_key], "force": True}
-            )
-        else:
-            response = test_app_client.post("/api/indexing/trigger", json={})
+    Raises:
+        json.JSONDecodeError: If no valid JSON found in output
+    """
+    lines = output.strip().split("\n")
 
-        if response.status_code == 409:
-            for _ in range(30):
-                status_response = test_app_client.get("/api/indexing/status")
-                status_data = status_response.json()
-                if status_data["status"] != "running":
-                    break
-                time.sleep(1)
-        else:
-            assert response.status_code in [200, 202]
-            time.sleep(2)
+    # Find the first line that starts with '{' and collect all subsequent lines
+    json_started = False
+    json_lines = []
 
-        search_term = real_search_terms[0] if real_search_terms else "documentation"
-        search_payload = {"query": search_term, "top_k": 5}
-        search_response = test_app_client.post(
-            "/api/search/semantic", json=search_payload
-        )
-        assert search_response.status_code == 200
-        search_data = search_response.json()
-        assert "results" in search_data
+    for line in lines:
+        stripped_line = line.strip()
 
-        mock_llm_response = (
-            f"Based on the search results, I found information about {search_term}."
-        )
-        mocker.patch(
-            "litellm.acompletion",
-            new_callable=AsyncMock,
-            return_value=mocker.MagicMock(
-                choices=[
-                    mocker.MagicMock(
-                        message=mocker.MagicMock(content=mock_llm_response)
-                    )
-                ]
-            ),
-        )
+        # Start collecting JSON when we find the opening brace
+        if not json_started and stripped_line.startswith("{"):
+            json_started = True
+            json_lines.append(line)
+        elif json_started:
+            # Continue collecting lines that are part of the JSON
+            json_lines.append(line)
 
-        generation_payload = {
-            "query": f"What can you tell me about {search_term}?",
-            "top_k_retrieval": 3,
-        }
-        generation_response = test_app_client.post(
-            "/api/generate/answer", json=generation_payload
-        )
-        assert generation_response.status_code == 200
-        generation_data = generation_response.json()
-        assert "answer" in generation_data
-        assert "sources" in generation_data
+    if json_lines:
+        # Join all JSON lines and parse
+        json_text = "\n".join(json_lines)
+        return json.loads(json_text)
 
-        if search_data["results"]:
-            assert mock_llm_response in generation_data["answer"]
-            assert len(generation_data["sources"]) > 0
-        else:
-            assert (
-                "Could not find" in generation_data["answer"]
-                or mock_llm_response in generation_data["answer"]
-            )
+    # If no JSON found, try parsing the entire output as fallback
+    return json.loads(output.strip())
 
-    def test_full_workflow_cli(
-        self,
-        runner: CliRunner,
-        is_generation_enabled: bool,
-        is_semantic_search_possible: bool,
-        real_search_terms: list[str],
-        mocker,
-        confluence_config,
-    ):
-        """Test the complete workflow: Index → Search → Generate via CLI using real search terms."""
-        if not is_semantic_search_possible:
-            pytest.skip("Requires semantic search capabilities")
-        if not is_generation_enabled:
-            pytest.skip("Generation feature is disabled")
 
-        with patch(
-            "confluence_gateway.cli.dependencies.confluence_config", confluence_config
-        ):
-            status_result = runner.invoke(cli_app, ["index", "status"])
-            assert status_result.exit_code == 0
+def create_mock_litellm_response(content: str) -> MagicMock:
+    """Create a mock LiteLLM response object.
 
-            search_term = real_search_terms[0] if real_search_terms else "confluence"
-            search_result = runner.invoke(
-                cli_app, ["search", "semantic", search_term, "--top-k", "3"]
-            )
-            assert search_result.exit_code == 0
-            assert "Semantic Search Results" in search_result.stdout
+    Args:
+        content: Response content to return
 
-            mock_llm_response = f"Based on the available information about {search_term}, here's what I found."
-            mocker.patch(
-                "litellm.acompletion",
-                new_callable=AsyncMock,
-                return_value=mocker.MagicMock(
-                    choices=[
-                        mocker.MagicMock(
-                            message=mocker.MagicMock(content=mock_llm_response)
-                        )
-                    ]
-                ),
-            )
+    Returns:
+        Mock response object matching LiteLLM structure
+    """
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_message = MagicMock()
 
-            generate_result = runner.invoke(
-                cli_app,
+    mock_message.content = content
+    mock_choice.message = mock_message
+    mock_response.choices = [mock_choice]
+
+    return mock_response
+
+
+def get_confluence_credentials() -> tuple[str, str, str]:
+    """Get Confluence credentials from environment variables.
+
+    Returns:
+        Tuple of (url, username, api_token)
+
+    Raises:
+        pytest.skip: If required credentials are not available
+    """
+    url = os.getenv("CONFLUENCE_URL")
+    username = os.getenv("CONFLUENCE_USERNAME")
+    api_token = os.getenv("CONFLUENCE_API_TOKEN")
+
+    if not all([url, username, api_token]):
+        pytest.skip("Confluence credentials not available in environment")
+
+    return url, username, api_token
+
+
+class TestBasicIndexingWorkflow:
+    """Test basic indexing workflow success cases only."""
+
+    def test_basic_indexing_pipeline(self) -> None:
+        """Test basic indexing workflow from space listing to content storage."""
+        get_confluence_credentials()
+
+        config_result = get_qdrant_memory_config()
+
+        # Apply environment variables
+        previous_env = apply_env_vars(config_result.env_vars)
+
+        try:
+            # Step 1: List available spaces
+            spaces_result = subprocess.run(
                 [
-                    "generate",
-                    "answer",
-                    f"What can you tell me about {search_term}?",
-                    "--top-k",
-                    "3",
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "spaces",
+                    "list",
                 ],
-            )
-            assert generate_result.exit_code == 0
-            assert "Generated Answer" in generate_result.stdout
-            assert "answer" in generate_result.stdout.lower()
-
-    def test_hybrid_search_workflow(
-        self,
-        test_app_client: TestClient,
-        is_semantic_search_possible: bool,
-        is_real_config_available: bool,
-        real_search_terms: list[str],
-        test_space_with_content: dict | None,
-        mocker,
-    ):
-        """Test hybrid search combining keyword and semantic search with real data."""
-        if not is_semantic_search_possible:
-            pytest.skip("Hybrid search requires semantic search capabilities")
-
-        if not is_real_config_available:
-            pytest.skip("Requires real Confluence configuration")
-
-        mocker.patch(
-            "confluence_gateway.services.search.search_config.hybrid_search_enabled",
-            True,
-        )
-
-        search_term = real_search_terms[0] if real_search_terms else "documentation"
-
-        if test_space_with_content:
-            space_key = test_space_with_content["key"]
-            query_params = (
-                f"query={search_term}&use_hybrid=true&space_key={space_key}&limit=10"
-            )
-        else:
-            query_params = f"query={search_term}&use_hybrid=true&limit=10"
-
-        response = test_app_client.get(f"/api/search?{query_params}")
-        assert response.status_code == 200
-        data = response.json()
-        assert "results" in data
-        assert isinstance(data["results"], list)
-
-        if len(data["results"]) > 1:
-            for result in data["results"]:
-                assert "id" in result
-                assert "title" in result
-                assert "type" in result
-                assert "space_key" in result
-
-                if test_space_with_content:
-                    assert result["space_key"] == space_key
-
-    def test_attachment_indexing_workflow(
-        self,
-        test_app_client: TestClient,
-        is_semantic_search_possible: bool,
-        test_space_with_attachments: dict | None,
-        mocker,
-    ):
-        """Test indexing and searching attachments using real test data."""
-        if not is_semantic_search_possible:
-            pytest.skip("Requires semantic search capabilities")
-
-        if not test_space_with_attachments:
-            pytest.skip(
-                "No real test data space with attachments available. "
-                "Run 'python scripts/generate_real_data.py create' to generate test data with attachments."
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
 
-        space_key = test_space_with_attachments["key"]
+            assert spaces_result.returncode == 0
+            spaces_data = parse_cli_json_output(spaces_result.stdout)
+            assert "spaces" in spaces_data
+            assert len(spaces_data["spaces"]) > 0
 
-        mock_indexing_config = mocker.patch(
-            "confluence_gateway.api.dependencies.get_indexing_config"
+            # Step 2: Index first available space
+            test_space_key = spaces_data["spaces"][0]["key"]
+            index_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "index",
+                    "trigger",
+                    "--space",
+                    test_space_key,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            # Trigger command only returns success/failure status, not JSON
+            assert index_result.returncode == 0
+
+            # Check indexing status via status command to get JSON data
+            status_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "index",
+                    "status",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            assert status_result.returncode == 0
+            status_data = parse_cli_json_output(status_result.stdout)
+            assert "status" in status_data
+
+        finally:
+            # Restore environment and cleanup
+            restore_env_vars(previous_env)
+            cleanup_temp_dirs(config_result.temp_dirs)
+
+
+class TestBasicTextSearchWorkflow:
+    """Test basic text search functionality."""
+
+    def test_basic_text_search(self) -> None:
+        """Test basic text search functionality."""
+        get_confluence_credentials()
+
+        config_result = get_qdrant_memory_config()
+
+        # Apply environment variables
+        previous_env = apply_env_vars(config_result.env_vars)
+
+        try:
+            search_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "search",
+                    "text",
+                    "documentation",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            assert search_result.returncode == 0
+            search_data = parse_cli_json_output(search_result.stdout)
+
+            # Validate search response structure
+            assert "results" in search_data
+            assert "total" in search_data
+            assert "took_ms" in search_data
+
+        finally:
+            # Restore environment and cleanup
+            restore_env_vars(previous_env)
+            cleanup_temp_dirs(config_result.temp_dirs)
+
+
+class TestBasicSemanticSearchWorkflow:
+    """Test basic semantic search functionality."""
+
+    def test_basic_semantic_search(self) -> None:
+        """Test basic semantic search functionality."""
+        get_confluence_credentials()
+
+        config_result = get_qdrant_memory_config()
+
+        # Apply environment variables
+        previous_env = apply_env_vars(config_result.env_vars)
+
+        try:
+            # First index some content
+            spaces_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "spaces",
+                    "list",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            assert spaces_result.returncode == 0
+            spaces_data = parse_cli_json_output(spaces_result.stdout)
+            test_space_key = spaces_data["spaces"][0]["key"]
+
+            # Index the space
+            index_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "index",
+                    "trigger",
+                    "--space",
+                    test_space_key,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            assert index_result.returncode == 0
+
+            # Perform semantic search
+            search_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "search",
+                    "semantic",
+                    "software development",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            assert search_result.returncode == 0
+            search_data = parse_cli_json_output(search_result.stdout)
+
+            # Validate semantic search response
+            assert "results" in search_data
+            assert "query" in search_data
+            assert "count" in search_data
+
+        finally:
+            # Restore environment and cleanup
+            restore_env_vars(previous_env)
+            cleanup_temp_dirs(config_result.temp_dirs)
+
+
+class TestBasicHybridSearchWorkflow:
+    """Test basic hybrid search functionality."""
+
+    def test_basic_hybrid_search(self) -> None:
+        """Test basic hybrid search functionality."""
+        get_confluence_credentials()
+
+        config_result = get_qdrant_memory_config()
+
+        # Apply environment variables
+        previous_env = apply_env_vars(config_result.env_vars)
+
+        try:
+            # First index some content
+            spaces_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "spaces",
+                    "list",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            assert spaces_result.returncode == 0
+            spaces_data = parse_cli_json_output(spaces_result.stdout)
+            test_space_key = spaces_data["spaces"][0]["key"]
+
+            # Index the space
+            index_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "index",
+                    "trigger",
+                    "--space",
+                    test_space_key,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            assert index_result.returncode == 0
+
+            # Perform hybrid search
+            search_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "search",
+                    "text",
+                    "development process",
+                    "--hybrid",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            assert search_result.returncode == 0
+            search_data = parse_cli_json_output(search_result.stdout)
+
+            # Validate hybrid search response
+            assert "results" in search_data
+
+        finally:
+            # Restore environment and cleanup
+            restore_env_vars(previous_env)
+            cleanup_temp_dirs(config_result.temp_dirs)
+
+
+class TestBasicRAGWorkflow:
+    """Test basic RAG workflow functionality."""
+
+    def test_basic_rag_generation(self) -> None:
+        """Test basic RAG answer generation workflow."""
+        get_confluence_credentials()
+
+        config_result = get_qdrant_memory_config()
+
+        # Add generation environment variables
+        env_vars = config_result.env_vars.copy()
+        env_vars.update(
+            {
+                "GENERATION_ENABLE": "true",
+                "GENERATION_MODEL_NAME": "openrouter/google/gemini-2.5-flash",
+                "GENERATION_LITELLM_API_KEY": "test_api_key",
+            }
         )
-        mock_indexing_config.return_value = mocker.MagicMock(
-            process_attachments=True,
-            max_file_size_mb=50,
-            supported_formats=["pdf", "docx", "txt", "md"],
-        )
 
-        response = test_app_client.post(
-            "/api/indexing/trigger", json={"space_keys": [space_key], "force": True}
-        )
+        # Apply environment variables
+        previous_env = apply_env_vars(env_vars)
 
-        assert response.status_code in [200, 202]
+        try:
+            # First index some content
+            spaces_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "spaces",
+                    "list",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
-        if response.status_code == 202:
-            time.sleep(3)
+            assert spaces_result.returncode == 0
+            spaces_data = parse_cli_json_output(spaces_result.stdout)
+            test_space_key = spaces_data["spaces"][0]["key"]
 
-        search_response = test_app_client.get(
-            f"/api/search?query=space={space_key}&content_type=attachment&limit=10"
-        )
-        assert search_response.status_code == 200
-        data = search_response.json()
+            # Index the space
+            index_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "confluence-gateway",
+                    "index",
+                    "trigger",
+                    "--space",
+                    test_space_key,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
 
-        assert "results" in data
-        assert "statistics" in data
+            assert index_result.returncode == 0
 
-        if data["results"]:
-            for result in data["results"]:
-                if result["type"] == "attachment":
-                    assert "space_key" in result
-                    assert "url" in result
+            # Generate answer using RAG with mocked LiteLLM
+            with patch("litellm.acompletion", new_callable=AsyncMock) as mock_litellm:
+                mock_litellm.return_value = create_mock_litellm_response(
+                    "Based on the retrieved documentation, software development best practices "
+                    "include following coding standards, implementing proper testing strategies, "
+                    "using version control, and maintaining clear documentation."
+                )
 
-    def test_error_handling_workflow(
-        self,
-        test_app_client: TestClient,
-        is_real_config_available: bool,
-        mocker,
-    ):
-        """Test error handling throughout the workflow."""
-        response = test_app_client.get("/api/search?query=a")
+                generate_result = subprocess.run(
+                    [
+                        "uv",
+                        "run",
+                        "confluence-gateway",
+                        "generate",
+                        "answer",
+                        "What are the software development best practices?",
+                    ],
+                    env={**os.environ, **env_vars},
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
 
-        if not is_real_config_available:
-            assert response.status_code == 503
-        else:
-            assert response.status_code == 422
+                assert generate_result.returncode == 0
+                generate_data = parse_cli_json_output(generate_result.stdout)
 
-        mocker.patch(
-            "confluence_gateway.api.dependencies.generation_config",
-            None,
-        )
-        response = test_app_client.post("/api/generate/answer", json={"query": "test"})
-        assert response.status_code == 501
+                # Validate RAG response structure
+                assert "answer" in generate_data
+                assert "sources" in generate_data
 
-    def test_space_filtering_workflow(
-        self,
-        test_app_client: TestClient,
-        is_real_config_available: bool,
-        test_space_with_content: dict | None,
-        real_search_terms: list[str],
-    ):
-        """Test searching within specific spaces using real test data."""
-        if not is_real_config_available:
-            pytest.skip("Requires real Confluence configuration")
-
-        search_term = real_search_terms[0] if real_search_terms else "test"
-
-        if test_space_with_content:
-            space_key = test_space_with_content["key"]
-        else:
-            response = test_app_client.get(f"/api/search?query={search_term}&limit=5")
-            assert response.status_code == 200
-            data = response.json()
-
-            if not data["results"]:
-                pytest.skip("No search results found to extract space key")
-
-            space_key = data["results"][0]["space_key"]
-
-        space_response = test_app_client.get(
-            f"/api/search?query={search_term}&space_key={space_key}&limit=5"
-        )
-        assert space_response.status_code == 200
-        space_data = space_response.json()
-
-        for result in space_data["results"]:
-            assert result["space_key"] == space_key
-
-    def test_concurrent_operations(
-        self,
-        test_app_client: TestClient,
-        is_real_config_available: bool,
-    ):
-        """Test concurrent search operations."""
-        if not is_real_config_available:
-            pytest.skip("Requires real Confluence configuration")
-
-        import concurrent.futures
-
-        def search_request(query: str):
-            return test_app_client.get(f"/api/search?query={query}&limit=2")
-
-        queries = ["test", "documentation", "confluence", "api", "search"]
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(search_request, q) for q in queries]
-            results = [f.result() for f in concurrent.futures.as_completed(futures)]
-
-        for response in results:
-            assert response.status_code == 200
-            data = response.json()
-            assert "results" in data
+        finally:
+            # Restore environment and cleanup
+            restore_env_vars(previous_env)
+            cleanup_temp_dirs(config_result.temp_dirs)

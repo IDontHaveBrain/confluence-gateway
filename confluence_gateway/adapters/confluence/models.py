@@ -48,6 +48,7 @@ class ConfluenceSpace(ConfluenceObject):
     key: str
     name: str | None = None
     description: dict[str, Any] | None = None
+    description_text: str | None = None
     type: SpaceType | None = None
 
     def __init__(self, **data: Any) -> None:

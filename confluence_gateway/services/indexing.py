@@ -748,7 +748,9 @@ class IndexingService:
                 exc_info=True,
             )
 
-    async def run_indexing(self, space_keys: list[str] | None = None) -> None:
+    async def run_indexing(
+        self, space_keys: list[str] | None = None, index_all: bool = False
+    ) -> None:
         with self._lock:
             if self._is_running:
                 logger.warning("Indexing is already running. Skipping new trigger.")
@@ -759,11 +761,18 @@ class IndexingService:
             self._last_run_status = "running"
             self._last_error_message = None
 
+        if index_all:
+            target_description = "All accessible spaces"
+        elif space_keys:
+            target_description = f"{space_keys}"
+        else:
+            target_description = "Configured spaces"
+
         logger.info(
-            f"Scheduling indexing run in background thread... Target spaces: {space_keys or 'Configured'}"
+            f"Scheduling indexing run in background thread... Target: {target_description}"
         )
         try:
-            await asyncio.to_thread(self._run_indexing_sync, space_keys)
+            await asyncio.to_thread(self._run_indexing_sync, space_keys, index_all)
             with self._lock:
                 self._last_run_status = "success"
                 self._last_error_message = None
@@ -782,7 +791,9 @@ class IndexingService:
                     self._last_run_status = "failure"  # type: ignore[unreachable]
                     self._last_error_message = "Indexing finished unexpectedly without success or failure status."
 
-    def _run_indexing_sync(self, space_keys: list[str] | None = None) -> None:
+    def _run_indexing_sync(
+        self, space_keys: list[str] | None = None, index_all: bool = False
+    ) -> None:
         logger.info("Background indexing thread started.")
 
         if not self.vector_db_adapter or not self.embedding_service:
@@ -792,7 +803,10 @@ class IndexingService:
             return
 
         target_spaces: list[ConfluenceSpace] = []
-        if space_keys:
+        if index_all:
+            logger.info("Fetching all accessible spaces for indexing...")
+            target_spaces = self._list_all_accessible_spaces()
+        elif space_keys:
             logger.info(f"Targeting specific spaces provided: {space_keys}")
             for key in space_keys:
                 try:

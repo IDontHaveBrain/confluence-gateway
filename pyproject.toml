@@ -10,10 +10,10 @@ requires-python = ">=3.10"
 dependencies = [
     "atlassian-python-api>=4.0.4",
     "chromadb>=1.0.15",
-    "fastapi>=0.115.14",
+    "fastapi>=0.116.1",
     "httpx>=0.28.1",
-    "litellm>=1.74.0",
-    "llama-index-core>=0.12.46",
+    "litellm>=1.74.0.post2",
+    "llama-index-core>=0.12.48",
     "markitdown>=0.1.2",
     "multidict>=6.6.3",
     "pydantic>=2.11.7",
@@ -22,24 +22,29 @@ dependencies = [
     "requests>=2.32.4",
     "sentence-transformers>=5.0.0",
     "tiktoken>=0.9.0",
-    "typer>=0.15.4",
-    "unstructured>=0.18.3",
+    "typer>=0.16.0",
+    "unstructured>=0.18.5",
 ]
 
 [project.scripts]
 confluence-gateway = "confluence_gateway.cli.main:app"
 
+[tool.uv]
+package = true
+
+[tool.setuptools.package-data]
+confluence_gateway = ["confluence_gateway_config.json"]
+
 [dependency-groups]
 dev = [
     "black>=25.1.0",
+    "httpx>=0.28.1",
     "mypy>=1.16.1",
     "pre-commit>=4.2.0",
+    "psutil>=6.1.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",
-    "pytest-lazy-fixture>=0.6.3",
-    "pytest-mock>=3.14.1",
-    "pytest-xdist>=3.8.0",
-    "ruff>=0.12.2",
+    "ruff>=0.12.3",
     "types-requests>=2.32.4.20250611",
 ]
 
@@ -50,10 +55,10 @@ lint.select = [
     "I",    # isort
     "UP",   # pyupgrade
     "PTH",  # flake8-use-pathlib
-    "W",    # pycodestyle warnings (whitespace 관련
+    "W",
 ]
 lint.ignore = [
-    "E501", # line too long
+    "E501",
 ]
 lint.fixable = ["E", "F", "I", "UP", "PTH", "W"]
 target-version = "py310"
@@ -84,7 +89,6 @@ disallow_any_explicit = false
 disallow_any_generics = true
 ignore_missing_imports = true
 implicit_optional = true
-#fast_module_lookup = true
 exclude = [
     "scripts",
     "build",
@@ -121,3 +125,11 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "confluence_gateway.adapters.*"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+asyncio_mode = "auto"

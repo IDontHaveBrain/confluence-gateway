@@ -2,84 +2,49 @@
 
 **AI-powered search and knowledge retrieval for Atlassian Confluence**
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > **Status**: Beta (v0.1.0)
 
-[English](#english) | [한국어](#한국어)
+Transform your Confluence into a smart knowledge base with semantic search, hybrid algorithms, and AI-powered question answering.
 
----
+## ✨ Key Features
 
-## Confluence Gateway <a name="english"></a>
+- **🔍 Advanced Search**: Text, semantic, and hybrid search with Reciprocal Rank Fusion
+- **🤖 RAG-Powered Q&A**: Generate contextual answers from your Confluence content  
+- **⚡ Flexible Integration**: REST API + CLI interface with multiple vector database support
 
-Transform your Confluence into a smart knowledge base with semantic search, hybrid search algorithms, and AI-powered question answering.
+## 🚀 Quick Start
 
-### ✨ Key Features
+**Requirements**: Python 3.10+, Confluence API access
 
-- **🔍 Advanced Search Modes**
-  - **Text Search**: Traditional keyword search with CQL support
-  - **Semantic Search**: Vector similarity using embeddings
-  - **Hybrid Search**: Best of both worlds with Reciprocal Rank Fusion (RRF)
+### 1. Install
 
-- **🤖 RAG-Powered Q&A**
-  - Generate contextual answers from your Confluence content
-  - Multiple LLM providers via LiteLLM (OpenAI, Anthropic, etc.)
-  - Source attribution with direct links
-
-- **⚡ Flexible Integration**
-  - REST API with OpenAPI documentation
-  - Full-featured CLI interface
-  - Support for multiple vector databases and embedding providers
-
-### 🎯 What's Implemented
-
-**Core Features:**
-- ✅ All search modes: Text, Semantic, CQL, Hybrid
-- ✅ Content indexing with attachment support (PDF, DOCX, PPTX, TXT, MD)
-- ✅ RAG answer generation with source attribution
-- ✅ REST API + CLI with feature parity
-- ✅ Multi-provider architecture (Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
-- ✅ Hierarchical configuration system
-- ✅ Comprehensive error handling and logging
-
-**Planned Features:**
-- 🔄 MCP (Model Context Protocol) server
-- 🔄 Built-in authentication layer
-- 🔄 Real-time indexing webhooks
-- 🔄 Result caching layer
-
-### 🏗️ Architecture
-
-Clean service layer architecture with dependency injection:
-
-```
-├── adapters/      # External integrations (Confluence, Vector DBs, Embeddings)
-├── services/      # Business logic (Search, Indexing, Generation, Ranking)
-├── api/          # REST API with FastAPI
-├── cli/          # CLI interface with Typer
-└── core/         # Configuration & utilities
-```
-
-**Key Design Patterns:** Service Layer, Factory, Singleton, Dependency Injection
-
-### 🚀 Quick Start
-
-**Requirements:** Python 3.10+, Confluence API access
-
-#### 1. Install
 ```bash
-git clone https://github.com/yourusername/confluence-gateway.git
+# Clone repository and install dependencies
+git clone https://github.com/IDontHaveBrain/confluence-gateway.git
 cd confluence-gateway
-uv sync
+uv sync --dev
+uv run pre-commit install
 ```
 
-#### 2. Configure
-Environment variables (recommended):
+### 2. Configure
+
+**Environment variables (recommended):**
 ```bash
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
 export CONFLUENCE_USERNAME="your-email@example.com"
 export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
+
+# Optional: AI features (default: openrouter/google/gemini-2.5-flash)
+export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
+export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
+
+# Optional: Vector database (default: memory mode)
+export QDRANT_URL="http://localhost:6333"  # or ":memory:"
 ```
 
-Or config file at `~/.confluence_gateway_config.json`:
+**Or config file at `~/.confluence_gateway_config.json`:**
 ```json
 {
   "confluence": {
@@ -90,16 +55,25 @@ Or config file at `~/.confluence_gateway_config.json`:
 }
 ```
 
-#### 3. Use It
+### 3. Use It
 
-**CLI:**
+**CLI Interface:**
 ```bash
-# Index content
-uv run confluence-gateway index trigger --space-keys TECH --sync
+# Verify installation
+uv run confluence-gateway --version
 
-# Search
+# List and manage spaces
+uv run confluence-gateway spaces list --all
+uv run confluence-gateway spaces list --search "dev"
+
+# Index content
+uv run confluence-gateway index trigger --space-keys DEV,TECH
+uv run confluence-gateway index status
+
+# Search with various modes
 uv run confluence-gateway search text "deployment guide"
 uv run confluence-gateway search semantic "how to deploy"
+uv run confluence-gateway search text "process" --hybrid
 
 # Get AI answers
 uv run confluence-gateway generate answer "What is our deployment process?"
@@ -107,12 +81,20 @@ uv run confluence-gateway generate answer "What is our deployment process?"
 
 **API Server:**
 ```bash
-# Start server
+# Start development server
 uv run uvicorn confluence_gateway.api.app:app --reload
 # API docs: http://localhost:8000/docs
 
-# Search endpoints
-curl "http://localhost:8000/api/search?query=deployment&mode=hybrid"
+# Health check
+curl "http://localhost:8000/health"
+
+# List spaces
+curl "http://localhost:8000/api/spaces/"
+
+# Text search
+curl "http://localhost:8000/api/search?query=deployment&limit=10"
+
+# Semantic search
 curl -X POST "http://localhost:8000/api/search/semantic" \
   -H "Content-Type: application/json" \
   -d '{"query": "deployment process", "top_k": 5}'
@@ -120,342 +102,110 @@ curl -X POST "http://localhost:8000/api/search/semantic" \
 # Generate answers
 curl -X POST "http://localhost:8000/api/generate/answer" \
   -H "Content-Type: application/json" \
-  -d '{"question": "What is our deployment process?"}'
+  -d '{"query": "What is our deployment process?"}'
 ```
 
-### ⚙️ Advanced Configuration
+## 🏗️ Architecture
 
-**Priority:** Environment Variables > `~/.confluence_gateway_config.json` > Defaults
+**Hexagonal Architecture** (Ports and Adapters):
 
-<details>
-<summary><strong>Complete Configuration Example</strong></summary>
+```
+confluence_gateway/
+├── core/              # Configuration, exceptions, schemas
+├── services/          # Business logic (Search, Indexing, Generation, Ranking)
+├── adapters/          # External integrations (Confluence, Vector DBs, Embeddings)
+├── api/               # FastAPI REST interface
+└── cli/               # Typer CLI interface
+```
+
+**Key Services:**
+- `SearchService` - Multi-modal search with RRF hybrid ranking
+- `IndexingService` - Content processing and vector storage  
+- `GenerationService` - RAG answer generation
+- `EmbeddingService` - Vector embedding management
+- `RankingService` - Reciprocal Rank Fusion algorithm
+
+## 🔧 Development & Testing
+
+**Development workflow:**
+```bash
+# Start API server with auto-reload
+uv run uvicorn confluence_gateway.api.app:app --reload
+
+# Code quality pipeline (required before commits)  
+uv run ruff check --fix && uv run ruff format && uv run mypy confluence_gateway/
+
+# Run tests (requires real Confluence instance)
+echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
+uv run pytest tests/ -v
+```
+
+**Testing**: E2E testing with real Confluence instances. Requires `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN` environment variables.
+
+## 📚 API Reference
+
+**API Docs**: `http://localhost:8000/docs` (interactive Swagger UI)
+
+**Request formats** for POST endpoints:
 
 ```json
-{
-  "confluence": {
-    "url": "https://your-instance.atlassian.net",
-    "username": "your-email@example.com",
-    "api_token": "YOUR_API_TOKEN",
-    "timeout": 15
-  },
-  "search": {
-    "default_limit": 20,
-    "max_limit": 100,
-    "hybrid_search_enabled": true,
-    "hybrid_rrf_k": 60
-  },
-  "embedding": {
-    "provider": "sentence-transformers",
-    "model_name": "all-MiniLM-L6-v2",
-    "dimension": 384,
-    "device": "cpu"
-  },
-  "vector_db": {
-    "type": "qdrant",
-    "qdrant_url": "http://localhost:6333",
-    "chunk_size": 512,
-    "chunk_overlap": 50
-  },
-  "indexing": {
-    "include_attachments": true,
-    "max_attachment_size_mb": 10,
-    "allowed_attachment_extensions": ["pdf", "docx", "txt", "md"],
-    "parser_type": "markitdown"
-  },
-  "generation": {
-    "provider": "litellm",
-    "model_name": "openai/gpt-4",
-    "litellm_api_key": "YOUR_API_KEY",
-    "max_context_tokens": 3000,
-    "temperature": 0.1
-  }
-}
+# Semantic Search
+{"query": "deployment", "top_k": 10}
+
+# Answer Generation  
+{"query": "What is our process?", "top_k_retrieval": 5}
+
+# Advanced Search
+{"query": "api", "space_key": "TECH", "limit": 20}
+
+# CQL Search
+{"cql": "space = DEV AND type = page", "limit": 10}
+
+# Indexing
+{"space_keys": ["DEV", "TECH"]} 
+{"index_all": true}
 ```
-</details>
 
-**Common Environment Variables:**
+## ⚙️ Configuration
+
+**Priority**: Environment Variables > `~/.confluence_gateway_config.json` > Defaults
+
+### Vector Database Options
+
+**Qdrant (Default):**
 ```bash
-# Required
-export CONFLUENCE_URL="https://your-instance.atlassian.net"
-export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
+# Local storage (persistent)
+export QDRANT_LOCAL_PATH="~/.confluence_gateway/qdrant_storage"
 
-# For AI features
-export GENERATION_MODEL_NAME="openai/gpt-4"
+# Server mode  
+export QDRANT_URL="http://localhost:6333"
+```
+
+**ChromaDB:**
+```bash
+export VECTOR_DB_TYPE="chroma"
+export CHROMA_PERSIST_PATH="~/.confluence_gateway/chroma_storage"
+```
+
+### AI Generation Settings
+
+```bash
+# Default model (requires OpenRouter API key from https://openrouter.ai/)
+export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_API_KEY"
-
-# Vector database
-export VECTOR_DB_TYPE="qdrant"
-export VECTOR_DB_QDRANT_URL="http://localhost:6333"
 ```
 
-### 🧪 Testing
+## 🔒 Production Considerations
 
-```bash
-# All tests
-uv run pytest
+⚠️ **Security**: No built-in authentication - use reverse proxy with auth for production  
+📦 **Package Manager**: Use `uv` (not pip) for all operations  
+🗄️ **Vector Databases**: Qdrant (default), ChromaDB, or text-only mode  
+🤖 **AI Providers**: LiteLLM with OpenAI, Anthropic, OpenRouter, and more
 
-# Fast unit tests only
-uv run pytest -m unit
-
-# Specific test categories
-uv run pytest -m integration  # Requires external services
-uv run pytest -m api         # Requires Confluence API
-uv run pytest -m semantic    # Requires vector DB + embeddings
-
-# With coverage
-uv run pytest --cov=confluence_gateway
-```
-
-### 🔧 Development
-
-```bash
-# Setup
-uv sync --group dev
-uv run pre-commit install
-
-# Code quality
-uv run ruff format confluence_gateway tests  # Format
-uv run ruff check confluence_gateway tests   # Lint
-uv run mypy confluence_gateway               # Type check
-uv run pre-commit run --all-files           # All checks
-```
-
-### 🔒 Production Security
-
-⚠️ **No built-in authentication** - Use reverse proxy (nginx/Apache) with auth
-- Store API tokens in environment variables
-- Configure CORS appropriately
-- Restrict network access to API server
-
-### 📄 License
+## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-## Confluence Gateway <a name="한국어"></a>
-
-**Confluence를 위한 AI 기반 검색 및 지식 검색**
-
-> **상태**: Beta (v0.1.0)
-
-시맨틱 검색, 하이브리드 검색 알고리즘, AI 기반 질문 답변으로 Confluence를 스마트 지식 베이스로 변환하세요.
-
-### ✨ 주요 기능
-
-- **🔍 고급 검색 모드**
-  - **텍스트 검색**: CQL 지원 전통적인 키워드 검색
-  - **시맨틱 검색**: 임베딩을 사용한 벡터 유사성 검색
-  - **하이브리드 검색**: Reciprocal Rank Fusion(RRF)으로 두 방식의 장점 결합
-
-- **🤖 RAG 기반 Q&A**
-  - Confluence 콘텐츠에서 맥락적 답변 생성
-  - LiteLLM을 통한 다중 LLM 제공자 지원 (OpenAI, Anthropic 등)
-  - 직접 링크가 포함된 출처 표시
-
-- **⚡ 유연한 통합**
-  - OpenAPI 문서가 포함된 REST API
-  - 모든 기능을 갖춘 CLI 인터페이스
-  - 다중 벡터 데이터베이스 및 임베딩 제공자 지원
-
-### 🎯 구현 현황
-
-**핵심 기능:**
-- ✅ 모든 검색 모드: 텍스트, 시맨틱, CQL, 하이브리드
-- ✅ 첨부 파일 지원 콘텐츠 인덱싱 (PDF, DOCX, PPTX, TXT, MD)
-- ✅ 출처 표시가 포함된 RAG 답변 생성
-- ✅ 기능 동등성을 갖춘 REST API + CLI
-- ✅ 다중 제공자 아키텍처 (Qdrant/ChromaDB, SentenceTransformers/LiteLLM)
-- ✅ 계층적 구성 시스템
-- ✅ 포괄적인 오류 처리 및 로깅
-
-**계획된 기능:**
-- 🔄 MCP (Model Context Protocol) 서버
-- 🔄 내장 인증 레이어
-- 🔄 실시간 인덱싱 웹훅
-- 🔄 결과 캐싱 레이어
-
-### 🏗️ 아키텍처
-
-의존성 주입이 포함된 깔끔한 서비스 레이어 아키텍처:
-
-```
-├── adapters/      # 외부 통합 (Confluence, Vector DB, Embeddings)
-├── services/      # 비즈니스 로직 (Search, Indexing, Generation, Ranking)
-├── api/          # FastAPI REST API
-├── cli/          # Typer CLI 인터페이스
-└── core/         # 구성 및 유틸리티
-```
-
-**주요 디자인 패턴:** Service Layer, Factory, Singleton, Dependency Injection
-
-### 🚀 빠른 시작
-
-**요구사항:** Python 3.10+, Confluence API 액세스
-
-#### 1. 설치
-```bash
-git clone https://github.com/yourusername/confluence-gateway.git
-cd confluence-gateway
-uv sync
-```
-
-#### 2. 구성
-환경 변수 (권장):
-```bash
-export CONFLUENCE_URL="https://your-instance.atlassian.net"
-export CONFLUENCE_USERNAME="your-email@example.com"
-export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
-```
-
-또는 `~/.confluence_gateway_config.json` 설정 파일:
-```json
-{
-  "confluence": {
-    "url": "https://your-instance.atlassian.net",
-    "username": "your-email@example.com",
-    "api_token": "YOUR_API_TOKEN"
-  }
-}
-```
-
-#### 3. 사용하기
-
-**CLI:**
-```bash
-# 콘텐츠 인덱싱
-uv run confluence-gateway index trigger --space-keys TECH --sync
-
-# 검색
-uv run confluence-gateway search text "배포 가이드"
-uv run confluence-gateway search semantic "배포하는 방법"
-
-# AI 답변 얻기
-uv run confluence-gateway generate answer "우리의 배포 프로세스는 무엇입니까?"
-```
-
-**API 서버:**
-```bash
-# 서버 시작
-uv run uvicorn confluence_gateway.api.app:app --reload
-# API 문서: http://localhost:8000/docs
-
-# 검색 엔드포인트
-curl "http://localhost:8000/api/search?query=배포&mode=hybrid"
-curl -X POST "http://localhost:8000/api/search/semantic" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "배포 프로세스", "top_k": 5}'
-
-# 답변 생성
-curl -X POST "http://localhost:8000/api/generate/answer" \
-  -H "Content-Type: application/json" \
-  -d '{"question": "우리의 배포 프로세스는 무엇입니까?"}'
-```
-
-### ⚙️ 고급 구성
-
-**우선순위:** 환경 변수 > `~/.confluence_gateway_config.json` > 기본값
-
-<details>
-<summary><strong>전체 구성 예제</strong></summary>
-
-```json
-{
-  "confluence": {
-    "url": "https://your-instance.atlassian.net",
-    "username": "your-email@example.com",
-    "api_token": "YOUR_API_TOKEN",
-    "timeout": 15
-  },
-  "search": {
-    "default_limit": 20,
-    "max_limit": 100,
-    "hybrid_search_enabled": true,
-    "hybrid_rrf_k": 60
-  },
-  "embedding": {
-    "provider": "sentence-transformers",
-    "model_name": "all-MiniLM-L6-v2",
-    "dimension": 384,
-    "device": "cpu"
-  },
-  "vector_db": {
-    "type": "qdrant",
-    "qdrant_url": "http://localhost:6333",
-    "chunk_size": 512,
-    "chunk_overlap": 50
-  },
-  "indexing": {
-    "include_attachments": true,
-    "max_attachment_size_mb": 10,
-    "allowed_attachment_extensions": ["pdf", "docx", "txt", "md"],
-    "parser_type": "markitdown"
-  },
-  "generation": {
-    "provider": "litellm",
-    "model_name": "openai/gpt-4",
-    "litellm_api_key": "YOUR_API_KEY",
-    "max_context_tokens": 3000,
-    "temperature": 0.1
-  }
-}
-```
-</details>
-
-**주요 환경 변수:**
-```bash
-# 필수
-export CONFLUENCE_URL="https://your-instance.atlassian.net"
-export CONFLUENCE_API_TOKEN="YOUR_TOKEN"
-
-# AI 기능용
-export GENERATION_MODEL_NAME="openai/gpt-4"
-export GENERATION_LITELLM_API_KEY="YOUR_API_KEY"
-
-# 벡터 데이터베이스
-export VECTOR_DB_TYPE="qdrant"
-export VECTOR_DB_QDRANT_URL="http://localhost:6333"
-```
-
-### 🧪 테스팅
-
-```bash
-# 모든 테스트
-uv run pytest
-
-# 빠른 단위 테스트만
-uv run pytest -m unit
-
-# 특정 테스트 카테고리
-uv run pytest -m integration  # 외부 서비스 필요
-uv run pytest -m api         # Confluence API 필요
-uv run pytest -m semantic    # 벡터 DB + 임베딩 필요
-
-# 커버리지와 함께
-uv run pytest --cov=confluence_gateway
-```
-
-### 🔧 개발
-
-```bash
-# 설정
-uv sync --group dev
-uv run pre-commit install
-
-# 코드 품질
-uv run ruff format confluence_gateway tests  # 포맷
-uv run ruff check confluence_gateway tests   # 린트
-uv run mypy confluence_gateway               # 타입 체크
-uv run pre-commit run --all-files           # 모든 검사
-```
-
-### 🔒 프로덕션 보안
-
-⚠️ **내장 인증 없음** - 인증이 포함된 리버스 프록시(nginx/Apache) 사용
-- API 토큰을 환경 변수에 저장
-- CORS를 적절히 구성
-- API 서버에 대한 네트워크 액세스 제한
-
-### 📄 라이선스
-
-MIT 라이선스 - [LICENSE](LICENSE) 파일 참조
+*Transform your Confluence documentation into an intelligent, searchable knowledge base with AI-powered insights.*

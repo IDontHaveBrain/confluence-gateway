@@ -67,12 +67,24 @@ class TextSearchRequest(BaseSearchRequest):
 class IndexingTriggerRequest(BaseModel):
     space_keys: list[str] | None = Field(
         None,
+        description="Specific space keys to index. If not provided, defaults to configured spaces.",
     )
+    index_all: bool = Field(
+        False,
+        description="Index all accessible spaces (ignores configuration filters). Cannot be used with space_keys.",
+    )
+
+    @field_validator("index_all")
+    def validate_mutually_exclusive(cls, v: bool, values: Any) -> bool:
+        if v and values.data.get("space_keys"):
+            raise ValueError("Cannot use index_all and space_keys together")
+        return v
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {"space_keys": ["DEV", "PROD"]},
+                {"index_all": True},
                 {},
             ]
         }
