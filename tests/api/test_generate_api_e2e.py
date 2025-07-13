@@ -5,7 +5,7 @@ import pytest
 def test_generate_answer_endpoint(api_client):
     """Test POST /api/generate/answer endpoint"""
     response = api_client.post(
-        "/api/generate/answer", json={"gen_request": {"query": "What is Confluence?"}}
+        "/api/generate/answer", json={"query": "What is Confluence?"}
     )
     assert response.status_code == 200
     data = response.json()

@@ -89,20 +89,20 @@ uv run uvicorn confluence_gateway.api.app:app --reload
 curl "http://localhost:8000/health"
 
 # List spaces
-curl "http://localhost:8000/api/spaces"
+curl "http://localhost:8000/api/spaces/"
 
 # Text search
 curl "http://localhost:8000/api/search?query=deployment&limit=10"
 
-# Semantic search (note the nested request structure)
+# Semantic search
 curl -X POST "http://localhost:8000/api/search/semantic" \
   -H "Content-Type: application/json" \
-  -d '{"search_request": {"query": "deployment process", "top_k": 5}}'
+  -d '{"query": "deployment process", "top_k": 5}'
 
-# Generate answers (note the nested request structure)
+# Generate answers
 curl -X POST "http://localhost:8000/api/generate/answer" \
   -H "Content-Type: application/json" \
-  -d '{"gen_request": {"query": "What is our deployment process?"}}'
+  -d '{"query": "What is our deployment process?"}'
 ```
 
 ## 🏗️ Architecture
@@ -135,28 +135,31 @@ uv run uvicorn confluence_gateway.api.app:app --reload
 # Code quality pipeline (required before commits)  
 uv run ruff check --fix && uv run ruff format && uv run mypy confluence_gateway/
 
-# Run E2E tests (requires real Confluence instance)
+# Run tests (requires real Confluence instance)
 echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
 uv run pytest tests/ -v
 ```
 
-**Testing philosophy**: E2E only - test real functionality with actual Confluence instances. Requires `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN` environment variables.
+**Testing**: E2E testing with real Confluence instances. Requires `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN` environment variables.
 
 ## 📚 API Reference
 
 **API Docs**: `http://localhost:8000/docs` (interactive Swagger UI)
 
-**Critical**: All POST endpoints require nested request objects:
+**Request formats** for POST endpoints:
 
 ```json
 # Semantic Search
-{"search_request": {"query": "deployment", "top_k": 10}}
+{"query": "deployment", "top_k": 10}
 
 # Answer Generation  
-{"gen_request": {"query": "What is our process?", "top_k_retrieval": 5}}
+{"query": "What is our process?", "top_k_retrieval": 5}
 
 # Advanced Search
-{"request": {"query": "api", "space_key": "TECH", "limit": 20}}
+{"query": "api", "space_key": "TECH", "limit": 20}
+
+# CQL Search
+{"cql": "space = DEV AND type = page", "limit": 10}
 
 # Indexing
 {"space_keys": ["DEV", "TECH"]} 

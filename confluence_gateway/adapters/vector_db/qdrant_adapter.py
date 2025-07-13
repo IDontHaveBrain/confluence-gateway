@@ -2,37 +2,119 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from qdrant_client import QdrantClient, models
-from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import Filter as QdrantFilter
-from qdrant_client.models import (
-    PayloadSelector,
-    UpdateResult,
-)
-
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import (
     Document,
     VectorSearchResultItem,
 )
-from confluence_gateway.core.config import VectorDBConfig
+from confluence_gateway.core.config import (
+    VectorDBConfig,
+    dev_mode_log_skip,
+    dev_mode_log_stub,
+    is_dev_mode,
+)
 
 logger = logging.getLogger(__name__)
+
+# Lazy loading for Qdrant dependencies
+_qdrant_client = None
+_qdrant_models = None
+_qdrant_exceptions = None
+_qdrant_filter = None
+_qdrant_update_result = None
+_qdrant_payload_selector = None
+
+
+def _get_qdrant_deps() -> tuple[Any, Any, Any, Any, Any, Any]:
+    """Lazy load Qdrant dependencies with caching."""
+    global \
+        _qdrant_client, \
+        _qdrant_models, \
+        _qdrant_exceptions, \
+        _qdrant_filter, \
+        _qdrant_update_result, \
+        _qdrant_payload_selector
+
+    if _qdrant_client is None:
+        try:
+            from qdrant_client import QdrantClient, models
+            from qdrant_client.http.exceptions import UnexpectedResponse
+            from qdrant_client.models import Filter as QdrantFilter
+            from qdrant_client.models import PayloadSelector, UpdateResult
+
+            _qdrant_client = QdrantClient
+            _qdrant_models = models
+            _qdrant_exceptions = UnexpectedResponse
+            _qdrant_filter = QdrantFilter
+            _qdrant_update_result = UpdateResult
+            _qdrant_payload_selector = PayloadSelector
+        except ImportError as e:
+            raise ImportError(
+                "qdrant-client is required for Qdrant vector database. "
+                "Install it with: uv add qdrant-client"
+            ) from e
+
+    return (
+        _qdrant_client,
+        _qdrant_models,
+        _qdrant_exceptions,
+        _qdrant_filter,
+        _qdrant_update_result,
+        _qdrant_payload_selector,
+    )
 
 
 class QdrantAdapter(VectorDBAdapter):
     def __init__(self, config: VectorDBConfig) -> None:
         self.config = config
-        self.client: QdrantClient | None = None
-        logger.info(f"Initializing QdrantAdapter with config: {config.type}")
+        self.client: Any | None = None  # QdrantClient will be loaded lazily
+        self.dev_mode = is_dev_mode()
+
+        if self.dev_mode:
+            dev_mode_log_stub("QdrantAdapter")
+            logger.info(
+                "QdrantAdapter initialized in DEV MODE - stub implementation only"
+            )
+        else:
+            logger.info(f"Initializing QdrantAdapter with config: {config.type}")
 
     def initialize(self) -> None:
+        # Lightweight configuration validation only - no network calls
         if not self.config.embedding_dimension:
             raise ValueError(
                 "Qdrant adapter requires VECTOR_DB_EMBEDDING_DIMENSION to be set."
             )
 
+        if self.dev_mode:
+            dev_mode_log_skip("Qdrant client dependencies and connection")
+            logger.info(
+                "QdrantAdapter initialized in DEV MODE - dependencies validation skipped"
+            )
+            return
+
+        # Validate dependencies are available
         try:
+            _get_qdrant_deps()
+        except ImportError as e:
+            logger.error(f"Qdrant dependencies not available: {e}", exc_info=True)
+            raise
+
+        logger.info("QdrantAdapter initialized with config validation complete")
+
+    def _ensure_client(self) -> Any:  # Returns QdrantClient but loaded lazily
+        if self.client is not None:
+            return self.client
+
+        try:
+            # Load Qdrant dependencies
+            (
+                QdrantClient,
+                models,
+                UnexpectedResponse,
+                QdrantFilter,
+                UpdateResult,
+                PayloadSelector,
+            ) = _get_qdrant_deps()
             client_url = None
             client_location = None
 
@@ -48,7 +130,7 @@ class QdrantAdapter(VectorDBAdapter):
                 local_path.mkdir(parents=True, exist_ok=True)
                 client_location = str(local_path)
                 logger.info(
-                    f"Initializing Qdrant with local storage at: {client_location}, "
+                    f"Establishing Qdrant connection with local storage at: {client_location}, "
                     f"gRPC Port: {self.config.qdrant_grpc_port}, "
                     f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
                     f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
@@ -56,7 +138,7 @@ class QdrantAdapter(VectorDBAdapter):
             elif self.config.qdrant_url == ":memory:":
                 client_location = ":memory:"
                 logger.info(
-                    f"Initializing Qdrant in memory mode, "
+                    f"Establishing Qdrant connection in memory mode, "
                     f"gRPC Port: {self.config.qdrant_grpc_port}, "
                     f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
                     f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
@@ -69,7 +151,7 @@ class QdrantAdapter(VectorDBAdapter):
                     str(self.config.qdrant_url) if self.config.qdrant_url else None
                 )
                 logger.info(
-                    f"Connecting to Qdrant at URL: {client_url}, "
+                    f"Establishing Qdrant connection to URL: {client_url}, "
                     f"gRPC Port: {self.config.qdrant_grpc_port}, "
                     f"Prefer gRPC: {self.config.qdrant_prefer_grpc}, "
                     f"API Key Provided: {'Yes' if self.config.qdrant_api_key else 'No'}"
@@ -93,6 +175,7 @@ class QdrantAdapter(VectorDBAdapter):
                     prefer_grpc=self.config.qdrant_prefer_grpc,
                 )
 
+            # Setup collection on first connection
             collection_name = self.config.collection_name
             logger.info(f"Checking for Qdrant collection: {collection_name}")
 
@@ -108,6 +191,7 @@ class QdrantAdapter(VectorDBAdapter):
                 logger.error(
                     f"Error checking collections in Qdrant: {e}", exc_info=True
                 )
+                self.client = None
                 raise ConnectionError(
                     f"Failed to interact with Qdrant collections: {e}"
                 ) from e
@@ -116,6 +200,7 @@ class QdrantAdapter(VectorDBAdapter):
                     f"Failed to connect or check collections in Qdrant: {e}",
                     exc_info=True,
                 )
+                self.client = None
                 raise ConnectionError(f"Failed to connect to Qdrant: {e}") from e
 
             if not collection_exists:
@@ -135,26 +220,25 @@ class QdrantAdapter(VectorDBAdapter):
                 logger.info(f"Using existing Qdrant collection: {collection_name}")
 
         except (ValueError, ConnectionError) as e:
-            logger.error(f"Qdrant initialization failed: {e}", exc_info=True)
+            logger.error(f"Qdrant connection establishment failed: {e}", exc_info=True)
             self.client = None
             raise
         except Exception as e:
             logger.error(
-                f"Unexpected error during Qdrant initialization: {e}", exc_info=True
+                f"Unexpected error during Qdrant connection establishment: {e}",
+                exc_info=True,
             )
             self.client = None
-            raise RuntimeError(f"Unexpected Qdrant initialization error: {e}") from e
+            raise RuntimeError(f"Unexpected Qdrant connection error: {e}") from e
 
-    def _ensure_client(self) -> QdrantClient:
-        if not self.client:
-            raise RuntimeError(
-                "Qdrant client not initialized. Call initialize() first."
-            )
         return self.client
 
     def upsert(self, documents: list[Document]) -> None:
         client = self._ensure_client()
         collection_name = self.config.collection_name
+
+        # Load Qdrant models
+        _, models, _, _, _, _ = _get_qdrant_deps()
 
         points_to_upsert = []
         for doc in documents:
@@ -183,9 +267,12 @@ class QdrantAdapter(VectorDBAdapter):
 
     def _translate_filters(
         self, filters: dict[str, Any] | None
-    ) -> models.Filter | None:
+    ) -> Any | None:  # Returns models.Filter but loaded lazily
         if not filters:
             return None
+
+        # Load Qdrant dependencies
+        _, models, _, QdrantFilter, _, _ = _get_qdrant_deps()
 
         must_conditions = []
         for key, value in filters.items():
@@ -204,9 +291,12 @@ class QdrantAdapter(VectorDBAdapter):
 
     def _build_qdrant_filter(
         self, filters: dict[str, Any] | None
-    ) -> QdrantFilter | None:
+    ) -> Any | None:  # Returns QdrantFilter but loaded lazily
         if not filters:
             return None
+
+        # Load Qdrant dependencies
+        _, models, _, QdrantFilter, _, _ = _get_qdrant_deps()
 
         must_conditions = []
         for key, value in filters.items():
@@ -279,7 +369,10 @@ class QdrantAdapter(VectorDBAdapter):
             logger.warning("search_by_metadata called with empty or invalid filters.")
             return []
 
-        payload_selector: PayloadSelector | bool | None
+        # Load Qdrant dependencies
+        _, models, _, _, _, PayloadSelector = _get_qdrant_deps()
+
+        payload_selector: Any | bool | None  # PayloadSelector loaded lazily
         if select:
             payload_selector = models.PayloadSelectorInclude(include=select)
         else:
@@ -344,6 +437,9 @@ class QdrantAdapter(VectorDBAdapter):
         client = self._ensure_client()
         collection_name = self.config.collection_name
 
+        # Load Qdrant models
+        _, models, _, _, _, _ = _get_qdrant_deps()
+
         try:
             logger.info(
                 f"Deleting {len(ids)} points from Qdrant collection '{collection_name}'"
@@ -371,11 +467,14 @@ class QdrantAdapter(VectorDBAdapter):
             logger.warning("delete_by_metadata filter construction failed.")
             return
 
+        # Load Qdrant dependencies
+        _, models, _, _, UpdateResult, _ = _get_qdrant_deps()
+
         try:
             logger.info(
                 f"Deleting points from Qdrant collection '{collection_name}' matching filter: {filters}"
             )
-            result: UpdateResult = client.delete(
+            result: Any = client.delete(  # UpdateResult loaded lazily
                 collection_name=collection_name,
                 points_selector=models.FilterSelector(filter=qdrant_filter),
                 wait=True,
@@ -413,7 +512,7 @@ class QdrantAdapter(VectorDBAdapter):
 
     def retrieve_by_ids(
         self, ids: list[str], with_payload: bool = True, with_vector: bool = False
-    ) -> list[models.Record]:
+    ) -> list[Any]:  # Returns list[models.Record] but loaded lazily
         client = self._ensure_client()
         collection_name = self.config.collection_name
         if not ids:

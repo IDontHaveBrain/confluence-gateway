@@ -7,7 +7,6 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, TypeVar, Union, cast
 
-from llama_index.core import VectorStoreIndex
 from pydantic import BaseModel, Field
 
 from confluence_gateway.adapters.confluence.client import ConfluenceClient
@@ -109,7 +108,6 @@ class SearchService:
         self.indexing_service = indexing_service
         self.embedding_service = embedding_service
         self.vector_db_adapter = vector_db_adapter
-        self.vector_index: VectorStoreIndex | None = None
 
         if self.indexing_service:
             logger.info("SearchService initialized with IndexingService.")

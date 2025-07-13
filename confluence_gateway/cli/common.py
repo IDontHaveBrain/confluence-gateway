@@ -5,12 +5,6 @@ from typing import Any
 
 import typer
 
-from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
-from confluence_gateway.api.schemas.responses import (
-    IndexingStatusResponse,
-    SearchResultItem,
-    SourceDocument,
-)
 from confluence_gateway.core.exceptions import ConfluenceGatewayError
 
 logger = logging.getLogger(__name__)
@@ -33,7 +27,7 @@ def print_status(message: str, status_type: str = "info") -> None:
 
 
 def print_search_results(
-    results: list[SearchResultItem], total: int, start: int, limit: int, took_ms: float
+    results: list[Any], total: int, start: int, limit: int, took_ms: float
 ) -> None:
     # Convert results to JSON-serializable format
     results_data = []
@@ -67,7 +61,7 @@ def print_search_results(
 
 
 def print_semantic_search_results(
-    results: list[VectorSearchResultItem], query: str, took_ms: float
+    results: list[Any], query: str, took_ms: float
 ) -> None:
     # Convert results to JSON-serializable format
     results_data = []
@@ -90,7 +84,7 @@ def print_semantic_search_results(
     print(json.dumps(result, indent=2))
 
 
-def print_indexing_status(status: IndexingStatusResponse) -> None:
+def print_indexing_status(status: Any) -> None:
     # Convert status to JSON-serializable format
     status_dict = {
         "status": status.status,
@@ -105,7 +99,7 @@ def print_indexing_status(status: IndexingStatusResponse) -> None:
     print(json.dumps(status_dict, indent=2))
 
 
-def print_generated_answer(answer: str, sources: list[SourceDocument]) -> None:
+def print_generated_answer(answer: str, sources: list[Any]) -> None:
     # Convert sources to JSON-serializable format
     sources_data = []
     for source in sources:

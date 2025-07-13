@@ -5,19 +5,16 @@ from typing import Any
 
 import typer
 
-from confluence_gateway.api.schemas.responses import SourceDocument
 from confluence_gateway.cli.common import (
     handle_cli_errors,
     print_generated_answer,
     print_status,
 )
-from confluence_gateway.cli.dependencies import _get_generation_service
 from confluence_gateway.core.exceptions import (
     GenerationError,
     SearchParameterError,
     SemanticSearchError,
 )
-from confluence_gateway.services.generation import GenerationService
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +43,10 @@ def generate_answer_command(
         show_default=False,
     ),
 ) -> None:
+    from confluence_gateway.api.schemas.responses import SourceDocument
+    from confluence_gateway.cli.dependencies import _get_generation_service
+    from confluence_gateway.services.generation import GenerationService
+
     generation_service: GenerationService = _get_generation_service()
 
     print_status("Generating answer using RAG...", "info")

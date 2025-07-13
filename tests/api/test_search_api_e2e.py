@@ -16,7 +16,7 @@ def test_semantic_search_endpoint(api_client):
     """Test POST /api/search/semantic endpoint"""
     response = api_client.post(
         "/api/search/semantic",
-        json={"search_request": {"query": "test query", "top_k": 5}},
+        json={"query": "test query", "top_k": 5},
     )
     assert response.status_code == 200
     data = response.json()
@@ -27,7 +27,7 @@ def test_advanced_search_endpoint(api_client):
     """Test POST /api/search/advanced endpoint"""
     response = api_client.post(
         "/api/search/advanced",
-        json={"search_request": {"query": "test", "limit": 10, "use_hybrid": True}},
+        json={"query": "test", "limit": 10, "use_hybrid": True},
     )
     assert response.status_code == 200
     data = response.json()
@@ -37,7 +37,7 @@ def test_advanced_search_endpoint(api_client):
 def test_cql_search_endpoint(api_client):
     """Test POST /api/search/cql endpoint"""
     response = api_client.post(
-        "/api/search/cql", json={"search_request": {"cql": "text ~ test", "limit": 10}}
+        "/api/search/cql", json={"cql": "text ~ test", "limit": 10}
     )
     assert response.status_code == 200
     data = response.json()

@@ -2,6 +2,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
+from confluence_gateway.core.config import (
+    dev_mode_log_skip,
+    dev_mode_log_stub,
+    is_dev_mode,
+)
 from confluence_gateway.core.exceptions import EmbeddingProviderError
 
 _litellm: Any | None = None
@@ -52,9 +57,18 @@ def _get_litellm() -> Any:
 class LiteLLMProvider(EmbeddingProvider):
     def __init__(self, config: "EmbeddingConfig") -> None:
         super().__init__(config)
+        self.dev_mode = is_dev_mode()
+
+        if self.dev_mode:
+            dev_mode_log_stub("LiteLLMProvider")
+            logger.info(
+                f"LiteLLMProvider initialized in DEV MODE - stub implementation only. "
+                f"Model='{self.config.model_name}', Dimension='{self.config.dimension}'"
+            )
+            return
+
         logger.info(
             f"LiteLLMProvider initialized with config: "
-            f"Model='{self.config.model_name}', Dimension='{self.config.dimension}', "
             f"Model='{self.config.model_name}', Dimension='{self.config.dimension}', "
             f"Base URL='{self.config.litellm_api_base}', API Key Provided={'Yes' if self.config.litellm_api_key else 'No'}"
         )
@@ -68,6 +82,13 @@ class LiteLLMProvider(EmbeddingProvider):
             )
 
     def initialize(self) -> None:
+        if self.dev_mode:
+            dev_mode_log_skip(
+                f"LiteLLM provider initialization and test call for model '{self.config.model_name}'"
+            )
+            logger.info("LiteLLM provider initialized in DEV MODE - no test calls made")
+            return
+
         logger.info(
             f"Initializing LiteLLM provider for model: {self.config.model_name}"
         )
@@ -167,6 +188,19 @@ class LiteLLMProvider(EmbeddingProvider):
             )
             return []
 
+        if self.dev_mode:
+            # Return stub embedding in dev mode
+            import random
+
+            random.seed(hash(text) % (2**32))  # Deterministic but varied
+            stub_embedding = [
+                random.uniform(-1.0, 1.0) for _ in range(self.config.dimension or 384)
+            ]
+            logger.debug(
+                f"DEV MODE: Generated stub LiteLLM embedding for text: '{text[:30]}...'"
+            )
+            return stub_embedding
+
         self._check_configuration()
 
         try:
@@ -202,6 +236,24 @@ class LiteLLMProvider(EmbeddingProvider):
                 "Received empty list for batch embedding, returning empty list."
             )
             return []
+
+        if self.dev_mode:
+            # Return stub embeddings in dev mode
+            import random
+
+            stub_embeddings = []
+            for text in texts:
+                if text and isinstance(text, str):
+                    random.seed(hash(text) % (2**32))  # Deterministic but varied
+                    stub_embedding = [
+                        random.uniform(-1.0, 1.0)
+                        for _ in range(self.config.dimension or 384)
+                    ]
+                    stub_embeddings.append(stub_embedding)
+            logger.debug(
+                f"DEV MODE: Generated {len(stub_embeddings)} stub LiteLLM embeddings for batch"
+            )
+            return stub_embeddings
 
         self._check_configuration()
 

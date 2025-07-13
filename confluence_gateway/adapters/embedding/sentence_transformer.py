@@ -3,6 +3,11 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
+from confluence_gateway.core.config import (
+    dev_mode_log_skip,
+    dev_mode_log_stub,
+    is_dev_mode,
+)
 from confluence_gateway.core.exceptions import EmbeddingProviderError
 
 _torch: ModuleType | None = None
@@ -54,11 +59,21 @@ class SentenceTransformerProvider(EmbeddingProvider):
         super().__init__(config)
         self.model: Any | None = None
         self.device: str | None = None
-        logger.info(
-            f"SentenceTransformerProvider initialized with config: "
-            f"Model='{self.config.model_name}', Dimension='{self.config.dimension}', "
-            f"Requested Device='{self.config.device or 'auto'}'"
-        )
+        self.cache_dir: Any | None = None
+        self.dev_mode = is_dev_mode()
+
+        if self.dev_mode:
+            dev_mode_log_stub("SentenceTransformerProvider")
+            logger.info(
+                f"SentenceTransformerProvider initialized in DEV MODE - stub implementation only. "
+                f"Model='{self.config.model_name}', Dimension='{self.config.dimension}'"
+            )
+        else:
+            logger.info(
+                f"SentenceTransformerProvider initialized with config: "
+                f"Model='{self.config.model_name}', Dimension='{self.config.dimension}', "
+                f"Requested Device='{self.config.device or 'auto'}'"
+            )
 
     def _determine_device(self) -> str:
         if not self.config.device:
@@ -127,34 +142,29 @@ class SentenceTransformerProvider(EmbeddingProvider):
                 f"Failed during model dimension validation for '{self.config.model_name}'"
             ) from e
 
-    def initialize(self) -> None:
-        if not self.config.model_name:
-            raise EmbeddingProviderError(
-                "Initialization failed: No embedding model name provided in configuration (EMBEDDING_MODEL_NAME)."
+    def _ensure_model_loaded(self) -> None:
+        """Load the model on first use if not already loaded."""
+        if self.model is not None:
+            return  # Model already loaded
+
+        if self.dev_mode:
+            dev_mode_log_skip(
+                f"sentence-transformer model '{self.config.model_name}' loading"
             )
-        if self.config.dimension is None:
-            raise EmbeddingProviderError(
-                "Initialization failed: No embedding dimension provided in configuration (EMBEDDING_DIMENSION)."
-            )
-
-        self.device = self._determine_device()
-
-        # Set up cache directory for model storage
-        from pathlib import Path
-
-        cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
-        cache_dir.mkdir(parents=True, exist_ok=True)
+            return  # Skip model loading in dev mode
 
         logger.info(
-            f"Attempting to load sentence-transformer model '{self.config.model_name}' onto device '{self.device}' "
-            f"with cache directory: {cache_dir}"
+            f"Loading sentence-transformer model '{self.config.model_name}' onto device '{self.device}' "
+            f"with cache directory: {self.cache_dir}"
         )
 
         try:
             # Lazy load SentenceTransformer class
             SentenceTransformer = _get_sentence_transformer_class()
             self.model = SentenceTransformer(
-                self.config.model_name, device=self.device, cache_folder=str(cache_dir)
+                self.config.model_name,
+                device=self.device,
+                cache_folder=str(self.cache_dir),
             )
             logger.info(
                 f"Successfully loaded sentence-transformer model '{self.config.model_name}'."
@@ -173,8 +183,42 @@ class SentenceTransformerProvider(EmbeddingProvider):
                 f"Ensure the model name is correct and accessible. Original error: {e}"
             ) from e
 
+    def initialize(self) -> None:
+        """Initialize lightweight configuration only - no model loading."""
+        if not self.config.model_name:
+            raise EmbeddingProviderError(
+                "Initialization failed: No embedding model name provided in configuration (EMBEDDING_MODEL_NAME)."
+            )
+        if self.config.dimension is None:
+            raise EmbeddingProviderError(
+                "Initialization failed: No embedding dimension provided in configuration (EMBEDDING_DIMENSION)."
+            )
+
+        if self.dev_mode:
+            # Minimal setup for dev mode
+            self.device = "cpu"  # Use CPU for consistency in dev mode
+            logger.info(
+                f"SentenceTransformerProvider initialized in DEV MODE. "
+                f"Model '{self.config.model_name}' will NOT be loaded."
+            )
+            return
+
+        # Lightweight setup only - no model loading
+        self.device = self._determine_device()
+
+        # Set up cache directory for model storage
+        from pathlib import Path
+
+        self.cache_dir = Path.home() / ".cache" / "confluence-gateway" / "models"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(
+            f"SentenceTransformerProvider initialized with model '{self.config.model_name}' for device '{self.device}'. "
+            f"Model will be loaded on first use."
+        )
+
     def _check_initialization(self) -> None:
-        if not self.model:
+        if not hasattr(self, "device") or self.device is None:
             raise EmbeddingProviderError(
                 "SentenceTransformerProvider is not initialized. Call initialize() first."
             )
@@ -202,7 +246,21 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
             return []
 
+        if self.dev_mode:
+            # Return stub embedding in dev mode
+            import random
+
+            random.seed(hash(text) % (2**32))  # Deterministic but varied
+            stub_embedding = [
+                random.uniform(-1.0, 1.0) for _ in range(self.config.dimension or 384)
+            ]
+            logger.debug(
+                f"DEV MODE: Generated stub embedding for text: '{text[:30]}...'"
+            )
+            return stub_embedding
+
         self._check_initialization()
+        self._ensure_model_loaded()
         assert self.model is not None
 
         try:
@@ -226,7 +284,26 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
             return []
 
+        if self.dev_mode:
+            # Return stub embeddings in dev mode
+            import random
+
+            stub_embeddings = []
+            for text in texts:
+                if text and isinstance(text, str):
+                    random.seed(hash(text) % (2**32))  # Deterministic but varied
+                    stub_embedding = [
+                        random.uniform(-1.0, 1.0)
+                        for _ in range(self.config.dimension or 384)
+                    ]
+                    stub_embeddings.append(stub_embedding)
+            logger.debug(
+                f"DEV MODE: Generated {len(stub_embeddings)} stub embeddings for batch"
+            )
+            return stub_embeddings
+
         self._check_initialization()
+        self._ensure_model_loaded()
         assert self.model is not None
 
         valid_texts = [t for t in texts if t and isinstance(t, str)]

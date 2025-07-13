@@ -16,6 +16,36 @@ from pydantic import (
 
 logger = logging.getLogger(__name__)
 
+
+# Development mode configuration
+def is_dev_mode() -> bool:
+    """Check if development mode is enabled via CONFLUENCE_GATEWAY_DEV_MODE environment variable."""
+    dev_mode = os.getenv("CONFLUENCE_GATEWAY_DEV_MODE", "").lower() in [
+        "true",
+        "1",
+        "t",
+        "yes",
+        "y",
+    ]
+    if dev_mode:
+        logger.info(
+            "🚀 Development mode ENABLED - heavy services will be skipped for faster startup"
+        )
+    return dev_mode
+
+
+def dev_mode_log_skip(service_name: str) -> None:
+    """Log that a service is being skipped in development mode."""
+    logger.info(
+        f"⚡ DEV MODE: Skipping {service_name} initialization for faster development iteration"
+    )
+
+
+def dev_mode_log_stub(service_name: str) -> None:
+    """Log that a service is using a stub implementation in development mode."""
+    logger.info(f"🔧 DEV MODE: Using stub implementation for {service_name}")
+
+
 DEFAULT_EMBEDDING_PROVIDER_TYPE: Literal["sentence-transformers", "litellm", "none"] = (
     "sentence-transformers"
 )
@@ -646,11 +676,109 @@ def load_configurations() -> tuple[
     )
 
 
-(
-    confluence_config,
-    search_config,
-    vector_db_config,
-    embedding_config,
-    indexing_config,
-    generation_config,
-) = load_configurations()
+# Configuration cache for lazy loading - typed variables for type safety
+_configs_loaded = False
+_cached_confluence_config: ConfluenceConfig | None = None
+_cached_search_config: SearchConfig | None = None
+_cached_vector_db_config: VectorDBConfig | None = None
+_cached_embedding_config: EmbeddingConfig | None = None
+_cached_indexing_config: IndexingConfig | None = None
+_cached_generation_config: GenerationConfig | None = None
+
+
+def _ensure_configs_loaded() -> None:
+    """Ensure all configurations are loaded into cache."""
+    global _configs_loaded, _cached_confluence_config, _cached_search_config
+    global _cached_vector_db_config, _cached_embedding_config, _cached_indexing_config
+    global _cached_generation_config
+
+    if not _configs_loaded:
+        logger.debug("Loading all configurations into cache")
+        (
+            confluence_cfg,
+            search_cfg,
+            vector_db_cfg,
+            embedding_cfg,
+            indexing_cfg,
+            generation_cfg,
+        ) = load_configurations()
+
+        _cached_confluence_config = confluence_cfg
+        _cached_search_config = search_cfg
+        _cached_vector_db_config = vector_db_cfg
+        _cached_embedding_config = embedding_cfg
+        _cached_indexing_config = indexing_cfg
+        _cached_generation_config = generation_cfg
+        _configs_loaded = True
+
+
+def get_confluence_config() -> ConfluenceConfig | None:
+    """Get Confluence configuration, loading lazily if needed."""
+    _ensure_configs_loaded()
+    return _cached_confluence_config
+
+
+def get_search_config() -> SearchConfig:
+    """Get Search configuration, loading lazily if needed."""
+    _ensure_configs_loaded()
+    assert _cached_search_config is not None  # SearchConfig is never None
+    return _cached_search_config
+
+
+def get_vector_db_config() -> VectorDBConfig | None:
+    """Get VectorDB configuration, loading lazily if needed."""
+    _ensure_configs_loaded()
+    return _cached_vector_db_config
+
+
+def get_embedding_config() -> EmbeddingConfig | None:
+    """Get Embedding configuration, loading lazily if needed."""
+    _ensure_configs_loaded()
+    return _cached_embedding_config
+
+
+def get_indexing_config() -> IndexingConfig:
+    """Get Indexing configuration, loading lazily if needed."""
+    _ensure_configs_loaded()
+    assert _cached_indexing_config is not None  # IndexingConfig is never None
+    return _cached_indexing_config
+
+
+def get_generation_config() -> GenerationConfig | None:
+    """Get Generation configuration, loading lazily if needed."""
+    _ensure_configs_loaded()
+    return _cached_generation_config
+
+
+def clear_config_cache() -> None:
+    """Clear the configuration cache to force reload on next access."""
+    global _configs_loaded, _cached_confluence_config, _cached_search_config
+    global _cached_vector_db_config, _cached_embedding_config, _cached_indexing_config
+    global _cached_generation_config
+
+    _configs_loaded = False
+    _cached_confluence_config = None
+    _cached_search_config = None
+    _cached_vector_db_config = None
+    _cached_embedding_config = None
+    _cached_indexing_config = None
+    _cached_generation_config = None
+
+
+# Backward compatibility: module-level __getattr__ for lazy loading of old global config variables
+def __getattr__(name: str) -> Any:
+    """Module-level __getattr__ for lazy loading of global config variables."""
+    if name == "confluence_config":
+        return get_confluence_config()
+    elif name == "search_config":
+        return get_search_config()
+    elif name == "vector_db_config":
+        return get_vector_db_config()
+    elif name == "embedding_config":
+        return get_embedding_config()
+    elif name == "indexing_config":
+        return get_indexing_config()
+    elif name == "generation_config":
+        return get_generation_config()
+    else:
+        raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
