@@ -29,14 +29,20 @@ dependencies = [
 [project.scripts]
 confluence-gateway = "confluence_gateway.cli.main:app"
 
+[tool.uv]
+package = true
+
 [tool.setuptools.package-data]
 confluence_gateway = ["confluence_gateway_config.json"]
 
 [dependency-groups]
 dev = [
     "black>=25.1.0",
+    "httpx>=0.28.1",
     "mypy>=1.16.1",
     "pre-commit>=4.2.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.0.0",
     "ruff>=0.12.3",
     "types-requests>=2.32.4.20250611",
 ]
@@ -118,3 +124,11 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "confluence_gateway.adapters.*"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
