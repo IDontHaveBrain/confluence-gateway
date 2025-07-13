@@ -2,26 +2,17 @@
 
 **AI-powered search and knowledge retrieval for Atlassian Confluence**
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > **Status**: Beta (v0.1.0)
 
 Transform your Confluence into a smart knowledge base with semantic search, hybrid algorithms, and AI-powered question answering.
 
 ## ✨ Key Features
 
-- **🔍 Advanced Search Modes**
-  - **Text Search**: Traditional keyword search with CQL support  
-  - **Semantic Search**: Vector similarity using embeddings
-  - **Hybrid Search**: Best of both worlds with Reciprocal Rank Fusion (RRF)
-
-- **🤖 RAG-Powered Q&A**
-  - Generate contextual answers from your Confluence content
-  - Multiple LLM providers via LiteLLM (OpenAI, Anthropic, etc.)
-  - Source attribution with direct links
-
-- **⚡ Flexible Integration**
-  - REST API with OpenAPI documentation
-  - Full-featured CLI interface
-  - Support for multiple vector databases and embedding providers
+- **🔍 Advanced Search**: Text, semantic, and hybrid search with Reciprocal Rank Fusion
+- **🤖 RAG-Powered Q&A**: Generate contextual answers from your Confluence content  
+- **⚡ Flexible Integration**: REST API + CLI interface with multiple vector database support
 
 ## 🚀 Quick Start
 
@@ -30,7 +21,8 @@ Transform your Confluence into a smart knowledge base with semantic search, hybr
 ### 1. Install
 
 ```bash
-# Clone and install dependencies
+# Clone repository and install dependencies
+git clone https://github.com/IDontHaveBrain/confluence-gateway.git
 cd confluence-gateway
 uv sync --dev
 uv run pre-commit install
@@ -133,94 +125,28 @@ confluence_gateway/
 - `EmbeddingService` - Vector embedding management
 - `RankingService` - Reciprocal Rank Fusion algorithm
 
-## 🧪 Testing
+## 🔧 Development & Testing
 
-**Philosophy**: E2E testing only - no unit tests, no mocks, test real functionality
-
+**Development workflow:**
 ```bash
-# Test environment setup (required for tests)
-echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
-uv run python tests/setup_test_env.py
+# Start API server with auto-reload
+uv run uvicorn confluence_gateway.api.app:app --reload
 
-# Run all 22 E2E tests (10 CLI + 12 API)
-uv run pytest tests/ -v
-
-# Run by category
-uv run pytest tests/cli/ -v     # CLI tests
-uv run pytest tests/api/ -v     # API tests
-
-# Test discovery
-uv run pytest tests/ --collect-only
-```
-
-**Requirements for Testing:**
-- Real Confluence instance with API access
-- Environment variables: `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`
-- Vector database automatically uses `:memory:` mode during tests
-
-## 🔧 Development
-
-**Essential Commands:**
-```bash
-# Setup development environment
-uv sync --dev
-uv run pre-commit install
-
-# Development workflow
-uv run confluence-gateway --help                                    # Test CLI
-uv run uvicorn confluence_gateway.api.app:app --reload             # Test API
-uv run ruff check --fix && uv run ruff format && uv run mypy confluence_gateway/  # Quality checks (MANDATORY before commits)
-uv run pytest tests/ -v                                            # Run all tests
-
-# Individual quality tools
-uv run ruff check confluence_gateway/    # Linting
-uv run ruff format confluence_gateway/   # Formatting  
-uv run mypy confluence_gateway/          # Type checking
-uv run pre-commit run --all-files        # All pre-commit hooks
-```
-
-**🚨 CRITICAL: Always run quality checks before commits:**
-```bash
+# Code quality pipeline (required before commits)  
 uv run ruff check --fix && uv run ruff format && uv run mypy confluence_gateway/
+
+# Run E2E tests (requires real Confluence instance)
+echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
+uv run pytest tests/ -v
 ```
+
+**Testing philosophy**: E2E only - test real functionality with actual Confluence instances. Requires `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN` environment variables.
 
 ## 📚 API Reference
 
-### Core Endpoints
+**API Docs**: `http://localhost:8000/docs` (interactive Swagger UI)
 
-#### Health Check
-```http
-GET /health
-```
-
-#### Spaces
-```http
-GET /api/spaces                    # List all spaces
-GET /api/spaces/{space_key}        # Get space details
-```
-
-#### Search
-```http
-GET /api/search?query=text&limit=20                # Text search
-POST /api/search/semantic                          # Semantic search
-POST /api/search/advanced                          # Advanced search  
-POST /api/search/cql                               # CQL search
-```
-
-#### Generation
-```http
-POST /api/generate/answer                          # RAG answer generation
-```
-
-#### Indexing
-```http
-POST /api/index/trigger                            # Trigger indexing
-GET /api/index/status                              # Get indexing status
-```
-
-### Request Schemas
-
-**Important**: All POST endpoints require nested request objects:
+**Critical**: All POST endpoints require nested request objects:
 
 ```json
 # Semantic Search
@@ -266,21 +192,12 @@ export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_API_KEY"
 ```
 
-## 🛠️ Tech Stack
+## 🔒 Production Considerations
 
-- **Backend**: Python 3.10+, FastAPI, Typer
-- **Package Manager**: UV (not pip)
-- **Vector Databases**: Qdrant, ChromaDB
-- **AI/ML**: LiteLLM, SentenceTransformers, LlamaIndex
-- **Code Quality**: Ruff, MyPy, pre-commit hooks
-- **Testing**: pytest E2E (22 tests)
-
-## 🔒 Security
-
-⚠️ **No built-in authentication** - Use reverse proxy (nginx/Apache) with auth
-- Store API tokens in environment variables only
-- Configure CORS appropriately for your environment
-- Restrict network access to API server in production
+⚠️ **Security**: No built-in authentication - use reverse proxy with auth for production  
+📦 **Package Manager**: Use `uv` (not pip) for all operations  
+🗄️ **Vector Databases**: Qdrant (default), ChromaDB, or text-only mode  
+🤖 **AI Providers**: LiteLLM with OpenAI, Anthropic, OpenRouter, and more
 
 ## 📄 License
 
