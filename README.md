@@ -604,21 +604,24 @@ export CHROMA_PORT="8000"
 
 ### 🧪 Testing
 
+**Philosophy**: Simple E2E testing only. No unit tests, no mocks, no complex test scenarios.
+
 ```bash
-# All tests
-uv run pytest
+# Setup testing environment
+uv sync --dev
 
-# Fast unit tests only
-uv run pytest -m unit
+# Run all E2E tests
+uv run pytest tests/ -v
 
-# Specific test categories
-uv run pytest -m integration # Requires external services
-uv run pytest -m api         # Requires Confluence API
-uv run pytest -m semantic    # Requires vector DB + embeddings
-
-# With coverage
-uv run pytest --cov=confluence_gateway
+# Run specific test categories
+uv run pytest tests/cli/ -v     # CLI E2E tests
+uv run pytest tests/api/ -v     # API E2E tests
 ```
+
+**Requirements for Testing:**
+- Real Confluence instance with API access
+- Vector database automatically set to memory mode during tests
+- Valid `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN` environment variables
 
 ### 🔧 Development
 

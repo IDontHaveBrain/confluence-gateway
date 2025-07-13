@@ -29,6 +29,9 @@ dependencies = [
 [project.scripts]
 confluence-gateway = "confluence_gateway.cli.main:app"
 
+[tool.uv]
+package = true
+
 [tool.setuptools.package-data]
 confluence_gateway = ["confluence_gateway_config.json"]
 

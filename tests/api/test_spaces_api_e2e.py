@@ -4,7 +4,7 @@ import httpx
 
 def test_list_spaces_endpoint(api_client):
     """Test GET /api/spaces endpoint"""
-    response = api_client.get("/api/spaces")
+    response = api_client.get("/api/spaces/")
     assert response.status_code == 200
     data = response.json()
     assert "spaces" in data or isinstance(data, list)
@@ -12,7 +12,7 @@ def test_list_spaces_endpoint(api_client):
 
 def test_list_all_spaces_endpoint(api_client):
     """Test GET /api/spaces?include_archived=true endpoint"""
-    response = api_client.get("/api/spaces", params={"include_archived": True})
+    response = api_client.get("/api/spaces/", params={"include_archived": True})
     assert response.status_code == 200
 
 

@@ -578,7 +578,7 @@ wheels = [
 [[package]]
 name = "confluence-gateway"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "atlassian-python-api" },
     { name = "chromadb" },

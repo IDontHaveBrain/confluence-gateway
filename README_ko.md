@@ -603,21 +603,24 @@ export CHROMA_PORT="8000"
 
 ### 🧪 테스팅
 
+**철학**: 단순한 E2E 테스팅만 사용합니다. 단위 테스트, 모킹, 복잡한 테스트 시나리오는 없습니다.
+
 ```bash
-# 모든 테스트
-uv run pytest
+# 테스팅 환경 설정
+uv sync --dev
 
-# 빠른 단위 테스트만
-uv run pytest -m unit
+# 모든 E2E 테스트 실행
+uv run pytest tests/ -v
 
-# 특정 테스트 카테고리
-uv run pytest -m integration # 외부 서비스 필요
-uv run pytest -m api         # Confluence API 필요
-uv run pytest -m semantic    # 벡터 DB + 임베딩 필요
-
-# 커버리지와 함께
-uv run pytest --cov=confluence_gateway
+# 특정 테스트 카테고리 실행
+uv run pytest tests/cli/ -v     # CLI E2E 테스트
+uv run pytest tests/api/ -v     # API E2E 테스트
 ```
+
+**테스팅 요구사항:**
+- API 액세스가 가능한 실제 Confluence 인스턴스
+- 테스트 중 벡터 데이터베이스가 자동으로 메모리 모드로 설정됨
+- 유효한 `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN` 환경 변수
 
 ### 🔧 개발
 

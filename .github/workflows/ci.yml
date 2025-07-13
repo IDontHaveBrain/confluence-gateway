@@ -1,0 +1,246 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop, 'refactor/*' ]
+  pull_request:
+    branches: [ main, master, develop, 'refactor/*' ]
+
+env:
+  # Force vector database memory mode for tests to prevent file conflicts
+  QDRANT_URL: ":memory:"
+  CHROMA_PERSIST_PATH: ""
+  CHROMA_HOST: ""
+  CHROMA_PORT: ""
+  VECTOR_DB_TYPE: "qdrant"
+  VECTOR_DB_EMBEDDING_DIMENSION: "384"
+
+jobs:
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install UV package manager
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Verify UV installation
+      run: |
+        uv --version
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Cache UV
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-${{ matrix.python-version }}-
+          ${{ runner.os }}-uv-
+
+    - name: Run Ruff linting
+      run: |
+        uv run ruff check --output-format=github .
+
+    - name: Run Ruff formatting check
+      run: |
+        uv run ruff format --check .
+
+    - name: Run MyPy type checking
+      run: |
+        uv run mypy confluence_gateway/
+
+    - name: Setup pre-commit
+      run: |
+        uv run pre-commit install
+
+    - name: Run pre-commit hooks
+      run: |
+        uv run pre-commit run --all-files
+
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: code-quality
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    
+    env:
+      # Test isolation environment variables
+      CONFLUENCE_URL: ${{ secrets.CONFLUENCE_URL }}
+      CONFLUENCE_USERNAME: ${{ secrets.CONFLUENCE_USERNAME }}
+      CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+      # Force vector database memory mode for reliable testing
+      QDRANT_URL: ":memory:"
+      CHROMA_PERSIST_PATH: ""
+      CHROMA_HOST: ""
+      CHROMA_PORT: ""
+      VECTOR_DB_TYPE: "qdrant"
+      VECTOR_DB_EMBEDDING_DIMENSION: "384"
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install UV package manager
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Verify UV installation
+      run: |
+        uv --version
+
+    - name: Cache UV
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-${{ matrix.python-version }}-
+          ${{ runner.os }}-uv-
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Configure test environment
+      run: |
+        # Create test configuration to force memory mode
+        echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
+
+    - name: Verify CLI installation
+      run: |
+        uv run confluence-gateway --help
+
+    - name: Run CLI E2E tests
+      run: |
+        uv run pytest tests/cli/ -v --tb=short
+      continue-on-error: false
+
+    - name: Run API E2E tests
+      run: |
+        uv run pytest tests/api/ -v --tb=short
+      continue-on-error: false
+
+    - name: Run all E2E tests with coverage
+      run: |
+        uv run pytest tests/ -v --tb=short
+      continue-on-error: false
+
+  test-integration:
+    name: Integration Test (Full Pipeline)
+    runs-on: ubuntu-latest
+    needs: [code-quality, test-e2e]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    env:
+      CONFLUENCE_URL: ${{ secrets.CONFLUENCE_URL }}
+      CONFLUENCE_USERNAME: ${{ secrets.CONFLUENCE_USERNAME }}
+      CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+      QDRANT_URL: ":memory:"
+      CHROMA_PERSIST_PATH: ""
+      CHROMA_HOST: ""
+      CHROMA_PORT: ""
+      VECTOR_DB_TYPE: "qdrant"
+      VECTOR_DB_EMBEDDING_DIMENSION: "384"
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install UV package manager
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Configure test environment
+      run: |
+        echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
+
+    - name: Full integration test
+      run: |
+        # Test CLI commands work
+        uv run confluence-gateway --version
+        uv run confluence-gateway --help
+        
+        # Test API server can start
+        timeout 30 bash -c 'uv run uvicorn confluence_gateway.api.app:app --host 127.0.0.1 --port 8000 &
+        while ! curl -f http://127.0.0.1:8000/health 2>/dev/null; do
+          sleep 1
+        done
+        echo "API server started successfully"
+        kill %1'
+
+  build-check:
+    name: Build Package Check
+    runs-on: ubuntu-latest
+    needs: code-quality
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install UV package manager
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Build package
+      run: |
+        uv build
+
+    - name: Verify package contents
+      run: |
+        ls -la dist/
+        # Verify wheel can be installed
+        pip install dist/*.whl
+        confluence-gateway --version
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: dist/
+        retention-days: 7
+
