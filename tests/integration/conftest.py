@@ -339,17 +339,20 @@ def optimized_embedding_provider(
         import time
 
         from confluence_gateway.adapters.embedding.sentence_transformer import (
-            SentenceTransformerAdapter,
+            SentenceTransformerProvider,
         )
+        from confluence_gateway.core.config import EmbeddingConfig
 
         start_time = time.time()
 
         # Create provider with configuration from matrix
-        provider = SentenceTransformerAdapter(
+        config = EmbeddingConfig(
+            provider="sentence-transformers",
             model_name=provider_config.get("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"),
             device=provider_config.get("EMBEDDING_DEVICE", "cpu"),
             dimension=int(provider_config.get("EMBEDDING_DIMENSION", "384")),
         )
+        provider = SentenceTransformerProvider(config)
 
         # Inject shared model for optimization
         success = inject_shared_model_into_provider(
@@ -370,7 +373,7 @@ def optimized_embedding_provider(
             return provider
 
     except ImportError:
-        print("Warning: SentenceTransformerAdapter not available for optimization")
+        print("Warning: SentenceTransformerProvider not available for optimization")
         return None
     except Exception as e:
         print(f"Warning: Could not create optimized embedding provider: {e}")
@@ -404,18 +407,21 @@ def integration_embedding_service(
         import time
 
         from confluence_gateway.adapters.embedding.sentence_transformer import (
-            SentenceTransformerAdapter,
+            SentenceTransformerProvider,
         )
+        from confluence_gateway.core.config import EmbeddingConfig
         from confluence_gateway.services.embedding import EmbeddingService
 
         start_time = time.time()
 
         # Create provider with shared model optimization
-        provider = SentenceTransformerAdapter(
+        config = EmbeddingConfig(
+            provider="sentence-transformers",
             model_name=provider_config.get("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"),
             device=provider_config.get("EMBEDDING_DEVICE", "cpu"),
             dimension=int(provider_config.get("EMBEDDING_DIMENSION", "384")),
         )
+        provider = SentenceTransformerProvider(config)
 
         # Inject shared model if available
         if shared_sentence_transformer_model is not None:

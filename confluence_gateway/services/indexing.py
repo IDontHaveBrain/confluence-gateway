@@ -26,6 +26,7 @@ from confluence_gateway.core.config import (
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
     ConfluenceConnectionError,
+    EmbeddingCompatibilityError,
 )
 from confluence_gateway.services.embedding import EmbeddingError, EmbeddingService
 from confluence_gateway.services.parsers import (
@@ -494,6 +495,20 @@ class IndexingService:
             f"Starting indexing process for {document_type} ID: {content_id}, Title: '{content_object.title}'"
         )
 
+        # Validate embedding compatibility before proceeding
+        try:
+            self.embedding_service.validate_compatibility_with_vector_db(
+                self.vector_db_adapter, operation_type="index"
+            )
+        except EmbeddingCompatibilityError as e:
+            logger.error(
+                f"Embedding compatibility validation failed for indexing {document_type} {content_id}: {e}"
+            )
+            logger.error(
+                f"Skipping indexing for {document_type} ID: {content_id} due to incompatibility"
+            )
+            return
+
         chunks = self._chunk_text(text_content)
         if not chunks:
             logger.warning(
@@ -532,6 +547,10 @@ class IndexingService:
             )
             return
 
+        # Get current embedding model info to include in metadata
+        model_info = self.embedding_service.get_model_info()
+        model_metadata = model_info.to_dict() if model_info else {}
+
         documents_to_upsert: list[Document] = []
         for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
             if embedding is None or not embedding:
@@ -548,6 +567,9 @@ class IndexingService:
             )
             if "original_content_id" not in chunk_metadata:
                 chunk_metadata["original_content_id"] = content_id
+
+            # Add embedding model information to metadata
+            chunk_metadata.update(model_metadata)
 
             doc = Document(
                 id=chunk_uuid,
@@ -572,6 +594,16 @@ class IndexingService:
             logger.info(
                 f"Successfully upserted documents for {document_type} ID: {content_id}"
             )
+
+            # Store embedding model info in collection metadata after successful upsert
+            try:
+                self.embedding_service.store_model_info_in_vector_db(
+                    self.vector_db_adapter
+                )
+            except Exception as store_error:
+                logger.warning(
+                    f"Failed to store embedding model info, but indexing succeeded: {store_error}"
+                )
         except Exception as e:
             logger.error(
                 f"Failed to upsert documents for {document_type} ID {content_id}: {e}",

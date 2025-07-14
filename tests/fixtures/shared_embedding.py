@@ -105,7 +105,7 @@ def shared_sentence_transformer_model():
 @pytest.fixture(scope="session")
 def shared_embedding_provider(shared_sentence_transformer_model):
     """
-    Session-scoped fixture that creates a SentenceTransformerAdapter using the shared model.
+    Session-scoped fixture that creates a SentenceTransformerProvider using the shared model.
 
     This fixture optimizes embedding provider creation by:
     - Injecting the pre-loaded shared model to skip heavy loading
@@ -116,7 +116,7 @@ def shared_embedding_provider(shared_sentence_transformer_model):
         shared_sentence_transformer_model: The session-scoped shared model
 
     Returns:
-        SentenceTransformerAdapter instance with injected shared model,
+        SentenceTransformerProvider instance with injected shared model,
         or None if sentence-transformers is unavailable
     """
     if shared_sentence_transformer_model is None:
@@ -126,26 +126,31 @@ def shared_embedding_provider(shared_sentence_transformer_model):
 
     try:
         from confluence_gateway.adapters.embedding.sentence_transformer import (
-            SentenceTransformerAdapter,
+            SentenceTransformerProvider,
         )
+        from confluence_gateway.core.config import EmbeddingConfig
 
         # Create adapter instance with shared model injection
-        provider = SentenceTransformerAdapter(
+        config = EmbeddingConfig(
+            provider="sentence-transformers",
             model_name="all-MiniLM-L6-v2",  # This will be overridden by injection
             device="cpu",
             dimension=384,
         )
+        provider = SentenceTransformerProvider(config)
+
+        # Initialize the provider first
+        provider.initialize()
 
         # Inject the shared model to skip loading overhead
         # This is the key optimization - we bypass the expensive model loading
-        provider._model = shared_sentence_transformer_model
-        provider._is_initialized = True
+        provider.model = shared_sentence_transformer_model
 
         print("Created shared embedding provider with injected model")
         yield provider
 
     except ImportError:
-        print("Warning: SentenceTransformerAdapter not available")
+        print("Warning: SentenceTransformerProvider not available")
         yield None
     except Exception as e:
         print(f"Error creating shared embedding provider: {e}")
@@ -269,7 +274,7 @@ def inject_shared_model_into_provider(provider_instance, shared_model):
 
     Usage:
         def test_embedding_optimization(shared_sentence_transformer_model):
-            provider = SentenceTransformerAdapter(...)
+            provider = SentenceTransformerProvider(...)
             if inject_shared_model_into_provider(provider, shared_sentence_transformer_model):
                 # Provider now uses shared model - no loading overhead
                 embeddings = provider.generate_embeddings(["test text"])
@@ -278,9 +283,12 @@ def inject_shared_model_into_provider(provider_instance, shared_model):
         if shared_model is None or provider_instance is None:
             return False
 
-        # Inject shared model to skip loading
-        provider_instance._model = shared_model
-        provider_instance._is_initialized = True
+        # Initialize the provider first if not already initialized
+        if not hasattr(provider_instance, "model") or provider_instance.model is None:
+            provider_instance.initialize()
+
+        # Inject shared model to skip loading overhead
+        provider_instance.model = shared_model
 
         return True
     except Exception as e:

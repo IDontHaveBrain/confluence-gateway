@@ -50,3 +50,9 @@ class SemanticSearchError(ConfluenceGatewayError):
 
 class GenerationError(ConfluenceGatewayError):
     pass
+
+
+class EmbeddingCompatibilityError(ConfluenceGatewayError):
+    """Raised when there's an incompatibility between embedding models."""
+
+    pass

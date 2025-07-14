@@ -133,7 +133,7 @@ def get_qdrant_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
     vector_db_config = VectorDBConfig(
         type="qdrant",
         qdrant_url=":memory:",
-        collection_name="test_confluence_embeddings",
+        collection_name="test_cg_embeddings",
         embedding_dimension=384,
     )
 
@@ -157,7 +157,7 @@ def get_qdrant_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
         "vector_db": {
             "type": "qdrant",
             "qdrant_url": ":memory:",
-            "collection_name": "test_confluence_embeddings",
+            "collection_name": "test_cg_embeddings",
         },
         "embedding": {
             "provider": "sentence-transformers",
@@ -208,7 +208,7 @@ def get_chroma_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
         chroma_persist_path=None,  # Memory mode
         chroma_host=None,
         chroma_port=None,
-        collection_name="test_confluence_embeddings",
+        collection_name="test_cg_embeddings",
         embedding_dimension=384,
     )
 
@@ -233,7 +233,7 @@ def get_chroma_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
     config_data = {
         "vector_db": {
             "type": "chroma",
-            "collection_name": "test_confluence_embeddings",
+            "collection_name": "test_cg_embeddings",
         },
         "embedding": {
             "provider": "sentence-transformers",

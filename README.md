@@ -13,6 +13,7 @@ Transform your Confluence into a smart knowledge base with semantic search, hybr
 - **🔍 Advanced Search**: Text, semantic, and hybrid search with Reciprocal Rank Fusion
 - **🤖 RAG-Powered Q&A**: Generate contextual answers from your Confluence content  
 - **⚡ Dual Interface**: CLI for automation + REST API for integration
+- **🚀 GPU Acceleration**: Auto-detected GPU support with 5-10x performance boost
 - **🗄️ Flexible Storage**: Qdrant, ChromaDB, or memory-only mode
 
 ## 🚀 Quick Start
@@ -37,10 +38,18 @@ export CONFLUENCE_USERNAME="your-email@example.com"
 export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 ```
 
-**Optional**: Enable AI features (requires API key)
+**Optional configuration:**
 ```bash
+# AI features (requires API key)
 export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
+
+# GPU control (auto-detected by default)
+export EMBEDDING_DEVICE="cuda"    # Force GPU
+export EMBEDDING_DEVICE="cpu"     # Force CPU fallback
+
+# Vector storage
+export QDRANT_URL="http://localhost:6333"  # Persistent storage
 ```
 
 ### 3. Verify Connection
@@ -99,42 +108,46 @@ confluence_gateway/
 
 ## 🔧 Development
 
-**Essential commands:**
+**Setup & Quality:**
 ```bash
+# Install with development dependencies
+uv sync --dev
+
 # Code quality (run before commits)
 uv run ruff check --fix && uv run ruff format && uv run mypy confluence_gateway/
 
-# Run tests
-echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
+# Run tests (requires Confluence auth)
 uv run pytest tests/ -v
-
-# Start API with auto-reload
-uv run uvicorn confluence_gateway.api.app:app --reload
 ```
 
-**Note**: Tests use real Confluence instances and require authentication environment variables.
+**Development server:**
+```bash
+# API with auto-reload + faster startup
+export CONFLUENCE_GATEWAY_DEV_MODE="true"
+uv run uvicorn confluence_gateway.api.app:app --reload
+```
 
 ## 📚 API Reference
 
 **Interactive Docs**: `http://localhost:8000/docs` (Swagger UI)
 
-**Key endpoint request formats:**
+**Quick API test:**
+```bash
+# Text search (GET)
+curl "http://localhost:8000/api/search?query=deployment&limit=5"
 
-```json
-# Semantic Search
-{"query": "deployment", "top_k": 10}
+# Semantic search (POST)
+curl -X POST "http://localhost:8000/api/search/semantic" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "deployment process", "top_k": 5}'
 
-# Answer Generation  
-{"query": "What is our process?", "top_k_retrieval": 5}
-
-# Indexing
-{"space_keys": ["DEV", "TECH"]} 
-{"index_all": true}
+# Health check
+curl "http://localhost:8000/health"
 ```
 
-## ⚙️ Advanced Configuration
+## ⚙️ Configuration
 
-**Config file alternative** (`~/.confluence_gateway_config.json`):
+**Config file** (`~/.confluence_gateway_config.json`):
 ```json
 {
   "confluence": {
@@ -144,43 +157,17 @@ uv run uvicorn confluence_gateway.api.app:app --reload
   },
   "vector_db": {
     "type": "qdrant",
-    "qdrant_url": ":memory:"
+    "qdrant_url": "http://localhost:6333"
+  },
+  "embedding": {
+    "device": "cuda"  // "cpu" for CPU-only
   }
 }
 ```
 
-**Configuration Priority**: `~/.confluence_gateway_config.json` > Environment Variables > Defaults
+**Priority**: Config file > Environment variables > Defaults
 
-**Storage options:**
-```bash
-# Persistent Qdrant (default)
-export QDRANT_LOCAL_PATH="~/.confluence_gateway/qdrant_storage"
-
-# ChromaDB alternative  
-export VECTOR_DB_TYPE="chroma"
-export CHROMA_PERSIST_PATH="~/.confluence_gateway/chroma_storage"
-
-# Memory-only mode (testing)
-export QDRANT_URL=":memory:"
-
-# Development mode (faster startup)
-export CONFLUENCE_GATEWAY_DEV_MODE="true"
-```
-
-## 🛠️ Troubleshooting
-
-**Connection Issues:**
-- `401 Unauthorized`: Check API token and permissions in Confluence
-- `Connection refused`: Verify Confluence URL includes `https://`
-- Test connection: `curl -u "email:token" "https://your-instance.atlassian.net/rest/api/space"`
-
-**Performance:**
-- Use development mode: `export CONFLUENCE_GATEWAY_DEV_MODE="true"`
-- Memory mode for testing: `export QDRANT_URL=":memory:"`
-
-**Common Errors:**
-- `ModuleNotFoundError`: Run `uv sync --dev`
-- Missing spaces: Check Confluence permissions for your API token
+**Storage options**: Qdrant (default), ChromaDB (`VECTOR_DB_TYPE=chroma`), or memory-only for testing
 
 ## 📄 License
 

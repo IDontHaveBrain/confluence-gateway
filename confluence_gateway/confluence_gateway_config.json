@@ -15,15 +15,15 @@
     "hybrid_rrf_k": 60
   },
   "embedding": {
-    "provider": "sentence-transformers",
-    "model_name": "all-MiniLM-L6-v2",
-    "dimension": 384,
+    "provider": "litellm",
+    "model_name": "voyage/voyage-3.5-lite",
+    "dimension": null,
     "device": null
   },
   "vector_db": {
     "type": "qdrant",
-    "collection_name": "confluence_embeddings",
-    "embedding_dimension": 384,
+    "collection_name": "cg_embeddings",
+    "embedding_dimension": null,
     "chunk_size": 512,
     "chunk_overlap": 50,
     "qdrant_url": null,

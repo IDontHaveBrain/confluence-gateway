@@ -2,6 +2,9 @@ import json
 import logging
 import os
 import platform
+import re
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, get_args
 
@@ -102,6 +105,63 @@ DEFAULT_EMBEDDING_DIMENSION = 384
 DEFAULT_EMBEDDING_DEVICE: Literal["cpu", "cuda"] | None = None
 
 
+class ModelMetadata(BaseModel):
+    """Metadata for tracking embedding model information."""
+
+    provider: str
+    model_name: str
+    dimension: int
+    device: str | None = None
+    created_at: datetime
+    collection_name: str
+    configuration_hash: str
+
+    @classmethod
+    def from_embedding_config(
+        cls, embedding_config: "EmbeddingConfig", collection_name: str
+    ) -> "ModelMetadata":
+        """Create ModelMetadata from EmbeddingConfig."""
+        config_dict = {
+            "provider": embedding_config.provider,
+            "model_name": embedding_config.model_name,
+            "dimension": embedding_config.dimension,
+            "device": embedding_config.device,
+        }
+        # Create a hash of the configuration for change detection
+        config_hash = str(hash(str(sorted(config_dict.items()))))
+
+        return cls(
+            provider=embedding_config.provider,
+            model_name=embedding_config.model_name or "",
+            dimension=embedding_config.dimension or 0,
+            device=embedding_config.device,
+            created_at=datetime.now(),
+            collection_name=collection_name,
+            configuration_hash=config_hash,
+        )
+
+
+class ModelChangeType(str, Enum):
+    """Enum for different types of model changes."""
+
+    COMPATIBLE = "compatible"  # Same provider, model, dimension
+    DIMENSION_CHANGE = "dimension_change"  # Different dimension (requires migration)
+    MODEL_CHANGE = "model_change"  # Different model (may require migration)
+    PROVIDER_CHANGE = "provider_change"  # Different provider (requires migration)
+    INCOMPATIBLE = "incompatible"  # Major changes requiring full reindexing
+
+
+class ModelChangeInfo(BaseModel):
+    """Information about detected model changes."""
+
+    change_type: ModelChangeType
+    current_metadata: ModelMetadata | None = None
+    new_config: dict[str, Any]
+    migration_required: bool
+    warning_message: str
+    migration_guidance: str
+
+
 class ConfluenceConfig(BaseModel):
     url: HttpUrl
     username: str
@@ -135,10 +195,8 @@ class EmbeddingConfig(BaseModel):
                 raise ValueError(
                     "EMBEDDING_MODEL_NAME must be set if EMBEDDING_PROVIDER is not 'none'."
                 )
-            if self.dimension is None:
-                raise ValueError(
-                    "EMBEDDING_DIMENSION must be set if EMBEDDING_PROVIDER is not 'none'."
-                )
+            # Note: dimension=None is allowed for auto-detection with providers that support it
+            # The dimension will be automatically detected and set during model initialization
 
             if self.provider == "litellm":
                 if self.model_name and self.model_name.startswith("ollama/"):
@@ -162,6 +220,41 @@ class EmbeddingConfig(BaseModel):
 
 
 VectorDBType = Literal["chroma", "qdrant", "none"]
+
+
+def sanitize_model_name_for_collection(model_name: str) -> str:
+    """
+    Sanitize model name for use in collection names.
+    Replace special characters with underscores and convert to lowercase.
+    """
+    if not model_name:
+        return "unknown"
+
+    # Replace special characters with underscores
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", model_name)
+    # Remove multiple consecutive underscores
+    sanitized = re.sub(r"_+", "_", sanitized)
+    # Remove leading/trailing underscores
+    sanitized = sanitized.strip("_")
+    # Convert to lowercase
+    sanitized = sanitized.lower()
+
+    # If empty after sanitization, use "unknown"
+    return sanitized if sanitized else "unknown"
+
+
+def generate_model_specific_collection_name(
+    base_name: str, model_name: str | None, dimension: int | None
+) -> str:
+    """
+    Generate a model-specific collection name.
+    Format: {base_name}_{sanitized_model_name}_{dimension}d
+    """
+    if not model_name or dimension is None:
+        return base_name
+
+    sanitized_model = sanitize_model_name_for_collection(model_name)
+    return f"{base_name}_{sanitized_model}_{dimension}d"
 
 
 class IndexingConfig(BaseModel):
@@ -208,6 +301,201 @@ def get_default_config_path() -> Path:
     return Path(__file__).parent.parent / "confluence_gateway_config.json"
 
 
+def get_model_metadata_path() -> Path:
+    """Get the path to the model metadata file."""
+    return Path.home() / ".confluence_gateway_model_metadata.json"
+
+
+def save_model_metadata(metadata: ModelMetadata) -> None:
+    """Save model metadata to persistent storage."""
+    metadata_path = get_model_metadata_path()
+
+    # Load existing metadata if it exists
+    existing_metadata = {}
+    if metadata_path.exists():
+        try:
+            with metadata_path.open(encoding="utf-8") as f:
+                existing_metadata = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Could not read existing model metadata: {e}")
+            existing_metadata = {}
+
+    # Store metadata by collection name
+    existing_metadata[metadata.collection_name] = metadata.model_dump()
+    existing_metadata[metadata.collection_name]["created_at"] = (
+        metadata.created_at.isoformat()
+    )
+
+    # Save updated metadata
+    try:
+        with metadata_path.open("w", encoding="utf-8") as f:
+            json.dump(existing_metadata, f, indent=2)
+        logger.info(f"Saved model metadata for collection '{metadata.collection_name}'")
+    except OSError as e:
+        logger.error(f"Failed to save model metadata: {e}")
+
+
+def load_model_metadata(collection_name: str) -> ModelMetadata | None:
+    """Load model metadata for a specific collection."""
+    metadata_path = get_model_metadata_path()
+
+    if not metadata_path.exists():
+        return None
+
+    try:
+        with metadata_path.open(encoding="utf-8") as f:
+            all_metadata = json.load(f)
+
+        if collection_name not in all_metadata:
+            return None
+
+        metadata_dict = all_metadata[collection_name]
+        # Parse the ISO datetime string
+        metadata_dict["created_at"] = datetime.fromisoformat(
+            metadata_dict["created_at"]
+        )
+
+        return ModelMetadata(**metadata_dict)
+    except (json.JSONDecodeError, OSError, ValueError) as e:
+        logger.warning(
+            f"Could not load model metadata for collection '{collection_name}': {e}"
+        )
+        return None
+
+
+def list_all_model_metadata() -> dict[str, ModelMetadata]:
+    """Load all model metadata."""
+    metadata_path = get_model_metadata_path()
+
+    if not metadata_path.exists():
+        return {}
+
+    try:
+        with metadata_path.open(encoding="utf-8") as f:
+            all_metadata = json.load(f)
+
+        result = {}
+        for collection_name, metadata_dict in all_metadata.items():
+            try:
+                # Parse the ISO datetime string
+                metadata_dict["created_at"] = datetime.fromisoformat(
+                    metadata_dict["created_at"]
+                )
+                result[collection_name] = ModelMetadata(**metadata_dict)
+            except (ValueError, TypeError) as e:
+                logger.warning(
+                    f"Could not parse metadata for collection '{collection_name}': {e}"
+                )
+                continue
+
+        return result
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Could not load model metadata: {e}")
+        return {}
+
+
+def detect_model_changes(
+    embedding_config: EmbeddingConfig, vector_db_config: "VectorDBConfig"
+) -> "ModelChangeInfo | None":
+    """Detect changes in embedding model configuration."""
+    if embedding_config.provider == "none" or vector_db_config.type == "none":
+        return None
+
+    collection_name = vector_db_config.get_effective_collection_name()
+    current_metadata = load_model_metadata(collection_name)
+
+    if current_metadata is None:
+        # No existing metadata, this is a new setup
+        return None
+
+    # Create new metadata from current config
+    new_metadata = ModelMetadata.from_embedding_config(
+        embedding_config, collection_name
+    )
+
+    # Compare configurations
+    change_type = ModelChangeType.COMPATIBLE
+    migration_required = False
+    warning_message = ""
+    migration_guidance = ""
+
+    if current_metadata.configuration_hash == new_metadata.configuration_hash:
+        # No changes detected
+        return None
+
+    # Detect specific changes
+    changes = []
+
+    if current_metadata.provider != new_metadata.provider:
+        change_type = ModelChangeType.PROVIDER_CHANGE
+        migration_required = True
+        changes.append(
+            f"provider: {current_metadata.provider} → {new_metadata.provider}"
+        )
+
+    if current_metadata.model_name != new_metadata.model_name:
+        if change_type == ModelChangeType.COMPATIBLE:
+            change_type = ModelChangeType.MODEL_CHANGE
+        migration_required = True
+        changes.append(
+            f"model: {current_metadata.model_name} → {new_metadata.model_name}"
+        )
+
+    if current_metadata.dimension != new_metadata.dimension:
+        change_type = ModelChangeType.DIMENSION_CHANGE
+        migration_required = True
+        changes.append(
+            f"dimension: {current_metadata.dimension} → {new_metadata.dimension}"
+        )
+
+    if current_metadata.device != new_metadata.device:
+        changes.append(f"device: {current_metadata.device} → {new_metadata.device}")
+
+    # Build warning message
+    if changes:
+        warning_message = (
+            f"Embedding model configuration has changed: {', '.join(changes)}"
+        )
+
+        if migration_required:
+            if change_type == ModelChangeType.DIMENSION_CHANGE:
+                migration_guidance = (
+                    f"The embedding dimension has changed from {current_metadata.dimension} "
+                    f"to {new_metadata.dimension}. This requires reindexing all content.\n"
+                    "Run: confluence-gateway index trigger --full-reindex"
+                )
+            elif change_type == ModelChangeType.PROVIDER_CHANGE:
+                migration_guidance = (
+                    f"The embedding provider has changed from {current_metadata.provider} "
+                    f"to {new_metadata.provider}. This requires reindexing all content.\n"
+                    "Run: confluence-gateway index trigger --full-reindex"
+                )
+            elif change_type == ModelChangeType.MODEL_CHANGE:
+                migration_guidance = (
+                    f"The embedding model has changed from {current_metadata.model_name} "
+                    f"to {new_metadata.model_name}. This may require reindexing for optimal results.\n"
+                    "Consider running: confluence-gateway index trigger --full-reindex"
+                )
+        else:
+            migration_guidance = "No migration required. Changes are compatible."
+
+    new_config = {
+        "provider": new_metadata.provider,
+        "model_name": new_metadata.model_name,
+        "dimension": new_metadata.dimension,
+        "device": new_metadata.device,
+    }
+
+    return ModelChangeInfo(
+        change_type=change_type,
+        current_metadata=current_metadata,
+        new_config=new_config,
+        migration_required=migration_required,
+        warning_message=warning_message,
+        migration_guidance=migration_guidance,
+    )
+
+
 def _load_config_from_file(path: Path) -> dict[str, Any]:
     config_data = {}
     if path.exists() and path.is_file():
@@ -238,7 +526,7 @@ def _load_config_from_file(path: Path) -> dict[str, Any]:
 
 class VectorDBConfig(BaseModel):
     type: VectorDBType = "none"
-    collection_name: str = "confluence_embeddings"
+    collection_name: str | None = None
     embedding_dimension: int | None = None
     chunk_size: int = 512
     chunk_overlap: int = 50
@@ -251,13 +539,57 @@ class VectorDBConfig(BaseModel):
     qdrant_grpc_port: int = 6334
     qdrant_prefer_grpc: bool = False
 
+    # Internal fields for model-specific naming
+    _embedding_model_name: str | None = None
+    _embedding_dimension: int | None = None
+
+    def get_effective_collection_name(
+        self, model_name: str | None = None, dimension: int | None = None
+    ) -> str:
+        """
+        Get the effective collection name based on configuration.
+
+        If collection_name is explicitly set, use it as-is (user override).
+        If collection_name is None/empty, auto-generate with cg_ prefix and model info.
+        """
+        # If collection_name is explicitly set, use it as-is (backward compatibility)
+        if self.collection_name:
+            return self.collection_name
+
+        # Auto-generate model-specific collection name with "cg" prefix
+        # Use provided parameters first, then internal fields, then config fields
+        effective_model = (
+            model_name
+            or self._embedding_model_name
+            or getattr(self, "embedding_model_name", None)
+        )
+        effective_dimension = (
+            dimension or self._embedding_dimension or self.embedding_dimension
+        )
+
+        if effective_model and effective_dimension:
+            return generate_model_specific_collection_name(
+                "cg", effective_model, effective_dimension
+            )
+
+        # Fallback to base "cg" name if model info not available
+        return "cg"
+
+    def set_embedding_info(self, model_name: str | None, dimension: int | None) -> None:
+        """
+        Set embedding model information for collection naming.
+        This method is called during configuration loading.
+        """
+        self._embedding_model_name = model_name
+        self._embedding_dimension = dimension
+
     @model_validator(mode="after")
     def check_conditional_requirements(self) -> "VectorDBConfig":
         if self.type != "none":
-            if self.embedding_dimension is None:
-                raise ValueError(
-                    "VECTOR_DB_EMBEDDING_DIMENSION must be set if VECTOR_DB_TYPE is not 'none'."
-                )
+            # Note: embedding_dimension=None is allowed for auto-detection
+            # The dimension will be set from EmbeddingConfig during configuration loading
+            # or auto-detected during embedding service initialization
+            pass
 
         if self.type == "qdrant":
             if self.qdrant_url is None and self.qdrant_local_path is None:
@@ -536,6 +868,7 @@ def load_configurations() -> tuple[
     EmbeddingConfig | None,
     IndexingConfig,
     GenerationConfig | None,
+    ModelChangeInfo | None,
 ]:
     # Load default config first
     default_config_path = get_default_config_path()
@@ -648,25 +981,46 @@ def load_configurations() -> tuple[
     if loaded_embedding_config is None and embedding_load_error:
         logger.warning("Embedding features disabled due to invalid configuration.")
 
-    if loaded_embedding_config and loaded_embedding_config.dimension is not None:
+    # Synchronize embedding dimensions between EmbeddingConfig and VectorDBConfig
+    # This handles both explicit dimensions and auto-detected dimensions
+    if loaded_embedding_config:
         vdb_type = final_vector_db_config.get("type", "none")
-        if vdb_type != "none" and "embedding_dimension" not in final_vector_db_config:
-            final_vector_db_config["embedding_dimension"] = (
-                loaded_embedding_config.dimension
-            )
-            logger.info(
-                f"Setting VectorDB embedding_dimension from EmbeddingConfig: {loaded_embedding_config.dimension}"
-            )
-        elif (
-            vdb_type != "none"
-            and "embedding_dimension" in final_vector_db_config
-            and final_vector_db_config.get("embedding_dimension")
-            != loaded_embedding_config.dimension
-        ):
-            logger.warning(
-                f"VECTOR_DB_EMBEDDING_DIMENSION ({final_vector_db_config.get('embedding_dimension')}) "
-                f"differs from EMBEDDING_DIMENSION ({loaded_embedding_config.dimension}). Using the VectorDB specific value."
-            )
+
+        if vdb_type != "none":
+            embedding_dim = loaded_embedding_config.dimension
+            vdb_embedding_dim = final_vector_db_config.get("embedding_dimension")
+
+            if embedding_dim is not None:
+                # Embedding dimension is explicitly set
+                if "embedding_dimension" not in final_vector_db_config:
+                    # Set VectorDB dimension from explicit embedding dimension
+                    final_vector_db_config["embedding_dimension"] = embedding_dim
+                    logger.info(
+                        f"Setting VectorDB embedding_dimension from EmbeddingConfig: {embedding_dim}"
+                    )
+                elif (
+                    vdb_embedding_dim is not None and vdb_embedding_dim != embedding_dim
+                ):
+                    # Both have explicit dimensions but they differ - warn and use VectorDB value
+                    logger.warning(
+                        f"VECTOR_DB_EMBEDDING_DIMENSION ({vdb_embedding_dim}) "
+                        f"differs from EMBEDDING_DIMENSION ({embedding_dim}). Using the VectorDB specific value."
+                    )
+            else:
+                # Embedding dimension will be auto-detected
+                if "embedding_dimension" not in final_vector_db_config:
+                    # Both will use auto-detection - VectorDB will get dimension after embedding initialization
+                    final_vector_db_config["embedding_dimension"] = None
+                    logger.info(
+                        "Embedding dimension will be auto-detected. VectorDB will synchronize after embedding initialization."
+                    )
+                elif vdb_embedding_dim is not None:
+                    # VectorDB has explicit dimension but embedding will auto-detect
+                    logger.info(
+                        f"VectorDB has explicit embedding_dimension ({vdb_embedding_dim}) while embedding dimension will be auto-detected. "
+                        "Dimension compatibility will be validated after auto-detection."
+                    )
+                # Note: If VectorDB also has None, both will auto-detect and sync during initialization
 
     loaded_vector_db_config: VectorDBConfig | None = None
     if final_vector_db_config:
@@ -684,6 +1038,20 @@ def load_configurations() -> tuple[
             config_instance = VectorDBConfig(**filtered_vdb_config)
 
             if config_instance.type != "none":
+                # Set embedding info for collection naming
+                if loaded_embedding_config:
+                    config_instance.set_embedding_info(
+                        loaded_embedding_config.model_name,
+                        loaded_embedding_config.dimension,
+                    )
+                    effective_name = config_instance.get_effective_collection_name()
+                    if config_instance.collection_name:
+                        logger.info(f"Using explicit collection name: {effective_name}")
+                    else:
+                        logger.info(
+                            f"Using auto-generated collection name: {effective_name}"
+                        )
+
                 loaded_vector_db_config = config_instance
             else:
                 logger.info("Vector database integration is disabled (type='none').")
@@ -729,6 +1097,36 @@ def load_configurations() -> tuple[
     else:
         logger.info("No Generation configuration found. RAG features disabled.")
 
+    # Detect model changes if both embedding and vector db configs are loaded
+    model_change_info = None
+    if loaded_embedding_config and loaded_vector_db_config:
+        model_change_info = detect_model_changes(
+            loaded_embedding_config, loaded_vector_db_config
+        )
+
+        if model_change_info:
+            logger.warning(f"🔄 {model_change_info.warning_message}")
+            if model_change_info.migration_required:
+                logger.warning(
+                    f"⚠️  MIGRATION REQUIRED: {model_change_info.migration_guidance}"
+                )
+            else:
+                logger.info(f"ℹ️  {model_change_info.migration_guidance}")
+
+        # Save current model metadata for future change detection
+        # Only save if this is not a test environment
+        if not is_pytest_running():
+            try:
+                effective_collection_name = (
+                    loaded_vector_db_config.get_effective_collection_name()
+                )
+                new_metadata = ModelMetadata.from_embedding_config(
+                    loaded_embedding_config, effective_collection_name
+                )
+                save_model_metadata(new_metadata)
+            except Exception as e:
+                logger.warning(f"Could not save model metadata: {e}")
+
     return (
         loaded_confluence_config,
         loaded_search_config,
@@ -736,6 +1134,7 @@ def load_configurations() -> tuple[
         loaded_embedding_config,
         loaded_indexing_config,
         loaded_generation_config,
+        model_change_info,
     )
 
 
@@ -747,13 +1146,14 @@ _cached_vector_db_config: VectorDBConfig | None = None
 _cached_embedding_config: EmbeddingConfig | None = None
 _cached_indexing_config: IndexingConfig | None = None
 _cached_generation_config: GenerationConfig | None = None
+_cached_model_change_info: ModelChangeInfo | None = None
 
 
 def _ensure_configs_loaded() -> None:
     """Ensure all configurations are loaded into cache."""
     global _configs_loaded, _cached_confluence_config, _cached_search_config
     global _cached_vector_db_config, _cached_embedding_config, _cached_indexing_config
-    global _cached_generation_config
+    global _cached_generation_config, _cached_model_change_info
 
     if not _configs_loaded:
         logger.debug("Loading all configurations into cache")
@@ -764,6 +1164,7 @@ def _ensure_configs_loaded() -> None:
             embedding_cfg,
             indexing_cfg,
             generation_cfg,
+            model_change_cfg,
         ) = load_configurations()
 
         _cached_confluence_config = confluence_cfg
@@ -772,6 +1173,7 @@ def _ensure_configs_loaded() -> None:
         _cached_embedding_config = embedding_cfg
         _cached_indexing_config = indexing_cfg
         _cached_generation_config = generation_cfg
+        _cached_model_change_info = model_change_cfg
         _configs_loaded = True
 
 
@@ -813,11 +1215,17 @@ def get_generation_config() -> GenerationConfig | None:
     return _cached_generation_config
 
 
+def get_model_change_info() -> ModelChangeInfo | None:
+    """Get Model change information, loading lazily if needed."""
+    _ensure_configs_loaded()
+    return _cached_model_change_info
+
+
 def clear_config_cache() -> None:
     """Clear the configuration cache to force reload on next access."""
     global _configs_loaded, _cached_confluence_config, _cached_search_config
     global _cached_vector_db_config, _cached_embedding_config, _cached_indexing_config
-    global _cached_generation_config
+    global _cached_generation_config, _cached_model_change_info
 
     _configs_loaded = False
     _cached_confluence_config = None
@@ -826,6 +1234,70 @@ def clear_config_cache() -> None:
     _cached_embedding_config = None
     _cached_indexing_config = None
     _cached_generation_config = None
+    _cached_model_change_info = None
+
+
+def synchronize_auto_detected_dimension(auto_detected_dimension: int) -> None:
+    """
+    Synchronize vector DB configuration with auto-detected embedding dimension.
+
+    This function should be called by embedding services after they auto-detect
+    the embedding dimension at runtime. It will update the cached vector DB
+    configuration to use the auto-detected dimension and validate compatibility.
+
+    Args:
+        auto_detected_dimension: The dimension value that was auto-detected
+
+    Raises:
+        ValueError: If dimension validation fails
+    """
+    global _cached_vector_db_config, _cached_embedding_config
+
+    # Ensure configs are loaded first
+    _ensure_configs_loaded()
+
+    if _cached_embedding_config is None:
+        logger.warning(
+            "Cannot synchronize auto-detected dimension: no embedding config loaded"
+        )
+        return
+
+    if _cached_vector_db_config is None:
+        logger.debug("No vector DB config to synchronize with auto-detected dimension")
+        return
+
+    # Update the cached embedding config with auto-detected dimension
+    _cached_embedding_config.dimension = auto_detected_dimension
+    logger.info(
+        f"Updated cached embedding dimension with auto-detected value: {auto_detected_dimension}"
+    )
+
+    # Check if vector DB config needs dimension synchronization
+    vdb_embedding_dim = _cached_vector_db_config.embedding_dimension
+
+    if vdb_embedding_dim is None:
+        # Vector DB also needs the auto-detected dimension
+        _cached_vector_db_config.embedding_dimension = auto_detected_dimension
+        logger.info(
+            f"Synchronized vector DB embedding_dimension with auto-detected value: {auto_detected_dimension}"
+        )
+    elif vdb_embedding_dim != auto_detected_dimension:
+        # Vector DB has explicit dimension that differs from auto-detected
+        logger.warning(
+            f"Dimension mismatch after auto-detection: VectorDB expects {vdb_embedding_dim} "
+            f"but embedding model auto-detected {auto_detected_dimension}. "
+            "This may cause compatibility issues."
+        )
+        raise ValueError(
+            f"Incompatible dimensions: VectorDB configured for {vdb_embedding_dim} "
+            f"but embedding model auto-detected {auto_detected_dimension}"
+        )
+    else:
+        # Dimensions match - validation successful
+        logger.info(
+            f"Dimension validation successful: auto-detected dimension {auto_detected_dimension} "
+            "matches vector DB configuration"
+        )
 
 
 # Backward compatibility: module-level __getattr__ for lazy loading of old global config variables
@@ -843,5 +1315,7 @@ def __getattr__(name: str) -> Any:
         return get_indexing_config()
     elif name == "generation_config":
         return get_generation_config()
+    elif name == "model_change_info":
+        return get_model_change_info()
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

@@ -2,7 +2,13 @@ from importlib.metadata import version
 
 import typer
 
-from . import generate_commands, index_commands, search_commands, spaces_commands
+from . import (
+    generate_commands,
+    index_commands,
+    model_commands,
+    search_commands,
+    spaces_commands,
+)
 
 
 def version_callback(value: bool) -> None:
@@ -37,6 +43,9 @@ app.add_typer(
     generate_commands.app, name="generate", help="Generate answers using RAG."
 )
 app.add_typer(spaces_commands.app, name="spaces", help="Manage Confluence spaces.")
+app.add_typer(
+    model_commands.app, name="models", help="Manage embedding models and configuration."
+)
 
 if __name__ == "__main__":
     app()

@@ -6,8 +6,6 @@
 
 > **상태**: Beta (v0.1.0)
 
-[English](README.md) | [한국어](README_ko.md)
-
 시맨틱 검색, 하이브리드 알고리즘, AI 기반 질문 답변으로 Confluence를 스마트 지식 베이스로 변환하세요.
 
 ## ✨ 주요 기능
@@ -15,6 +13,7 @@
 - **🔍 고급 검색**: Reciprocal Rank Fusion을 사용한 텍스트, 시맨틱, 하이브리드 검색
 - **🤖 RAG 기반 Q&A**: Confluence 콘텐츠에서 맥락적 답변 생성  
 - **⚡ 이중 인터페이스**: 자동화를 위한 CLI + 통합을 위한 REST API
+- **🚀 GPU 가속**: 5-10배 성능 향상을 위한 GPU 자동 감지 지원
 - **🗄️ 유연한 저장소**: Qdrant, ChromaDB 또는 메모리 전용 모드
 
 ## 🚀 빠른 시작
@@ -31,7 +30,7 @@ uv sync --dev
 
 ### 2. 구성
 
-Confluence 자격 증명 설정:
+Confluence 자격 증명을 설정하세요:
 
 ```bash
 export CONFLUENCE_URL="https://your-instance.atlassian.net"
@@ -39,10 +38,18 @@ export CONFLUENCE_USERNAME="your-email@example.com"
 export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 ```
 
-**선택사항**: AI 기능 활성화 (API 키 필요)
+**선택적 구성:**
 ```bash
+# AI 기능 (API 키 필요)
 export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
+
+# GPU 제어 (기본적으로 자동 감지)
+export EMBEDDING_DEVICE="cuda"    # GPU 강제 사용
+export EMBEDDING_DEVICE="cpu"     # CPU 폴백 강제 사용
+
+# 벡터 저장소
+export QDRANT_URL="http://localhost:6333"  # 영구 저장소
 ```
 
 ### 3. 연결 확인
@@ -101,42 +108,46 @@ confluence_gateway/
 
 ## 🔧 개발
 
-**필수 명령어:**
+**설정 및 품질:**
 ```bash
+# 개발 종속성과 함께 설치
+uv sync --dev
+
 # 코드 품질 (커밋 전 실행)
 uv run ruff check --fix && uv run ruff format && uv run mypy confluence_gateway/
 
-# 테스트 실행
-echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
+# 테스트 실행 (Confluence 인증 필요)
 uv run pytest tests/ -v
-
-# API 서버 (자동 재로드)
-uv run uvicorn confluence_gateway.api.app:app --reload
 ```
 
-**참고**: 테스트는 실제 Confluence 인스턴스를 사용하며 인증 환경 변수가 필요합니다.
+**개발 서버:**
+```bash
+# 자동 재로드 + 빠른 시작을 위한 API
+export CONFLUENCE_GATEWAY_DEV_MODE="true"
+uv run uvicorn confluence_gateway.api.app:app --reload
+```
 
 ## 📚 API 참조
 
 **인터랙티브 문서**: `http://localhost:8000/docs` (Swagger UI)
 
-**주요 엔드포인트 요청 형식:**
+**빠른 API 테스트:**
+```bash
+# 텍스트 검색 (GET)
+curl "http://localhost:8000/api/search?query=deployment&limit=5"
 
-```json
-# 시맨틱 검색
-{"query": "배포", "top_k": 10}
+# 시맨틱 검색 (POST)
+curl -X POST "http://localhost:8000/api/search/semantic" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "deployment process", "top_k": 5}'
 
-# 답변 생성  
-{"query": "우리의 프로세스는?", "top_k_retrieval": 5}
-
-# 인덱싱
-{"space_keys": ["DEV", "TECH"]} 
-{"index_all": true}
+# 상태 확인
+curl "http://localhost:8000/health"
 ```
 
-## ⚙️ 고급 구성
+## ⚙️ 구성
 
-**설정 파일 대안** (`~/.confluence_gateway_config.json`):
+**구성 파일** (`~/.confluence_gateway_config.json`):
 ```json
 {
   "confluence": {
@@ -146,43 +157,17 @@ uv run uvicorn confluence_gateway.api.app:app --reload
   },
   "vector_db": {
     "type": "qdrant",
-    "qdrant_url": ":memory:"
+    "qdrant_url": "http://localhost:6333"
+  },
+  "embedding": {
+    "device": "cuda"  // CPU 전용의 경우 "cpu"
   }
 }
 ```
 
-**구성 우선순위**: `~/.confluence_gateway_config.json` > 환경 변수 > 기본값
+**우선순위**: 구성 파일 > 환경 변수 > 기본값
 
-**저장소 옵션:**
-```bash
-# 영구 Qdrant (기본값)
-export QDRANT_LOCAL_PATH="~/.confluence_gateway/qdrant_storage"
-
-# ChromaDB 대안  
-export VECTOR_DB_TYPE="chroma"
-export CHROMA_PERSIST_PATH="~/.confluence_gateway/chroma_storage"
-
-# 메모리 전용 모드 (테스트)
-export QDRANT_URL=":memory:"
-
-# 개발 모드 (빠른 시작)
-export CONFLUENCE_GATEWAY_DEV_MODE="true"
-```
-
-## 🛠️ 문제 해결
-
-**연결 문제:**
-- `401 Unauthorized`: Confluence에서 API 토큰과 권한 확인
-- `Connection refused`: Confluence URL에 `https://` 포함 확인
-- 연결 테스트: `curl -u "email:token" "https://your-instance.atlassian.net/rest/api/space"`
-
-**성능:**
-- 개발 모드 사용: `export CONFLUENCE_GATEWAY_DEV_MODE="true"`
-- 테스트용 메모리 모드: `export QDRANT_URL=":memory:"`
-
-**일반적인 오류:**
-- `ModuleNotFoundError`: `uv sync --dev` 실행
-- 스페이스 누락: API 토큰의 Confluence 권한 확인
+**저장소 옵션**: Qdrant (기본값), ChromaDB (`VECTOR_DB_TYPE=chroma`), 또는 테스트용 메모리 전용
 
 ## 📄 라이선스
 

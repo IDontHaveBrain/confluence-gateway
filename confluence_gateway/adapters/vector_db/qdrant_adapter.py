@@ -1,4 +1,5 @@
 import logging
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ from confluence_gateway.adapters.vector_db.models import (
     VectorSearchResultItem,
 )
 from confluence_gateway.core.config import (
+    ModelMetadata,
     VectorDBConfig,
     dev_mode_log_skip,
     dev_mode_log_stub,
@@ -176,7 +178,7 @@ class QdrantAdapter(VectorDBAdapter):
                 )
 
             # Setup collection on first connection
-            collection_name = self.config.collection_name
+            collection_name = self.config.get_effective_collection_name()
             logger.info(f"Checking for Qdrant collection: {collection_name}")
 
             collection_exists = False
@@ -235,7 +237,7 @@ class QdrantAdapter(VectorDBAdapter):
 
     def upsert(self, documents: list[Document]) -> None:
         client = self._ensure_client()
-        collection_name = self.config.collection_name
+        collection_name = self.config.get_effective_collection_name()
 
         # Load Qdrant models
         _, models, _, _, _, _ = _get_qdrant_deps()
@@ -318,7 +320,7 @@ class QdrantAdapter(VectorDBAdapter):
         filters: dict[str, Any] | None = None,
     ) -> list[VectorSearchResultItem]:
         client = self._ensure_client()
-        collection_name = self.config.collection_name
+        collection_name = self.config.get_effective_collection_name()
         qdrant_filter = self._translate_filters(filters)
 
         try:
@@ -362,7 +364,7 @@ class QdrantAdapter(VectorDBAdapter):
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         client = self._ensure_client()
-        collection_name = self.config.collection_name
+        collection_name = self.config.get_effective_collection_name()
         qdrant_filter = self._build_qdrant_filter(filters)
 
         if not qdrant_filter:
@@ -435,7 +437,7 @@ class QdrantAdapter(VectorDBAdapter):
             return
 
         client = self._ensure_client()
-        collection_name = self.config.collection_name
+        collection_name = self.config.get_effective_collection_name()
 
         # Load Qdrant models
         _, models, _, _, _, _ = _get_qdrant_deps()
@@ -460,7 +462,7 @@ class QdrantAdapter(VectorDBAdapter):
             return
 
         client = self._ensure_client()
-        collection_name = self.config.collection_name
+        collection_name = self.config.get_effective_collection_name()
         qdrant_filter = self._build_qdrant_filter(filters)
 
         if not qdrant_filter:
@@ -496,7 +498,7 @@ class QdrantAdapter(VectorDBAdapter):
 
     def count(self) -> int:
         client = self._ensure_client()
-        collection_name = self.config.collection_name
+        collection_name = self.config.get_effective_collection_name()
 
         try:
             logger.info(f"Counting points in Qdrant collection '{collection_name}'")
@@ -514,7 +516,7 @@ class QdrantAdapter(VectorDBAdapter):
         self, ids: list[str], with_payload: bool = True, with_vector: bool = False
     ) -> list[Any]:  # Returns list[models.Record] but loaded lazily
         client = self._ensure_client()
-        collection_name = self.config.collection_name
+        collection_name = self.config.get_effective_collection_name()
         if not ids:
             logger.warning("retrieve_by_ids called with empty ID list.")
             return []
@@ -533,6 +535,245 @@ class QdrantAdapter(VectorDBAdapter):
         except Exception as e:
             logger.error(f"Qdrant retrieve by ID operation failed: {e}", exc_info=True)
             raise RuntimeError(f"Qdrant retrieve by ID failed: {e}") from e
+
+    def get_collection_metadata(self) -> dict[str, Any] | None:
+        """Get metadata for the collection, including embedding model information."""
+        if self.dev_mode:
+            dev_mode_log_stub("Qdrant get_collection_metadata")
+            return {"dev_mode": True}
+
+        client = self._ensure_client()
+        collection_name = self.config.collection_name
+
+        try:
+            logger.debug(
+                f"Getting collection info for Qdrant collection '{collection_name}'"
+            )
+            client.get_collection(collection_name)  # Just check if collection exists
+
+            # Qdrant doesn't have native collection-level metadata, so we'll check for
+            # embedding model info in a special metadata document
+            try:
+                metadata_results = self.search_by_metadata(
+                    filters={"_collection_metadata": True}, limit=1
+                )
+                if metadata_results:
+                    metadata = metadata_results[0].copy()
+                    metadata.pop("id", None)
+                    metadata.pop("_collection_metadata", None)
+                    logger.debug(f"Found collection metadata: {metadata}")
+                    return metadata
+                else:
+                    logger.debug("No collection metadata found")
+                    return None
+            except Exception as e:
+                logger.debug(f"Failed to retrieve collection metadata: {e}")
+                return None
+
+        except Exception as e:
+            logger.debug(
+                f"Collection '{collection_name}' does not exist or error occurred: {e}"
+            )
+            return None
+
+    def set_collection_metadata(self, metadata: dict[str, Any]) -> None:
+        """Set metadata for the collection, including embedding model information."""
+        if self.dev_mode:
+            dev_mode_log_stub("Qdrant set_collection_metadata")
+            return
+
+        if not metadata:
+            logger.debug("No metadata to store")
+            return
+
+        client = self._ensure_client()
+        collection_name = self.config.collection_name
+
+        try:
+            # Store metadata in a special document
+            metadata_copy = metadata.copy()
+            metadata_copy["_collection_metadata"] = True
+
+            # Create a zero vector for the metadata document (since Qdrant requires vectors)
+            zero_vector = [0.0] * (self.config.embedding_dimension or 384)
+
+            # Load Qdrant models
+            _, models, _, _, _, _ = _get_qdrant_deps()
+
+            # First, delete any existing metadata document
+            try:
+                existing_metadata = self.search_by_metadata(
+                    filters={"_collection_metadata": True}, limit=1
+                )
+                if existing_metadata:
+                    self.delete([existing_metadata[0]["id"]])
+                    logger.debug("Deleted existing collection metadata")
+            except Exception as e:
+                logger.debug(f"No existing metadata to delete: {e}")
+
+            # Insert new metadata document
+            points = [
+                models.PointStruct(
+                    id=str(uuid.uuid4()), vector=zero_vector, payload=metadata_copy
+                )
+            ]
+
+            logger.debug(
+                f"Storing collection metadata in Qdrant collection '{collection_name}'"
+            )
+            client.upsert(collection_name=collection_name, points=points, wait=True)
+            logger.debug("Collection metadata stored successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to store collection metadata: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to store collection metadata: {e}") from e
+
+    def has_data(self) -> bool:
+        """Check if the collection has any data."""
+        if self.dev_mode:
+            dev_mode_log_stub("Qdrant has_data")
+            return False
+
+        try:
+            count = self.count()
+            # Subtract 1 if there's a metadata document
+            metadata_count = len(
+                self.search_by_metadata(filters={"_collection_metadata": True}, limit=1)
+            )
+            actual_count = count - metadata_count
+            has_data = actual_count > 0
+            logger.debug(
+                f"Collection has {actual_count} data documents (total: {count}, metadata: {metadata_count})"
+            )
+            return has_data
+        except Exception as e:
+            logger.debug(f"Failed to check if collection has data: {e}")
+            return False
+
+    def get_collection_info(self) -> dict[str, Any]:
+        """Get information about the collection including size, configuration, etc."""
+        if self.dev_mode:
+            dev_mode_log_stub("Qdrant get_collection_info")
+            return {"dev_mode": True, "count": 0}
+
+        client = self._ensure_client()
+        collection_name = self.config.collection_name
+
+        try:
+            logger.debug(
+                f"Getting collection info for Qdrant collection '{collection_name}'"
+            )
+            collection_info = client.get_collection(collection_name)
+
+            # Get the count of documents
+            count = self.count()
+
+            # Get metadata count to exclude from main count
+            metadata_count = len(
+                self.search_by_metadata(filters={"_collection_metadata": True}, limit=1)
+            )
+
+            return {
+                "collection_name": collection_name,
+                "total_count": count,
+                "document_count": count - metadata_count,
+                "vector_size": collection_info.config.params.vectors.size,
+                "distance": collection_info.config.params.vectors.distance.name,
+                "status": collection_info.status.name,
+            }
+        except Exception as e:
+            logger.debug(f"Failed to get collection info: {e}")
+            return {"error": str(e)}
+
+    def store_model_metadata(self, metadata: ModelMetadata) -> None:
+        """Store model metadata in the vector database."""
+        if self.dev_mode:
+            dev_mode_log_stub("Qdrant store_model_metadata")
+            return
+
+        metadata_dict = {
+            "model_provider": metadata.provider,
+            "model_name": metadata.model_name,
+            "model_dimension": metadata.dimension,
+            "model_device": metadata.device,
+            "model_created_at": metadata.created_at.isoformat(),
+            "model_configuration_hash": metadata.configuration_hash,
+        }
+
+        # Store in the vector database's collection metadata
+        self.set_collection_metadata(metadata_dict)
+        logger.info(
+            f"Stored model metadata for provider: {metadata.provider}, model: {metadata.model_name}"
+        )
+
+    def get_model_metadata(self) -> ModelMetadata | None:
+        """Retrieve model metadata from the vector database."""
+        if self.dev_mode:
+            dev_mode_log_stub("Qdrant get_model_metadata")
+            return None
+
+        try:
+            metadata = self.get_collection_metadata()
+            if not metadata:
+                return None
+
+            # Check if this is model metadata
+            if "model_provider" not in metadata:
+                return None
+
+            from datetime import datetime
+
+            return ModelMetadata(
+                provider=metadata["model_provider"],
+                model_name=metadata["model_name"],
+                dimension=metadata["model_dimension"],
+                device=metadata.get("model_device"),
+                created_at=datetime.fromisoformat(metadata["model_created_at"]),
+                collection_name=self.config.collection_name,
+                configuration_hash=metadata["model_configuration_hash"],
+            )
+        except Exception as e:
+            logger.debug(f"Failed to retrieve model metadata: {e}")
+            return None
+
+    def list_collections(self) -> list[dict[str, Any]]:
+        """List all available collections and their basic information."""
+        if self.dev_mode:
+            dev_mode_log_stub("Qdrant list_collections")
+            return []
+
+        try:
+            client = self._ensure_client()
+            collections_response = client.get_collections()
+
+            collections = []
+            for collection in collections_response.collections:
+                try:
+                    # Get collection details
+                    collection_info = client.get_collection(collection.name)
+                    count_result = client.count(
+                        collection_name=collection.name, exact=True
+                    )
+
+                    collections.append(
+                        {
+                            "name": collection.name,
+                            "vector_size": collection_info.config.params.vectors.size,
+                            "distance": collection_info.config.params.vectors.distance.name,
+                            "point_count": count_result.count,
+                            "status": collection_info.status.name,
+                        }
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to get details for collection {collection.name}: {e}"
+                    )
+                    collections.append({"name": collection.name, "error": str(e)})
+
+            return collections
+        except Exception as e:
+            logger.error(f"Failed to list collections: {e}")
+            return []
 
     def close(self) -> None:
         if self.client:

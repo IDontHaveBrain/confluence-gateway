@@ -59,12 +59,11 @@ class TestSharedEmbeddingOptimization:
 
         # Verify provider is configured correctly
         assert shared_embedding_provider is not None
-        assert hasattr(shared_embedding_provider, "_model")
-        assert hasattr(shared_embedding_provider, "_is_initialized")
-        assert shared_embedding_provider._is_initialized is True
+        assert hasattr(shared_embedding_provider, "model")
+        assert shared_embedding_provider.model is not None
 
         print(f"Shared provider type: {type(shared_embedding_provider)}")
-        print(f"Provider initialized: {shared_embedding_provider._is_initialized}")
+        print(f"Provider initialized: {shared_embedding_provider.model is not None}")
 
     def test_embedding_service_with_shared_model(
         self, embedding_service_with_shared_model
@@ -102,26 +101,31 @@ class TestSharedEmbeddingOptimization:
 
         try:
             from confluence_gateway.adapters.embedding.sentence_transformer import (
-                SentenceTransformerAdapter,
+                SentenceTransformerProvider,
             )
+            from confluence_gateway.core.config import EmbeddingConfig
 
             # Create a new provider instance
-            provider = SentenceTransformerAdapter(
-                model_name="all-MiniLM-L6-v2", device="cpu", dimension=384
+            config = EmbeddingConfig(
+                provider="sentence-transformers",
+                model_name="all-MiniLM-L6-v2",
+                device="cpu",
+                dimension=384,
             )
+            provider = SentenceTransformerProvider(config)
 
             # Test injection
             success = inject_shared_model_into_provider(
                 provider, shared_sentence_transformer_model
             )
             assert success is True
-            assert provider._model is shared_sentence_transformer_model
-            assert provider._is_initialized is True
+            assert provider.model is shared_sentence_transformer_model
+            assert provider.model is not None
 
             print("Model injection utility test: SUCCESS")
 
         except ImportError:
-            pytest.skip("SentenceTransformerAdapter not available")
+            pytest.skip("SentenceTransformerProvider not available")
 
     def test_thread_safe_model_access(self, shared_sentence_transformer_model):
         """Test thread-safe access to the shared model."""

@@ -33,6 +33,11 @@ if "VECTOR_DB_EMBEDDING_DIMENSION" not in os.environ:
     os.environ["VECTOR_DB_EMBEDDING_DIMENSION"] = (
         "384"  # Default dimension for all-MiniLM-L6-v2
     )
+# Force sentence-transformers provider for consistency with tests
+os.environ["EMBEDDING_PROVIDER"] = "sentence-transformers"
+os.environ["EMBEDDING_MODEL_NAME"] = "all-MiniLM-L6-v2"
+os.environ["EMBEDDING_DIMENSION"] = "384"
+os.environ["EMBEDDING_DEVICE"] = "cpu"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -116,6 +121,11 @@ def api_server(shared_sentence_transformer_model):
             "VECTOR_DB_EMBEDDING_DIMENSION": env.get(
                 "VECTOR_DB_EMBEDDING_DIMENSION", "384"
             ),
+            # Force sentence-transformers provider for consistency with tests
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
+            "EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_DEVICE": "cpu",
         }
     )
 

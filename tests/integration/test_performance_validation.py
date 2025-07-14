@@ -48,54 +48,92 @@ class TestSharedModelPerformance:
         print(f"Shared model access completed in {access_time:.6f}s")
 
     def test_provider_creation_optimization(self, shared_sentence_transformer_model):
-        """Test that provider creation is optimized with shared model injection."""
+        """Test that provider creation and initialization is optimized with shared model injection."""
         if shared_sentence_transformer_model is None:
             pytest.skip("Shared model not available for optimization testing")
 
         try:
             from confluence_gateway.adapters.embedding.sentence_transformer import (
-                SentenceTransformerAdapter,
+                SentenceTransformerProvider,
             )
+            from confluence_gateway.core.config import EmbeddingConfig
         except ImportError:
-            pytest.skip("SentenceTransformerAdapter not available")
+            pytest.skip("SentenceTransformerProvider not available")
 
-        # Test standard provider creation (without optimization)
-        start_time = time.time()
-        SentenceTransformerAdapter(
-            model_name="all-MiniLM-L6-v2", device="cpu", dimension=384
-        )
-        standard_creation_time = time.time() - start_time
-
-        # Test optimized provider creation (with shared model injection)
-        optimized_start = time.time()
-        optimized_provider = SentenceTransformerAdapter(
-            model_name="all-MiniLM-L6-v2", device="cpu", dimension=384
+        config = EmbeddingConfig(
+            provider="sentence-transformers",
+            model_name="all-MiniLM-L6-v2",
+            device="cpu",
+            dimension=384,
         )
 
-        # Inject shared model
-        injection_success = inject_shared_model_into_provider(
-            optimized_provider, shared_sentence_transformer_model
-        )
-        optimized_creation_time = time.time() - optimized_start
+        # Test standard provider creation and initialization (without optimization)
+        # Run multiple iterations to get more reliable timing
+        iterations = 5
+        standard_times = []
+
+        for _ in range(iterations):
+            start_time = time.time()
+            standard_provider = SentenceTransformerProvider(config)
+            standard_provider.initialize()
+
+            # Test actual model usage to measure the real benefit
+            standard_provider.embed_text("test text for timing measurement")
+
+            standard_times.append(time.time() - start_time)
+
+        standard_avg_time = sum(standard_times) / len(standard_times)
+
+        # Test optimized provider creation with shared model injection
+        optimized_times = []
+
+        for _ in range(iterations):
+            optimized_start = time.time()
+            optimized_provider = SentenceTransformerProvider(config)
+
+            # Inject shared model (this is the optimization)
+            injection_success = inject_shared_model_into_provider(
+                optimized_provider, shared_sentence_transformer_model
+            )
+
+            # Test actual model usage to measure the real benefit
+            optimized_provider.embed_text("test text for timing measurement")
+
+            optimized_times.append(time.time() - optimized_start)
+
+        optimized_avg_time = sum(optimized_times) / len(optimized_times)
 
         assert injection_success, "Shared model injection should succeed"
 
         # Log performance metrics
-        log_embedding_operation("standard_provider_creation", standard_creation_time)
-        log_embedding_operation("optimized_provider_creation", optimized_creation_time)
+        log_embedding_operation("standard_provider_with_usage", standard_avg_time)
+        log_embedding_operation("optimized_provider_with_usage", optimized_avg_time)
 
         print(
-            f"Provider creation times: Standard={standard_creation_time:.3f}s, Optimized={optimized_creation_time:.3f}s"
+            f"Provider creation+usage times (avg of {iterations} runs): "
+            f"Standard={standard_avg_time:.3f}s, Optimized={optimized_avg_time:.3f}s"
         )
 
-        # Optimized creation should be competitive (may not always be faster due to injection overhead)
-        # But should definitely not be significantly slower
-        max_acceptable_ratio = 2.0  # Optimized should not be more than 2x slower
-        assert optimized_creation_time < (
-            standard_creation_time * max_acceptable_ratio
-        ), (
-            f"Optimized creation too slow: {optimized_creation_time:.3f}s vs {standard_creation_time:.3f}s"
-        )
+        # Calculate performance improvement
+        if standard_avg_time > 0:
+            improvement_ratio = standard_avg_time / optimized_avg_time
+            print(f"Performance improvement: {improvement_ratio:.2f}x faster")
+
+        # The optimized version should be significantly faster due to skipping model loading
+        # If both times are very small (< 0.01s), just verify injection worked correctly
+        if standard_avg_time < 0.01 and optimized_avg_time < 0.01:
+            print(
+                "Both times too small for reliable comparison, verifying injection correctness"
+            )
+            assert injection_success, "Shared model injection should succeed"
+            assert optimized_provider.model is shared_sentence_transformer_model, (
+                "Optimized provider should use the shared model"
+            )
+        else:
+            # For meaningful timings, optimized should be faster
+            assert optimized_avg_time < standard_avg_time, (
+                f"Optimized version should be faster: {optimized_avg_time:.3f}s vs {standard_avg_time:.3f}s"
+            )
 
     def test_embedding_operation_performance(self, shared_sentence_transformer_model):
         """Test that embedding operations maintain performance with shared model."""
@@ -104,15 +142,21 @@ class TestSharedModelPerformance:
 
         try:
             from confluence_gateway.adapters.embedding.sentence_transformer import (
-                SentenceTransformerAdapter,
+                SentenceTransformerProvider,
             )
+            from confluence_gateway.core.config import EmbeddingConfig
         except ImportError:
-            pytest.skip("SentenceTransformerAdapter not available")
+            pytest.skip("SentenceTransformerProvider not available")
 
         # Create optimized provider
-        provider = SentenceTransformerAdapter(
-            model_name="all-MiniLM-L6-v2", device="cpu", dimension=384
+        config = EmbeddingConfig(
+            provider="sentence-transformers",
+            model_name="all-MiniLM-L6-v2",
+            device="cpu",
+            dimension=384,
         )
+        provider = SentenceTransformerProvider(config)
+        provider.initialize()
 
         # Inject shared model
         injection_success = inject_shared_model_into_provider(
@@ -211,19 +255,23 @@ class TestPerformanceRegression:
 
         try:
             from confluence_gateway.adapters.embedding.sentence_transformer import (
-                SentenceTransformerAdapter,
+                SentenceTransformerProvider,
             )
+            from confluence_gateway.core.config import EmbeddingConfig
         except ImportError:
-            pytest.skip("SentenceTransformerAdapter not available")
+            pytest.skip("SentenceTransformerProvider not available")
 
         # Create provider with current configuration
         start_time = time.time()
 
-        provider = SentenceTransformerAdapter(
+        config = EmbeddingConfig(
+            provider="sentence-transformers",
             model_name=provider_config.get("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"),
             device=provider_config.get("EMBEDDING_DEVICE", "cpu"),
             dimension=int(provider_config.get("EMBEDDING_DIMENSION", "384")),
         )
+        provider = SentenceTransformerProvider(config)
+        provider.initialize()
 
         # Test optimization injection
         injection_success = inject_shared_model_into_provider(

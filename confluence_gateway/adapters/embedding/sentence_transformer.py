@@ -124,6 +124,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
         self.device: str | None = None
         self.cache_dir: Any | None = None
         self.dev_mode = is_dev_mode()
+        self._auto_detected_dimension: int | None = None
 
         if self.dev_mode:
             dev_mode_log_stub("SentenceTransformerProvider")
@@ -194,14 +195,48 @@ class SentenceTransformerProvider(EmbeddingProvider):
         )
         return "cpu"
 
+    def _auto_detect_dimension(self) -> int:
+        """Auto-detect the model's output dimension."""
+        if not self.model:
+            raise EmbeddingProviderError(
+                "Cannot auto-detect dimension, model not loaded."
+            )
+
+        try:
+            # Try to use the model's built-in dimension method if available
+            if hasattr(self.model, "get_sentence_embedding_dimension"):
+                dimension = int(self.model.get_sentence_embedding_dimension())
+                logger.info(f"Auto-detected dimension using model method: {dimension}")
+                return dimension
+
+            # Fallback: encode a test string and measure output
+            test_embedding = self.model.encode("test", convert_to_numpy=False)
+            dimension = int(len(test_embedding))
+            logger.info(f"Auto-detected dimension using test encoding: {dimension}")
+            return dimension
+
+        except Exception as e:
+            logger.error(
+                f"Failed to auto-detect dimension for '{self.config.model_name}': {e}",
+                exc_info=True,
+            )
+            raise EmbeddingProviderError(
+                f"Failed to auto-detect dimension for '{self.config.model_name}'"
+            ) from e
+
     def _validate_dimension(self) -> None:
         if not self.model:
             raise EmbeddingProviderError("Cannot validate dimension, model not loaded.")
-        if self.config.dimension is None:
-            raise EmbeddingProviderError(
-                "Cannot validate dimension, expected dimension not configured."
-            )
 
+        # Auto-detect dimension if not configured
+        if self.config.dimension is None:
+            self._auto_detected_dimension = self._auto_detect_dimension()
+            logger.info(
+                f"Auto-detected dimension for model '{self.config.model_name}': {self._auto_detected_dimension}"
+            )
+            return
+
+        # Validate explicit dimension configuration
         try:
             test_embedding = self.model.encode("test", convert_to_numpy=False)
             actual_dimension = len(test_embedding)
@@ -328,9 +363,10 @@ class SentenceTransformerProvider(EmbeddingProvider):
             raise EmbeddingProviderError(
                 "Initialization failed: No embedding model name provided in configuration (EMBEDDING_MODEL_NAME)."
             )
+        # Allow dimension=None for auto-detection
         if self.config.dimension is None:
-            raise EmbeddingProviderError(
-                "Initialization failed: No embedding dimension provided in configuration (EMBEDDING_DIMENSION)."
+            logger.info(
+                "No dimension configured - will auto-detect from model output dimension."
             )
 
         if self.dev_mode:
@@ -361,16 +397,17 @@ class SentenceTransformerProvider(EmbeddingProvider):
             raise EmbeddingProviderError(
                 "SentenceTransformerProvider is not initialized. Call initialize() first."
             )
-        if not self.config.dimension:
-            raise EmbeddingProviderError("Configuration dimension is missing.")
+        # Allow dimension=None for auto-detection, will be validated when model loads
+        pass
 
     def _validate_embedding(
         self, embedding: Any, index: int | None = None
     ) -> list[float]:
-        if not isinstance(embedding, list) or len(embedding) != self.config.dimension:
+        expected_dimension = self.get_dimension()
+        if not isinstance(embedding, list) or len(embedding) != expected_dimension:
             index_info = f" at index {index}" if index is not None else ""
             logger.error(
-                f"Unexpected embedding format{index_info}: Expected {self.config.dimension}D list, "
+                f"Unexpected embedding format{index_info}: Expected {expected_dimension}D list, "
                 f"got {type(embedding)} with length {len(embedding) if isinstance(embedding, list) else 'N/A'}."
             )
             raise EmbeddingProviderError(
@@ -390,9 +427,8 @@ class SentenceTransformerProvider(EmbeddingProvider):
             import random
 
             random.seed(hash(text) % (2**32))  # Deterministic but varied
-            stub_embedding = [
-                random.uniform(-1.0, 1.0) for _ in range(self.config.dimension or 384)
-            ]
+            dimension = self.config.dimension or self._auto_detected_dimension or 384
+            stub_embedding = [random.uniform(-1.0, 1.0) for _ in range(dimension)]
             logger.debug(
                 f"DEV MODE: Generated stub embedding for text: '{text[:30]}...'"
             )
@@ -450,9 +486,11 @@ class SentenceTransformerProvider(EmbeddingProvider):
             for text in texts:
                 if text and isinstance(text, str):
                     random.seed(hash(text) % (2**32))  # Deterministic but varied
+                    dimension = (
+                        self.config.dimension or self._auto_detected_dimension or 384
+                    )
                     stub_embedding = [
-                        random.uniform(-1.0, 1.0)
-                        for _ in range(self.config.dimension or 384)
+                        random.uniform(-1.0, 1.0) for _ in range(dimension)
                     ]
                     stub_embeddings.append(stub_embedding)
             logger.debug(
@@ -543,11 +581,26 @@ class SentenceTransformerProvider(EmbeddingProvider):
             raise EmbeddingProviderError(f"{error_msg} due to provider error.") from e
 
     def get_dimension(self) -> int:
-        if self.config.dimension is None:
-            raise EmbeddingProviderError(
-                "Embedding dimension is not configured for this provider."
-            )
-        return self.config.dimension
+        # Return configured dimension if available
+        if self.config.dimension is not None:
+            return self.config.dimension
+
+        # For auto-detection case, handle dev mode first
+        if self.dev_mode:
+            # In dev mode, return a default dimension
+            return 384
+
+        # Return auto-detected dimension if already available
+        if self._auto_detected_dimension is not None:
+            return self._auto_detected_dimension
+
+        # Need to load model to auto-detect dimension
+        self._ensure_model_loaded()
+
+        # Return the auto-detected dimension (should be set after model loading)
+        return (
+            self._auto_detected_dimension or 384
+        )  # Fallback to default if somehow not set
 
     def close(self) -> None:
         logger.info(

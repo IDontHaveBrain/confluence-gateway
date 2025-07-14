@@ -1,4 +1,5 @@
 import logging
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -9,6 +10,7 @@ from confluence_gateway.adapters.vector_db.models import (
     VectorSearchResultItem,
 )
 from confluence_gateway.core.config import (
+    ModelMetadata,
     VectorDBConfig,
     dev_mode_log_skip,
     dev_mode_log_stub,
@@ -112,7 +114,7 @@ class ChromaDBAdapter(VectorDBAdapter):
                 logger.info("Using transient in-memory Client.")
                 self.client = chromadb.Client()
 
-            collection_name = self.config.collection_name
+            collection_name = self.config.get_effective_collection_name()
             logger.info(f"Getting or creating ChromaDB collection: {collection_name}")
             self.collection = self.client.get_or_create_collection(name=collection_name)
             logger.info(
@@ -354,6 +356,220 @@ class ChromaDBAdapter(VectorDBAdapter):
         except Exception as e:
             logger.error(f"ChromaDB count operation failed: {e}", exc_info=True)
             raise RuntimeError(f"ChromaDB count failed: {e}") from e
+
+    def get_collection_metadata(self) -> dict[str, Any] | None:
+        """Get metadata for the collection, including embedding model information."""
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDB get_collection_metadata")
+            return {"dev_mode": True}
+
+        try:
+            self._ensure_collection()  # Just ensure collection exists
+
+            # ChromaDB doesn't have native collection-level metadata, so we'll check for
+            # embedding model info in a special metadata document
+            try:
+                metadata_results = self.search_by_metadata(
+                    filters={"_collection_metadata": True}, limit=1
+                )
+                if metadata_results:
+                    metadata = metadata_results[0].copy()
+                    metadata.pop("id", None)
+                    metadata.pop("_collection_metadata", None)
+                    logger.debug(f"Found collection metadata: {metadata}")
+                    return metadata
+                else:
+                    logger.debug("No collection metadata found")
+                    return None
+            except Exception as e:
+                logger.debug(f"Failed to retrieve collection metadata: {e}")
+                return None
+
+        except Exception as e:
+            logger.debug(f"Collection does not exist or error occurred: {e}")
+            return None
+
+    def set_collection_metadata(self, metadata: dict[str, Any]) -> None:
+        """Set metadata for the collection, including embedding model information."""
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDB set_collection_metadata")
+            return
+
+        if not metadata:
+            logger.debug("No metadata to store")
+            return
+
+        try:
+            collection = self._ensure_collection()
+
+            # Store metadata in a special document
+            metadata_copy = metadata.copy()
+            metadata_copy["_collection_metadata"] = True
+
+            # Create a zero vector for the metadata document (since ChromaDB requires vectors)
+            zero_vector = [0.0] * (self.config.embedding_dimension or 384)
+
+            # First, delete any existing metadata document
+            try:
+                existing_metadata = self.search_by_metadata(
+                    filters={"_collection_metadata": True}, limit=1
+                )
+                if existing_metadata:
+                    self.delete([existing_metadata[0]["id"]])
+                    logger.debug("Deleted existing collection metadata")
+            except Exception as e:
+                logger.debug(f"No existing metadata to delete: {e}")
+
+            # Insert new metadata document
+            metadata_id = str(uuid.uuid4())
+            logger.debug(
+                f"Storing collection metadata in ChromaDB collection '{collection.name}'"
+            )
+            collection.upsert(
+                ids=[metadata_id],
+                embeddings=cast(list[Sequence[float]], [zero_vector]),
+                metadatas=[metadata_copy],
+                documents=["_collection_metadata_document"],
+            )
+            logger.debug("Collection metadata stored successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to store collection metadata: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to store collection metadata: {e}") from e
+
+    def has_data(self) -> bool:
+        """Check if the collection has any data."""
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDB has_data")
+            return False
+
+        try:
+            count = self.count()
+            # Subtract 1 if there's a metadata document
+            metadata_count = len(
+                self.search_by_metadata(filters={"_collection_metadata": True}, limit=1)
+            )
+            actual_count = count - metadata_count
+            has_data = actual_count > 0
+            logger.debug(
+                f"Collection has {actual_count} data documents (total: {count}, metadata: {metadata_count})"
+            )
+            return has_data
+        except Exception as e:
+            logger.debug(f"Failed to check if collection has data: {e}")
+            return False
+
+    def get_collection_info(self) -> dict[str, Any]:
+        """Get information about the collection including size, configuration, etc."""
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDB get_collection_info")
+            return {"dev_mode": True, "count": 0}
+
+        try:
+            collection = self._ensure_collection()
+
+            # Get the count of documents
+            count = self.count()
+
+            # Get metadata count to exclude from main count
+            metadata_count = len(
+                self.search_by_metadata(filters={"_collection_metadata": True}, limit=1)
+            )
+
+            return {
+                "collection_name": collection.name,
+                "total_count": count,
+                "document_count": count - metadata_count,
+                "vector_size": self.config.embedding_dimension,
+            }
+        except Exception as e:
+            logger.debug(f"Failed to get collection info: {e}")
+            return {"error": str(e)}
+
+    def store_model_metadata(self, metadata: ModelMetadata) -> None:
+        """Store model metadata in the vector database."""
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDB store_model_metadata")
+            return
+
+        metadata_dict = {
+            "model_provider": metadata.provider,
+            "model_name": metadata.model_name,
+            "model_dimension": metadata.dimension,
+            "model_device": metadata.device,
+            "model_created_at": metadata.created_at.isoformat(),
+            "model_configuration_hash": metadata.configuration_hash,
+        }
+
+        # Store in the vector database's collection metadata
+        self.set_collection_metadata(metadata_dict)
+        logger.info(
+            f"Stored model metadata for provider: {metadata.provider}, model: {metadata.model_name}"
+        )
+
+    def get_model_metadata(self) -> ModelMetadata | None:
+        """Retrieve model metadata from the vector database."""
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDB get_model_metadata")
+            return None
+
+        try:
+            metadata = self.get_collection_metadata()
+            if not metadata:
+                return None
+
+            # Check if this is model metadata
+            if "model_provider" not in metadata:
+                return None
+
+            from datetime import datetime
+
+            return ModelMetadata(
+                provider=metadata["model_provider"],
+                model_name=metadata["model_name"],
+                dimension=metadata["model_dimension"],
+                device=metadata.get("model_device"),
+                created_at=datetime.fromisoformat(metadata["model_created_at"]),
+                collection_name=self.config.collection_name,
+                configuration_hash=metadata["model_configuration_hash"],
+            )
+        except Exception as e:
+            logger.debug(f"Failed to retrieve model metadata: {e}")
+            return None
+
+    def list_collections(self) -> list[dict[str, Any]]:
+        """List all available collections and their basic information."""
+        if self.dev_mode:
+            dev_mode_log_stub("ChromaDB list_collections")
+            return []
+
+        try:
+            # Ensure client is initialized (side effect of _ensure_collection)
+            self._ensure_collection()
+            if not self.client:
+                raise RuntimeError("Failed to initialize ChromaDB client")
+            collections = self.client.list_collections()
+
+            collection_list = []
+            for collection in collections:
+                try:
+                    count = collection.count()
+                    collection_list.append(
+                        {
+                            "name": collection.name,
+                            "point_count": count,
+                        }
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to get details for collection {collection.name}: {e}"
+                    )
+                    collection_list.append({"name": collection.name, "error": str(e)})
+
+            return collection_list
+        except Exception as e:
+            logger.error(f"Failed to list collections: {e}")
+            return []
 
     def close(self) -> None:
         logger.info(

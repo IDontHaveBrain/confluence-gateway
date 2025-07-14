@@ -58,6 +58,7 @@ class LiteLLMProvider(EmbeddingProvider):
     def __init__(self, config: "EmbeddingConfig") -> None:
         super().__init__(config)
         self.dev_mode = is_dev_mode()
+        self._auto_detected_dimension: int | None = None
 
         if self.dev_mode:
             dev_mode_log_stub("LiteLLMProvider")
@@ -76,10 +77,71 @@ class LiteLLMProvider(EmbeddingProvider):
             raise EmbeddingProviderError(
                 "LiteLLMProvider requires a model name in the configuration."
             )
+
+        # Auto-detect dimension if not provided
         if self.config.dimension is None:
-            raise EmbeddingProviderError(
-                "LiteLLMProvider requires an embedding dimension in the configuration."
+            logger.info(
+                f"Dimension not specified for model '{self.config.model_name}', will auto-detect during initialization."
             )
+            self._auto_detected_dimension = self._auto_detect_dimension()
+
+    def _auto_detect_dimension(self) -> int:
+        """Auto-detect embedding dimension by making a test embedding call."""
+        logger.info(
+            f"Auto-detecting embedding dimension for model: {self.config.model_name}"
+        )
+
+        try:
+            litellm, litellm_exceptions, EmbeddingResponse = _get_litellm()
+
+            test_text = "dimension detection test"
+            logger.debug(
+                f"Making test embedding call to auto-detect dimension for model '{self.config.model_name}'..."
+            )
+
+            response = litellm.embedding(
+                model=self.config.model_name,
+                input=[test_text],
+                api_key=self.config.litellm_api_key,
+                api_base=(
+                    str(self.config.litellm_api_base)
+                    if self.config.litellm_api_base
+                    else None
+                ),
+            )
+
+            # Extract dimension from response
+            if (
+                not response.data
+                or not isinstance(response.data, list)
+                or len(response.data) == 0
+            ):
+                raise EmbeddingProviderError(
+                    f"Invalid response during dimension auto-detection for model '{self.config.model_name}'"
+                )
+
+            item = response.data[0]
+            if not isinstance(item, dict) or "embedding" not in item:
+                raise EmbeddingProviderError(
+                    f"Invalid embedding response structure during dimension auto-detection for model '{self.config.model_name}'"
+                )
+
+            embedding = item["embedding"]
+            if not isinstance(embedding, list):
+                raise EmbeddingProviderError(
+                    f"Embedding is not a list during dimension auto-detection for model '{self.config.model_name}'"
+                )
+
+            detected_dimension = len(embedding)
+            logger.info(
+                f"Auto-detected embedding dimension: {detected_dimension}D for model '{self.config.model_name}'"
+            )
+            return detected_dimension
+
+        except Exception as e:
+            error_message = f"Failed to auto-detect dimension for model '{self.config.model_name}'. Error: {type(e).__name__}: {e}"
+            logger.error(error_message, exc_info=True)
+            raise EmbeddingProviderError(error_message) from e
 
     def initialize(self) -> None:
         if self.dev_mode:
@@ -117,9 +179,10 @@ class LiteLLMProvider(EmbeddingProvider):
                 response_data = self._validate_embedding_response(response)
                 embedding = self._extract_embedding_from_item(response_data[0])
 
+                expected_dim = self.get_dimension()
                 logger.info(
                     f"LiteLLM provider initialized and dimension ({len(embedding)}D) validated "
-                    f"successfully for model '{self.config.model_name}'."
+                    f"successfully for model '{self.config.model_name}'. Expected: {expected_dim}D"
                 )
             except EmbeddingProviderError as e:
                 raise EmbeddingProviderError(
@@ -164,21 +227,26 @@ class LiteLLMProvider(EmbeddingProvider):
                 f"LiteLLM response 'embedding' is not a list{index_info}."
             )
 
-        if len(embedding) != self.config.dimension:
+        expected_dimension = self.get_dimension()
+        if len(embedding) != expected_dimension:
             logger.warning(
-                f"LiteLLM returned embedding dimension {len(embedding)}, expected {self.config.dimension}. Check model consistency."
+                f"LiteLLM returned embedding dimension {len(embedding)}, expected {expected_dimension}. Check model consistency."
             )
             raise EmbeddingProviderError(
-                f"Dimension mismatch{index_info}: Expected {self.config.dimension}, got {len(embedding)}"
+                f"Dimension mismatch{index_info}: Expected {expected_dimension}, got {len(embedding)}"
             )
 
         return embedding
 
     def _check_configuration(self) -> None:
         """Verify the provider is properly configured."""
-        if not self.config.model_name or self.config.dimension is None:
+        if not self.config.model_name:
             raise EmbeddingProviderError(
-                "LiteLLM provider is not properly configured (missing model name or dimension)."
+                "LiteLLM provider is not properly configured (missing model name)."
+            )
+        if self.config.dimension is None and self._auto_detected_dimension is None:
+            raise EmbeddingProviderError(
+                "LiteLLM provider is not properly configured (no dimension configured or auto-detected)."
             )
 
     def embed_text(self, text: str) -> list[float]:
@@ -194,7 +262,7 @@ class LiteLLMProvider(EmbeddingProvider):
 
             random.seed(hash(text) % (2**32))  # Deterministic but varied
             stub_embedding = [
-                random.uniform(-1.0, 1.0) for _ in range(self.config.dimension or 384)
+                random.uniform(-1.0, 1.0) for _ in range(self.get_dimension())
             ]
             logger.debug(
                 f"DEV MODE: Generated stub LiteLLM embedding for text: '{text[:30]}...'"
@@ -246,8 +314,7 @@ class LiteLLMProvider(EmbeddingProvider):
                 if text and isinstance(text, str):
                     random.seed(hash(text) % (2**32))  # Deterministic but varied
                     stub_embedding = [
-                        random.uniform(-1.0, 1.0)
-                        for _ in range(self.config.dimension or 384)
+                        random.uniform(-1.0, 1.0) for _ in range(self.get_dimension())
                     ]
                     stub_embeddings.append(stub_embedding)
             logger.debug(
@@ -303,11 +370,15 @@ class LiteLLMProvider(EmbeddingProvider):
             ) from e
 
     def get_dimension(self) -> int:
-        if self.config.dimension is None:
+        """Get the embedding dimension (configured or auto-detected)."""
+        if self.config.dimension is not None:
+            return self.config.dimension
+        elif self._auto_detected_dimension is not None:
+            return self._auto_detected_dimension
+        else:
             raise EmbeddingProviderError(
-                "Embedding dimension is not configured for the LiteLLM provider."
+                "Embedding dimension is not configured or auto-detected for the LiteLLM provider."
             )
-        return self.config.dimension
 
     def close(self) -> None:
         logger.info(f"Closing LiteLLMProvider for model '{self.config.model_name}'.")

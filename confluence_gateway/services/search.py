@@ -20,6 +20,7 @@ from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
 from confluence_gateway.core.config import search_config
 from confluence_gateway.core.exceptions import (
     ConfluenceAPIError,
+    EmbeddingCompatibilityError,
     SearchParameterError,
     SemanticSearchError,
 )
@@ -417,6 +418,19 @@ class SearchService:
             f"Performing semantic search for query: '{sanitized_query}', top_k={top_k}, filters={filters}"
         )
 
+        # Validate embedding compatibility before proceeding
+        try:
+            self.embedding_service.validate_compatibility_with_vector_db(
+                self.vector_db_adapter, operation_type="search"
+            )
+        except EmbeddingCompatibilityError as e:
+            logger.error(
+                f"Embedding compatibility validation failed for semantic search: {e}"
+            )
+            raise SemanticSearchError(
+                f"Cannot perform semantic search due to embedding model incompatibility: {e}"
+            ) from e
+
         start_time = time.time()
 
         try:
@@ -592,6 +606,20 @@ class SearchService:
 
         sanitized_text = self._sanitize_keywords(text)
         actual_expand = expand if expand is not None else search_config.default_expand
+
+        # Validate embedding compatibility before proceeding with semantic part
+        try:
+            self.embedding_service.validate_compatibility_with_vector_db(
+                self.vector_db_adapter, operation_type="search"
+            )
+        except EmbeddingCompatibilityError as e:
+            logger.error(
+                f"Embedding compatibility validation failed for hybrid search: {e}"
+            )
+            raise SemanticSearchError(
+                f"Cannot perform hybrid search due to embedding model incompatibility: {e}"
+            ) from e
+
         start_time = time.time()
 
         search_result_kw: SearchResult | None = None
