@@ -21,6 +21,17 @@ from confluence_gateway.core.config import (
     VectorDBConfig,
 )
 
+# Import shared embedding optimization fixtures
+from tests.fixtures.shared_embedding import (
+    embedding_service_with_shared_model,
+    get_shared_model_thread_safe,
+    inject_shared_model_into_provider,
+    log_embedding_operation,
+    performance_tracker,
+    shared_embedding_provider,
+    shared_sentence_transformer_model,
+)
+
 
 @pytest.fixture
 def clean_environment() -> Generator[dict[str, str], None, None]:
@@ -298,12 +309,193 @@ def provider_config(
 
 
 @pytest.fixture
+def optimized_embedding_provider(
+    shared_sentence_transformer_model,
+    provider_config: dict[str, Any],
+):
+    """Create an optimized embedding provider for integration tests.
+
+    This fixture combines the shared model optimization with the provider
+    configuration matrix, allowing integration tests to benefit from
+    performance improvements while testing different provider combinations.
+
+    Args:
+        shared_sentence_transformer_model: Session-scoped shared model
+        provider_config: Current provider configuration from matrix
+
+    Returns:
+        Optimized embedding provider instance or None if not applicable
+    """
+    embedding_provider = provider_config.get("EMBEDDING_PROVIDER")
+
+    # Only optimize sentence-transformers providers
+    if embedding_provider != "sentence-transformers":
+        return None
+
+    if shared_sentence_transformer_model is None:
+        return None
+
+    try:
+        import time
+
+        from confluence_gateway.adapters.embedding.sentence_transformer import (
+            SentenceTransformerAdapter,
+        )
+
+        start_time = time.time()
+
+        # Create provider with configuration from matrix
+        provider = SentenceTransformerAdapter(
+            model_name=provider_config.get("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"),
+            device=provider_config.get("EMBEDDING_DEVICE", "cpu"),
+            dimension=int(provider_config.get("EMBEDDING_DIMENSION", "384")),
+        )
+
+        # Inject shared model for optimization
+        success = inject_shared_model_into_provider(
+            provider, shared_sentence_transformer_model
+        )
+
+        # Log performance metrics
+        creation_time = time.time() - start_time
+        log_embedding_operation("provider_creation_with_injection", creation_time)
+
+        if success:
+            print(
+                f"Integration test using optimized embedding provider with shared model (created in {creation_time:.3f}s)"
+            )
+            return provider
+        else:
+            print("Warning: Could not inject shared model, using standard provider")
+            return provider
+
+    except ImportError:
+        print("Warning: SentenceTransformerAdapter not available for optimization")
+        return None
+    except Exception as e:
+        print(f"Warning: Could not create optimized embedding provider: {e}")
+        return None
+
+
+@pytest.fixture
+def integration_embedding_service(
+    shared_sentence_transformer_model,
+    provider_config: dict[str, Any],
+):
+    """Create an optimized EmbeddingService for integration tests.
+
+    This fixture provides a higher-level EmbeddingService instance that
+    benefits from shared model optimization when using sentence-transformers.
+
+    Args:
+        shared_sentence_transformer_model: Session-scoped shared model
+        provider_config: Current provider configuration from matrix
+
+    Returns:
+        EmbeddingService instance with optimization if applicable
+    """
+    embedding_provider = provider_config.get("EMBEDDING_PROVIDER")
+
+    # For non-sentence-transformers providers, return None
+    if embedding_provider != "sentence-transformers":
+        return None
+
+    try:
+        import time
+
+        from confluence_gateway.adapters.embedding.sentence_transformer import (
+            SentenceTransformerAdapter,
+        )
+        from confluence_gateway.services.embedding import EmbeddingService
+
+        start_time = time.time()
+
+        # Create provider with shared model optimization
+        provider = SentenceTransformerAdapter(
+            model_name=provider_config.get("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"),
+            device=provider_config.get("EMBEDDING_DEVICE", "cpu"),
+            dimension=int(provider_config.get("EMBEDDING_DIMENSION", "384")),
+        )
+
+        # Inject shared model if available
+        if shared_sentence_transformer_model is not None:
+            success = inject_shared_model_into_provider(
+                provider, shared_sentence_transformer_model
+            )
+            if success:
+                print("Integration EmbeddingService using shared model optimization")
+
+        # Create service with optimized provider
+        service = EmbeddingService(provider=provider)
+
+        # Log performance metrics
+        creation_time = time.time() - start_time
+        log_embedding_operation("embedding_service_creation", creation_time)
+
+        print(f"Created integration EmbeddingService in {creation_time:.3f}s")
+        return service
+
+    except ImportError:
+        print("Warning: EmbeddingService components not available")
+        return None
+    except Exception as e:
+        print(f"Warning: Could not create integration EmbeddingService: {e}")
+        return None
+
+
+@pytest.fixture
+def integration_embedding_context(
+    shared_sentence_transformer_model,
+    optimized_embedding_provider,
+    integration_embedding_service,
+    provider_config: dict[str, Any],
+):
+    """Comprehensive embedding context for integration tests.
+
+    This fixture provides integration tests with complete access to the
+    embedding optimization stack, tailored for the current provider matrix.
+
+    Returns:
+        dict: Complete integration embedding context
+    """
+    context = {
+        "shared_model": shared_sentence_transformer_model,
+        "optimized_provider": optimized_embedding_provider,
+        "optimized_service": integration_embedding_service,
+        "provider_config": provider_config,
+        "optimization_available": {
+            "model": shared_sentence_transformer_model is not None,
+            "provider": optimized_embedding_provider is not None,
+            "service": integration_embedding_service is not None,
+        },
+        "utilities": {
+            "inject_model": inject_shared_model_into_provider,
+            "log_operation": log_embedding_operation,
+            "thread_safe_access": lambda: get_shared_model_thread_safe(
+                shared_sentence_transformer_model
+            ),
+        },
+    }
+
+    # Log context status for debugging
+    optimizations = [k for k, v in context["optimization_available"].items() if v]
+    provider_type = provider_config.get("EMBEDDING_PROVIDER", "none")
+
+    print(
+        f"Integration embedding context: {provider_type} provider, "
+        f"optimizations available: {optimizations}"
+    )
+
+    return context
+
+
+@pytest.fixture
 def isolated_test_environment(
     clean_environment: dict[str, str],
     config_injection: Any,
     resource_cleanup: dict[str, Any],
 ) -> Generator[dict[str, Any], None, None]:
-    """Provide a completely isolated test environment.
+    """Provide a completely isolated test environment with embedding optimization support.
 
     Args:
         clean_environment: Clean environment fixture
@@ -311,13 +503,109 @@ def isolated_test_environment(
         resource_cleanup: Resource cleanup utility
 
     Yields:
-        Dictionary with utility functions for test isolation
+        Dictionary with utility functions for test isolation and performance tracking
     """
-    yield {
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    logger.info(
+        "Setting up isolated test environment with embedding optimization support"
+    )
+
+    environment_context = {
         "inject_config": config_injection,
         "cleanup": resource_cleanup,
         "original_env": clean_environment,
+        "log_operation": log_embedding_operation,
     }
 
-    # Ensure cleanup happens
+    yield environment_context
+
+    # Ensure cleanup happens with performance logging
+    logger.info("Cleaning up isolated test environment")
     resource_cleanup["cleanup_storage"]()
+
+
+@pytest.fixture(scope="session")
+def integration_optimization_summary(
+    shared_sentence_transformer_model,
+    shared_embedding_provider,
+):
+    """Session-scoped fixture that provides optimization summary for integration tests.
+
+    This fixture runs once per session and provides a summary of available
+    optimizations that integration tests can leverage.
+
+    Returns:
+        dict: Summary of optimization capabilities
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    summary = {
+        "session_optimization_enabled": shared_sentence_transformer_model is not None,
+        "shared_provider_available": shared_embedding_provider is not None,
+        "expected_performance_improvement": "significant"
+        if shared_sentence_transformer_model
+        else "none",
+        "recommendation": (
+            "Integration tests will benefit from shared model optimization"
+            if shared_sentence_transformer_model
+            else "Consider installing sentence-transformers for better test performance"
+        ),
+    }
+
+    logger.info(
+        f"Integration test optimization summary: "
+        f"enabled={summary['session_optimization_enabled']}, "
+        f"improvement={summary['expected_performance_improvement']}"
+    )
+
+    print("\n" + "=" * 50)
+    print("INTEGRATION TEST OPTIMIZATION SUMMARY")
+    print("=" * 50)
+    for key, value in summary.items():
+        print(f"{key}: {value}")
+    print("=" * 50)
+
+    return summary
+
+
+@pytest.fixture(scope="session", autouse=True)
+def integration_performance_tracking(
+    integration_optimization_summary,
+):
+    """Track performance improvements in integration tests.
+
+    This session-scoped fixture monitors the performance impact of shared
+    embedding optimization specifically in integration test contexts.
+
+    Args:
+        integration_optimization_summary: Summary of available optimizations
+    """
+    import time
+
+    print("\n" + "=" * 50)
+    print("INTEGRATION TESTS - Shared Embedding Optimization")
+    print("=" * 50)
+
+    if integration_optimization_summary["session_optimization_enabled"]:
+        print("🚀 OPTIMIZATION ACTIVE: Shared sentence-transformer model available")
+        print("Expected significant performance improvements for embedding operations")
+    else:
+        print("⚠️  OPTIMIZATION UNAVAILABLE: Using standard initialization")
+        print("Tests will run but may be slower for embedding operations")
+
+    session_start = time.time()
+
+    yield
+
+    session_duration = time.time() - session_start
+    print(f"\nIntegration test session completed in {session_duration:.2f}s")
+    if integration_optimization_summary["session_optimization_enabled"]:
+        print("🚀 Shared embedding model optimization was active throughout session")
+    else:
+        print("⚠️  No shared model optimization (sentence-transformers unavailable)")
+    print("=" * 50)

@@ -4,8 +4,14 @@ This module provides essential configuration builders for basic success testing:
 - Memory-based Qdrant configuration
 - Memory-based ChromaDB configuration
 - Text-only configuration (no vector database)
+- Shared sentence-transformers provider injection for performance optimization
 
 Focuses on core functionality testing with minimal complexity.
+
+Shared Provider Support:
+- Pass shared_provider parameter to avoid repeated model loading
+- Uses USE_SHARED_EMBEDDING_PROVIDER environment flag
+- Maintains backward compatibility with existing test patterns
 """
 
 import json
@@ -36,6 +42,9 @@ class ConfigBuilderResult:
     env_vars: dict[str, str] = field(default_factory=dict)
     temp_dirs: list[Path] = field(default_factory=list)
     config_file_path: Path | None = None
+    shared_provider: Any | None = (
+        None  # Holds shared sentence-transformers provider instance
+    )
 
 
 def _create_temp_dir(prefix: str = "confluence_gateway_test_") -> Path:
@@ -52,8 +61,64 @@ def _create_user_config_file(config_data: dict[str, Any]) -> Path:
     return config_file
 
 
-def get_qdrant_memory_config() -> ConfigBuilderResult:
-    """Get Qdrant memory configuration for basic testing."""
+def _get_shared_provider_env_vars(shared_provider: Any) -> dict[str, str]:
+    """Get environment variables for shared provider usage."""
+    if shared_provider is None:
+        return {}
+
+    return {
+        "USE_SHARED_EMBEDDING_PROVIDER": "true",
+        "SHARED_PROVIDER_MODEL_NAME": getattr(
+            shared_provider, "_test_model_name", "all-MiniLM-L6-v2"
+        ),
+        "SHARED_PROVIDER_DEVICE": getattr(shared_provider, "_test_device", "cpu"),
+    }
+
+
+def _update_config_for_shared_provider(
+    config_data: dict[str, Any], shared_provider: Any
+) -> dict[str, Any]:
+    """Update configuration data to use shared provider settings."""
+    if shared_provider is None:
+        return config_data
+
+    # Add shared provider flag to embedding config
+    if "embedding" in config_data:
+        config_data["embedding"]["use_shared_provider"] = True
+        config_data["embedding"]["shared_provider_id"] = id(shared_provider)
+
+    return config_data
+
+
+def create_shared_sentence_transformer_provider() -> Any:
+    """Create a shared sentence-transformers provider for testing.
+
+    Returns:
+        Shared SentenceTransformer instance or None if not available
+    """
+    try:
+        from sentence_transformers import SentenceTransformer
+
+        # Create shared provider with default test model
+        provider = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        # Store model information as custom attributes for reference
+        provider._test_model_name = "all-MiniLM-L6-v2"
+        provider._test_device = "cpu"
+        return provider
+    except ImportError:
+        # sentence-transformers not available, return None
+        return None
+
+
+def get_qdrant_memory_config(shared_provider: Any = None) -> ConfigBuilderResult:
+    """Get Qdrant memory configuration for basic testing.
+
+    Args:
+        shared_provider: Optional shared sentence-transformers provider to avoid repeated model loading
+
+    Returns:
+        ConfigBuilderResult with Qdrant memory configuration and optional shared provider
+    """
     temp_dirs = []
 
     # Build embedding config
@@ -83,6 +148,10 @@ def get_qdrant_memory_config() -> ConfigBuilderResult:
         "EMBEDDING_DEVICE": "cpu",
     }
 
+    # Add shared provider environment variables if provided
+    if shared_provider is not None:
+        env_vars.update(_get_shared_provider_env_vars(shared_provider))
+
     # Create user config file
     config_data = {
         "vector_db": {
@@ -98,6 +167,9 @@ def get_qdrant_memory_config() -> ConfigBuilderResult:
         },
     }
 
+    # Update config for shared provider if provided
+    config_data = _update_config_for_shared_provider(config_data, shared_provider)
+
     config_file = _create_user_config_file(config_data)
     temp_dirs.append(config_file.parent)
 
@@ -107,11 +179,19 @@ def get_qdrant_memory_config() -> ConfigBuilderResult:
         env_vars=env_vars,
         temp_dirs=temp_dirs,
         config_file_path=config_file,
+        shared_provider=shared_provider,
     )
 
 
-def get_chroma_memory_config() -> ConfigBuilderResult:
-    """Get ChromaDB memory configuration for basic testing."""
+def get_chroma_memory_config(shared_provider: Any = None) -> ConfigBuilderResult:
+    """Get ChromaDB memory configuration for basic testing.
+
+    Args:
+        shared_provider: Optional shared sentence-transformers provider to avoid repeated model loading
+
+    Returns:
+        ConfigBuilderResult with ChromaDB memory configuration and optional shared provider
+    """
     temp_dirs = []
 
     # Build embedding config
@@ -145,6 +225,10 @@ def get_chroma_memory_config() -> ConfigBuilderResult:
         "EMBEDDING_DEVICE": "cpu",
     }
 
+    # Add shared provider environment variables if provided
+    if shared_provider is not None:
+        env_vars.update(_get_shared_provider_env_vars(shared_provider))
+
     # Create user config file
     config_data = {
         "vector_db": {
@@ -159,6 +243,9 @@ def get_chroma_memory_config() -> ConfigBuilderResult:
         },
     }
 
+    # Update config for shared provider if provided
+    config_data = _update_config_for_shared_provider(config_data, shared_provider)
+
     config_file = _create_user_config_file(config_data)
     temp_dirs.append(config_file.parent)
 
@@ -168,6 +255,7 @@ def get_chroma_memory_config() -> ConfigBuilderResult:
         env_vars=env_vars,
         temp_dirs=temp_dirs,
         config_file_path=config_file,
+        shared_provider=shared_provider,
     )
 
 
@@ -231,3 +319,55 @@ def cleanup_temp_dirs(temp_dirs: list[Path]) -> None:
     for temp_dir in temp_dirs:
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
+
+
+# Convenience functions for shared provider management
+
+
+def get_qdrant_with_shared_provider() -> tuple[ConfigBuilderResult, Any]:
+    """Get Qdrant memory config with a shared sentence-transformers provider.
+
+    Returns:
+        Tuple of (ConfigBuilderResult, shared_provider) for convenience
+    """
+    shared_provider = create_shared_sentence_transformer_provider()
+    config_result = get_qdrant_memory_config(shared_provider=shared_provider)
+    return config_result, shared_provider
+
+
+def get_chroma_with_shared_provider() -> tuple[ConfigBuilderResult, Any]:
+    """Get ChromaDB memory config with a shared sentence-transformers provider.
+
+    Returns:
+        Tuple of (ConfigBuilderResult, shared_provider) for convenience
+    """
+    shared_provider = create_shared_sentence_transformer_provider()
+    config_result = get_chroma_memory_config(shared_provider=shared_provider)
+    return config_result, shared_provider
+
+
+def get_multi_provider_shared_configs(
+    use_shared_provider: bool = True,
+) -> tuple[list[ConfigBuilderResult], Any | None]:
+    """Get multiple provider configurations with optional shared sentence-transformers provider.
+
+    Args:
+        use_shared_provider: Whether to use a shared provider across all configs
+
+    Returns:
+        Tuple of (list of ConfigBuilderResult, shared_provider or None)
+
+    Example:
+        configs, shared_provider = get_multi_provider_shared_configs(use_shared_provider=True)
+        qdrant_config, chroma_config = configs
+    """
+    shared_provider = None
+    if use_shared_provider:
+        shared_provider = create_shared_sentence_transformer_provider()
+
+    configs = [
+        get_qdrant_memory_config(shared_provider=shared_provider),
+        get_chroma_memory_config(shared_provider=shared_provider),
+    ]
+
+    return configs, shared_provider

@@ -46,6 +46,25 @@ def dev_mode_log_stub(service_name: str) -> None:
     logger.info(f"🔧 DEV MODE: Using stub implementation for {service_name}")
 
 
+def is_pytest_running() -> bool:
+    """Check if code is running under pytest using multiple detection methods."""
+    import sys
+
+    # Method 1: PYTEST_VERSION (pytest >= 8.2.0) - Most reliable
+    if os.environ.get("PYTEST_VERSION"):
+        return True
+
+    # Method 2: PYTEST_CURRENT_TEST (available during test execution)
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return True
+
+    # Method 3: sys.modules fallback for older versions
+    if "pytest" in sys.modules:
+        return True
+
+    return False
+
+
 DEFAULT_EMBEDDING_PROVIDER_TYPE: Literal["sentence-transformers", "litellm", "none"] = (
     "sentence-transformers"
 )
@@ -215,6 +234,21 @@ class VectorDBConfig(BaseModel):
             if self.qdrant_url is None and self.qdrant_local_path is None:
                 raise ValueError(
                     "Either QDRANT_URL or QDRANT_LOCAL_PATH must be set if VECTOR_DB_TYPE is 'qdrant'."
+                )
+
+        # Block in-memory mode when not running under pytest
+        if not is_pytest_running():
+            if self.type == "qdrant" and self.qdrant_url == ":memory:":
+                raise ValueError(
+                    "In-memory mode (:memory:) is only allowed during testing. "
+                    "Please use a persistent Qdrant configuration for production use."
+                )
+            elif self.type == "chroma" and (
+                self.chroma_persist_path is None or self.chroma_persist_path == ""
+            ):
+                raise ValueError(
+                    "In-memory mode (empty persist_path) is only allowed during testing. "
+                    "Please set CHROMA_PERSIST_PATH for production use."
                 )
 
         return self

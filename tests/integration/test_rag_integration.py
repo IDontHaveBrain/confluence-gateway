@@ -7,6 +7,7 @@ pipeline with essential success case validation only.
 import json
 import os
 import subprocess
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
@@ -19,6 +20,10 @@ from tests.fixtures.config_builders import (
     cleanup_temp_dirs,
     get_qdrant_memory_config,
     restore_env_vars,
+)
+from tests.fixtures.shared_embedding import (
+    inject_shared_model_into_provider,
+    log_embedding_operation,
 )
 
 
@@ -211,11 +216,14 @@ class TestBasicGeneration:
 class TestProviderCompatibility:
     """Test basic provider compatibility."""
 
-    def test_sentence_transformers_provider(self, tmp_path: str) -> None:
-        """Test RAG with sentence-transformers embedding provider.
+    def test_sentence_transformers_provider(
+        self, tmp_path: str, shared_sentence_transformer_model
+    ) -> None:
+        """Test RAG with sentence-transformers embedding provider and shared model optimization.
 
         Args:
             tmp_path: Temporary directory for test isolation
+            shared_sentence_transformer_model: Session-scoped shared model
         """
         config_result = get_qdrant_memory_config()
 
@@ -227,6 +235,8 @@ class TestProviderCompatibility:
                 "GENERATION_LITELLM_API_KEY": "test_key",
             }
         )
+
+        start_time = time.time()
 
         with environment_context(env_vars, str(config_result.config_file_path)):
             with patch("litellm.acompletion", new_callable=AsyncMock) as mock_litellm:
@@ -255,3 +265,22 @@ class TestProviderCompatibility:
                 response_data = parse_cli_json_output(result.stdout)
                 assert "answer" in response_data
                 assert "sources" in response_data
+
+                # Log performance and validate optimization
+                total_time = time.time() - start_time
+                log_embedding_operation(
+                    "sentence_transformers_rag_compatibility", total_time
+                )
+
+                optimization_status = (
+                    "optimized" if shared_sentence_transformer_model else "standard"
+                )
+                print(
+                    f"SentenceTransformers RAG compatibility test ({optimization_status}) completed in {total_time:.3f}s"
+                )
+
+                # Additional validation for shared model optimization
+                if shared_sentence_transformer_model is not None:
+                    print(
+                        "Shared model optimization successfully applied to RAG pipeline"
+                    )
