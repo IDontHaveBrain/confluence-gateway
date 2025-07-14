@@ -65,12 +65,41 @@ def is_pytest_running() -> bool:
     return False
 
 
+def is_ci_running() -> bool:
+    """Check if code is running in a CI environment using common CI environment variables."""
+    # Common CI environment variables
+    ci_indicators = [
+        "CI",  # Generic CI indicator
+        "CONTINUOUS_INTEGRATION",  # Generic alternative
+        "GITHUB_ACTIONS",  # GitHub Actions
+        "TRAVIS",  # Travis CI
+        "JENKINS_URL",  # Jenkins
+        "BUILDKITE",  # Buildkite
+        "CIRCLECI",  # CircleCI
+        "GITLAB_CI",  # GitLab CI
+        "AZURE_PIPELINES",  # Azure Pipelines
+        "APPVEYOR",  # AppVeyor
+        "DRONE",  # Drone CI
+        "SEMAPHORE",  # Semaphore CI
+        "BITBUCKET_BUILD_NUMBER",  # Bitbucket Pipelines
+        "CODEBUILD_BUILD_ID",  # AWS CodeBuild
+        "BUILD_ID",  # Generic build ID (Jenkins, etc.)
+        "TF_BUILD",  # Azure DevOps Server/TFS
+    ]
+
+    for indicator in ci_indicators:
+        if indicator in os.environ:
+            return True
+
+    return False
+
+
 DEFAULT_EMBEDDING_PROVIDER_TYPE: Literal["sentence-transformers", "litellm", "none"] = (
     "sentence-transformers"
 )
 DEFAULT_EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_DIMENSION = 384
-DEFAULT_EMBEDDING_DEVICE: Literal["cpu", "cuda"] = "cpu"
+DEFAULT_EMBEDDING_DEVICE: Literal["cpu", "cuda"] | None = None
 
 
 class ConfluenceConfig(BaseModel):
@@ -437,7 +466,7 @@ def _load_raw_embedding_env() -> dict[str, Any]:
     validations = {
         "provider": get_args(Literal["sentence-transformers", "litellm", "none"]),
         "dimension": int,
-        "device": get_args(Literal["cpu", "cuda"]),
+        "device": get_args(Literal["cpu", "cuda"]) + (None,),
     }
 
     raw_config = _load_env_with_validation("EMBEDDING_", validations)

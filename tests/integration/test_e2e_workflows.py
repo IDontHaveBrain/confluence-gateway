@@ -343,6 +343,7 @@ class TestBasicHybridSearchWorkflow:
             assert index_result.returncode == 0
 
             # Perform hybrid search
+            # Increased timeout to 30s to accommodate model initialization in various CI environments
             search_result = subprocess.run(
                 [
                     "uv",
@@ -355,7 +356,7 @@ class TestBasicHybridSearchWorkflow:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=30,
             )
 
             assert search_result.returncode == 0

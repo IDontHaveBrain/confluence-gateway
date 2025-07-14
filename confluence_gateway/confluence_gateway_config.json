@@ -18,7 +18,7 @@
     "provider": "sentence-transformers",
     "model_name": "all-MiniLM-L6-v2",
     "dimension": 384,
-    "device": "cpu"
+    "device": null
   },
   "vector_db": {
     "type": "qdrant",

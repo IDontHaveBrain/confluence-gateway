@@ -6,6 +6,7 @@ from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.config import (
     dev_mode_log_skip,
     dev_mode_log_stub,
+    is_ci_running,
     is_dev_mode,
 )
 from confluence_gateway.core.exceptions import EmbeddingProviderError
@@ -54,6 +55,68 @@ def _get_sentence_transformer_class() -> Any:
     return _SentenceTransformer
 
 
+def _log_gpu_memory_usage(operation: str = "operation") -> None:
+    """Log current GPU memory usage if CUDA is available."""
+    if not _check_torch_available() or not _torch:
+        return
+
+    try:
+        if _torch.cuda.is_available() and _torch.cuda.device_count() > 0:
+            current_device = _torch.cuda.current_device()
+            allocated = _torch.cuda.memory_allocated(current_device) / (1024**3)  # GB
+            reserved = _torch.cuda.memory_reserved(current_device) / (1024**3)  # GB
+            logger.info(
+                f"GPU memory usage after {operation}: "
+                f"Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB"
+            )
+    except Exception as e:
+        logger.debug(f"Could not log GPU memory usage: {e}")
+
+
+def _log_cuda_device_info() -> None:
+    """Log detailed CUDA device information."""
+    if not _check_torch_available() or not _torch:
+        return
+
+    try:
+        if _torch.cuda.is_available():
+            device_count = _torch.cuda.device_count()
+            logger.info(f"CUDA devices available: {device_count}")
+
+            for i in range(device_count):
+                props = _torch.cuda.get_device_properties(i)
+                total_memory = props.total_memory / (1024**3)  # GB
+                logger.info(
+                    f"CUDA Device {i}: {props.name} "
+                    f"(Compute Capability: {props.major}.{props.minor}, "
+                    f"Total Memory: {total_memory:.2f} GB, "
+                    f"Multiprocessors: {props.multi_processor_count})"
+                )
+
+            current_device = _torch.cuda.current_device()
+            logger.info(f"Current CUDA device: {current_device}")
+            _log_gpu_memory_usage("device info check")
+    except Exception as e:
+        logger.warning(f"Could not retrieve CUDA device information: {e}")
+
+
+def _gpu_warmup(model: Any, device: str) -> None:
+    """Perform GPU warmup for better performance."""
+    if device != "cuda" or not _check_torch_available() or not _torch:
+        return
+
+    try:
+        if model and _torch.cuda.is_available():
+            logger.info("Performing GPU warmup for better performance...")
+            # Run a small warmup embedding to initialize CUDA kernels
+            warmup_text = "GPU warmup test"
+            _ = model.encode(warmup_text, convert_to_numpy=False)
+            _log_gpu_memory_usage("GPU warmup")
+            logger.info("GPU warmup completed successfully")
+    except Exception as e:
+        logger.warning(f"GPU warmup failed, but model should still work: {e}")
+
+
 class SentenceTransformerProvider(EmbeddingProvider):
     def __init__(self, config: "EmbeddingConfig") -> None:
         super().__init__(config)
@@ -76,11 +139,20 @@ class SentenceTransformerProvider(EmbeddingProvider):
             )
 
     def _determine_device(self) -> str:
+        # Check if we're in CI environment first to avoid expensive CUDA detection
+        if not self.config.device and is_ci_running():
+            logger.info(
+                "CI environment detected and no explicit device configured. "
+                "Forcing CPU device to skip expensive CUDA detection for faster CI execution."
+            )
+            return "cpu"
+
         if not self.config.device:
             if _check_torch_available():
                 torch = _torch
                 if torch and torch.cuda.is_available():
                     logger.info("Auto-detected CUDA availability. Using CUDA.")
+                    _log_cuda_device_info()
                     return "cuda"
             logger.info(
                 "Auto-detection: CUDA not available or torch not installed. Using CPU."
@@ -100,10 +172,21 @@ class SentenceTransformerProvider(EmbeddingProvider):
                 return "cpu"
 
             logger.info("CUDA requested and available. Using CUDA.")
+            # Log CI info if explicit device is being used in CI
+            if is_ci_running():
+                logger.info(
+                    "CI environment detected with explicit CUDA device configuration. "
+                    "Proceeding with CUDA detection as requested."
+                )
+            _log_cuda_device_info()
             return "cuda"
 
         if self.config.device == "cpu":
             logger.info("CPU explicitly requested. Using CPU.")
+            if is_ci_running():
+                logger.info(
+                    "CI environment detected with explicit CPU device configuration."
+                )
             return "cpu"
 
         logger.warning(  # type: ignore[unreachable]
@@ -158,28 +241,84 @@ class SentenceTransformerProvider(EmbeddingProvider):
             f"with cache directory: {self.cache_dir}"
         )
 
+        # Log initial GPU memory usage if using CUDA
+        if self.device == "cuda":
+            _log_gpu_memory_usage("pre-model loading")
+
         try:
             # Lazy load SentenceTransformer class
             SentenceTransformer = _get_sentence_transformer_class()
+
+            # Apply GPU-specific optimizations for large models
+            model_kwargs = {"device": self.device}
+            if self.device == "cuda" and _check_torch_available() and _torch:
+                try:
+                    # Enable memory-efficient loading for large models on GPU
+                    if _torch.cuda.is_available():
+                        # Clear cache before loading to maximize available memory
+                        _torch.cuda.empty_cache()
+                        _log_gpu_memory_usage("after CUDA cache clear")
+
+                        logger.info(
+                            "Applied GPU memory optimizations for model loading"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not apply GPU optimizations, proceeding with standard loading: {e}"
+                    )
+
             self.model = SentenceTransformer(
                 self.config.model_name,
-                device=self.device,
                 cache_folder=str(self.cache_dir),
+                **model_kwargs,
             )
+
+            # Log memory usage after model loading
+            if self.device == "cuda":
+                _log_gpu_memory_usage("model loading")
+
             logger.info(
                 f"Successfully loaded sentence-transformer model '{self.config.model_name}'."
             )
 
+            # Perform GPU warmup for better performance
+            if self.device == "cuda":
+                _gpu_warmup(self.model, self.device)
+
             self._validate_dimension()
 
         except Exception as e:
+            # Enhanced error handling for GPU-related issues
+            error_msg = (
+                f"Failed to load sentence-transformer model '{self.config.model_name}'"
+            )
+
+            if self.device == "cuda" and _check_torch_available() and _torch:
+                try:
+                    if _torch.cuda.is_available():
+                        # Log GPU memory state for debugging
+                        _log_gpu_memory_usage("model loading failure")
+
+                        # Check for common GPU issues
+                        if (
+                            "out of memory" in str(e).lower()
+                            or "cuda out of memory" in str(e).lower()
+                        ):
+                            error_msg += " (GPU out of memory - consider using a smaller model or CPU device)"
+                        elif "cuda" in str(e).lower():
+                            error_msg += (
+                                " (CUDA error - check GPU availability and drivers)"
+                            )
+                except Exception:
+                    pass  # Don't let GPU debugging interfere with original error
+
             logger.error(
-                f"Failed to load sentence-transformer model '{self.config.model_name}' from source: {e}",
+                f"{error_msg} from source: {e}",
                 exc_info=True,
             )
             self.model = None
             raise EmbeddingProviderError(
-                f"Could not load sentence-transformer model '{self.config.model_name}'. "
+                f"{error_msg}. "
                 f"Ensure the model name is correct and accessible. Original error: {e}"
             ) from e
 
@@ -269,13 +408,32 @@ class SentenceTransformerProvider(EmbeddingProvider):
         except EmbeddingProviderError:
             raise
         except Exception as e:
+            # Enhanced GPU error handling for embedding operations
+            error_msg = f"Failed to embed text using model '{self.config.model_name}'"
+
+            if self.device == "cuda" and _check_torch_available() and _torch:
+                try:
+                    if _torch.cuda.is_available():
+                        # Check for GPU-specific errors
+                        if (
+                            "out of memory" in str(e).lower()
+                            or "cuda out of memory" in str(e).lower()
+                        ):
+                            error_msg += " (GPU out of memory during embedding - consider reducing batch size or using CPU)"
+                            _log_gpu_memory_usage("embedding failure")
+                        elif "cuda" in str(e).lower():
+                            error_msg += (
+                                " (CUDA error during embedding - check GPU state)"
+                            )
+                            _log_gpu_memory_usage("embedding failure")
+                except Exception:
+                    pass  # Don't let GPU debugging interfere with original error
+
             logger.error(
                 f"Error during single text embedding with model '{self.config.model_name}': {e}",
                 exc_info=True,
             )
-            raise EmbeddingProviderError(
-                f"Failed to embed text using model '{self.config.model_name}'"
-            ) from e
+            raise EmbeddingProviderError(error_msg) from e
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -350,13 +508,39 @@ class SentenceTransformerProvider(EmbeddingProvider):
         except EmbeddingProviderError:
             raise
         except Exception as e:
+            # Enhanced GPU error handling for batch embedding operations
+            error_msg = (
+                f"Failed to embed batch of texts using model '{self.config.model_name}'"
+            )
+
+            if self.device == "cuda" and _check_torch_available() and _torch:
+                try:
+                    if _torch.cuda.is_available():
+                        # Check for GPU-specific errors
+                        if (
+                            "out of memory" in str(e).lower()
+                            or "cuda out of memory" in str(e).lower()
+                        ):
+                            batch_size = (
+                                len(valid_texts)
+                                if "valid_texts" in locals()
+                                else len(texts)
+                            )
+                            error_msg += f" (GPU out of memory with batch size {batch_size} - consider reducing batch size or using CPU)"
+                            _log_gpu_memory_usage("batch embedding failure")
+                        elif "cuda" in str(e).lower():
+                            error_msg += (
+                                " (CUDA error during batch embedding - check GPU state)"
+                            )
+                            _log_gpu_memory_usage("batch embedding failure")
+                except Exception:
+                    pass  # Don't let GPU debugging interfere with original error
+
             logger.error(
                 f"Original error during batch text embedding with model '{self.config.model_name}': {type(e).__name__}: {e}",
                 exc_info=True,
             )
-            raise EmbeddingProviderError(
-                f"Failed to embed batch of texts using model '{self.config.model_name}' due to provider error."
-            ) from e
+            raise EmbeddingProviderError(f"{error_msg} due to provider error.") from e
 
     def get_dimension(self) -> int:
         if self.config.dimension is None:
@@ -370,6 +554,10 @@ class SentenceTransformerProvider(EmbeddingProvider):
             f"Closing SentenceTransformerProvider for model '{self.config.model_name}'."
         )
         if self.model:
+            # Log GPU memory usage before cleanup if using CUDA
+            if self.device == "cuda":
+                _log_gpu_memory_usage("before model cleanup")
+
             del self.model
             self.model = None
             logger.debug("SentenceTransformer model reference removed.")
@@ -381,11 +569,21 @@ class SentenceTransformerProvider(EmbeddingProvider):
                 and hasattr(_torch.cuda, "empty_cache")
             ):
                 try:
+                    # Comprehensive GPU cleanup
                     _torch.cuda.empty_cache()
                     logger.debug("Cleared PyTorch CUDA cache.")
+
+                    # Additional GPU cleanup if available
+                    if hasattr(_torch.cuda, "synchronize"):
+                        _torch.cuda.synchronize()
+                        logger.debug("Synchronized CUDA operations.")
+
+                    # Log memory usage after cleanup
+                    _log_gpu_memory_usage("after GPU cleanup")
+
                 except Exception as e:
                     logger.warning(
-                        f"Failed to clear PyTorch CUDA cache: {e}", exc_info=True
+                        f"Failed to perform complete GPU cleanup: {e}", exc_info=True
                     )
         else:
             logger.debug("No model loaded, nothing to close.")
