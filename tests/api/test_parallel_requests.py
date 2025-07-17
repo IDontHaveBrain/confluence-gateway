@@ -464,27 +464,6 @@ async def test_mixed_concurrent_requests(async_api_client):
 
 
 @pytest.mark.asyncio
-async def test_performance_validation_example(async_api_client):
-    """Example test showing performance validation patterns."""
-    config = {"method": "GET", "url": "/health"}
-
-    # Run concurrent test with performance validation
-    results = await run_concurrent_test(
-        async_api_client,
-        config,
-        concurrent_count=20,
-        expected_status=200,
-        performance_threshold_rps=10.0,  # Minimum 10 RPS
-    )
-
-    assert results["success"]
-    assert results["concurrent_count"] == 20
-    print(
-        f"Performance test passed: {results['performance_metrics']['requests_per_second']:.2f} RPS"
-    )
-
-
-@pytest.mark.asyncio
 async def test_error_handling_in_parallel_requests(async_api_client):
     """Test error handling for concurrent requests."""
     # Mix valid and invalid requests

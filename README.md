@@ -44,9 +44,8 @@ export CONFLUENCE_API_TOKEN="YOUR_API_TOKEN"
 export GENERATION_MODEL_NAME="openrouter/google/gemini-2.5-flash"
 export GENERATION_LITELLM_API_KEY="YOUR_OPENROUTER_API_KEY"
 
-# GPU control (auto-detected by default)
+# GPU control (auto-detected by default)  
 export EMBEDDING_DEVICE="cuda"    # Force GPU
-export EMBEDDING_DEVICE="cpu"     # Force CPU fallback
 
 # Vector storage
 export QDRANT_URL="http://localhost:6333"  # Persistent storage
@@ -61,6 +60,20 @@ uv run confluence-gateway spaces list
 ```
 
 ✅ **Success**: You should see your Confluence spaces listed without errors.
+
+## 🔧 Troubleshooting
+
+**Common issues:**
+```bash
+# Connection issues
+uv run confluence-gateway spaces list --verbose
+
+# Test configuration
+uv run python -c "from confluence_gateway.core.config import get_confluence_config; print(get_confluence_config())"
+
+# Reset to development mode
+export CONFLUENCE_GATEWAY_DEV_MODE="true"
+```
 
 ### 4. Choose Your Interface
 
@@ -88,23 +101,9 @@ uv run uvicorn confluence_gateway.api.app:app --reload
 
 ## 🏗️ Architecture
 
-**Hexagonal Architecture** (Ports and Adapters):
+**Hexagonal Architecture** with clean separation: `core/` (config), `services/` (business logic), `adapters/` (external integrations), `api/` (REST), `cli/` (commands).
 
-```
-confluence_gateway/
-├── core/              # Configuration, exceptions, schemas
-├── services/          # Business logic (Search, Indexing, Generation, Ranking)
-├── adapters/          # External integrations (Confluence, Vector DBs, Embeddings)
-├── api/               # FastAPI REST interface
-└── cli/               # Typer CLI interface
-```
-
-**Key Services:**
-- `SearchService` - Multi-modal search with RRF hybrid ranking
-- `IndexingService` - Content processing and vector storage  
-- `GenerationService` - RAG answer generation
-- `EmbeddingService` - Vector embedding management
-- `RankingService` - Reciprocal Rank Fusion algorithm
+**Key Services**: Multi-modal search, content indexing, RAG generation, vector embeddings, and RRF ranking.
 
 ## 🔧 Development
 

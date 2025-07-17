@@ -27,6 +27,8 @@ from confluence_gateway.core.config import (
     IndexingConfig,
     SearchConfig,
     VectorDBConfig,
+    get_testing_mode,
+    should_use_memory_mode,
 )
 
 
@@ -111,15 +113,16 @@ def create_shared_sentence_transformer_provider() -> Any:
 
 
 def get_qdrant_memory_config(shared_provider: Any = None) -> ConfigBuilderResult:
-    """Get Qdrant memory configuration for basic testing.
+    """Get Qdrant configuration for basic testing (memory or file based on testing mode).
 
     Args:
         shared_provider: Optional shared sentence-transformers provider to avoid repeated model loading
 
     Returns:
-        ConfigBuilderResult with Qdrant memory configuration and optional shared provider
+        ConfigBuilderResult with Qdrant configuration and optional shared provider
     """
     temp_dirs = []
+    use_memory = should_use_memory_mode()
 
     # Build embedding config
     embedding_config = EmbeddingConfig(
@@ -129,43 +132,71 @@ def get_qdrant_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
         device="cpu",
     )
 
-    # Build vector DB config
-    vector_db_config = VectorDBConfig(
-        type="qdrant",
-        qdrant_url=":memory:",
-        collection_name="test_cg_embeddings",
-        embedding_dimension=384,
-    )
-
-    # Environment variables
-    env_vars = {
-        "QDRANT_URL": ":memory:",
-        "VECTOR_DB_TYPE": "qdrant",
-        "VECTOR_DB_EMBEDDING_DIMENSION": "384",
-        "EMBEDDING_PROVIDER": "sentence-transformers",
-        "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
-        "EMBEDDING_DIMENSION": "384",
-        "EMBEDDING_DEVICE": "cpu",
-    }
+    # Build vector DB config based on testing mode
+    if use_memory:
+        vector_db_config = VectorDBConfig(
+            type="qdrant",
+            qdrant_url=":memory:",
+            collection_name="test_cg_embeddings",
+            embedding_dimension=384,
+        )
+        env_vars = {
+            "QDRANT_URL": ":memory:",
+            "VECTOR_DB_TYPE": "qdrant",
+            "VECTOR_DB_EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
+            "EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_DEVICE": "cpu",
+        }
+        config_data = {
+            "vector_db": {
+                "type": "qdrant",
+                "qdrant_url": ":memory:",
+                "collection_name": "test_cg_embeddings",
+            },
+            "embedding": {
+                "provider": "sentence-transformers",
+                "model_name": "all-MiniLM-L6-v2",
+                "dimension": 384,
+                "device": "cpu",
+            },
+        }
+    else:
+        # CI mode - use file storage (path will be set by conftest.py)
+        qdrant_path = os.environ.get("QDRANT_LOCAL_PATH", "")
+        vector_db_config = VectorDBConfig(
+            type="qdrant",
+            qdrant_local_path=qdrant_path,
+            collection_name="test_cg_embeddings",
+            embedding_dimension=384,
+        )
+        env_vars = {
+            "QDRANT_LOCAL_PATH": qdrant_path,
+            "VECTOR_DB_TYPE": "qdrant",
+            "VECTOR_DB_EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
+            "EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_DEVICE": "cpu",
+        }
+        config_data = {
+            "vector_db": {
+                "type": "qdrant",
+                "qdrant_local_path": qdrant_path,
+                "collection_name": "test_cg_embeddings",
+            },
+            "embedding": {
+                "provider": "sentence-transformers",
+                "model_name": "all-MiniLM-L6-v2",
+                "dimension": 384,
+                "device": "cpu",
+            },
+        }
 
     # Add shared provider environment variables if provided
     if shared_provider is not None:
         env_vars.update(_get_shared_provider_env_vars(shared_provider))
-
-    # Create user config file
-    config_data = {
-        "vector_db": {
-            "type": "qdrant",
-            "qdrant_url": ":memory:",
-            "collection_name": "test_cg_embeddings",
-        },
-        "embedding": {
-            "provider": "sentence-transformers",
-            "model_name": "all-MiniLM-L6-v2",
-            "dimension": 384,
-            "device": "cpu",
-        },
-    }
 
     # Update config for shared provider if provided
     config_data = _update_config_for_shared_provider(config_data, shared_provider)
@@ -184,15 +215,16 @@ def get_qdrant_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
 
 
 def get_chroma_memory_config(shared_provider: Any = None) -> ConfigBuilderResult:
-    """Get ChromaDB memory configuration for basic testing.
+    """Get ChromaDB configuration for basic testing (memory or file based on testing mode).
 
     Args:
         shared_provider: Optional shared sentence-transformers provider to avoid repeated model loading
 
     Returns:
-        ConfigBuilderResult with ChromaDB memory configuration and optional shared provider
+        ConfigBuilderResult with ChromaDB configuration and optional shared provider
     """
     temp_dirs = []
+    use_memory = should_use_memory_mode()
 
     # Build embedding config
     embedding_config = EmbeddingConfig(
@@ -202,46 +234,78 @@ def get_chroma_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
         device="cpu",
     )
 
-    # Build vector DB config
-    vector_db_config = VectorDBConfig(
-        type="chroma",
-        chroma_persist_path=None,  # Memory mode
-        chroma_host=None,
-        chroma_port=None,
-        collection_name="test_cg_embeddings",
-        embedding_dimension=384,
-    )
-
-    # Environment variables
-    env_vars = {
-        "CHROMA_PERSIST_PATH": "",
-        "CHROMA_HOST": "",
-        "CHROMA_PORT": "",
-        "VECTOR_DB_TYPE": "chroma",
-        "VECTOR_DB_EMBEDDING_DIMENSION": "384",
-        "EMBEDDING_PROVIDER": "sentence-transformers",
-        "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
-        "EMBEDDING_DIMENSION": "384",
-        "EMBEDDING_DEVICE": "cpu",
-    }
+    # Build vector DB config based on testing mode
+    if use_memory:
+        vector_db_config = VectorDBConfig(
+            type="chroma",
+            chroma_persist_path=None,  # Memory mode
+            chroma_host=None,
+            chroma_port=None,
+            collection_name="test_cg_embeddings",
+            embedding_dimension=384,
+        )
+        env_vars = {
+            "CHROMA_PERSIST_PATH": "",
+            "CHROMA_HOST": "",
+            "CHROMA_PORT": "",
+            "VECTOR_DB_TYPE": "chroma",
+            "VECTOR_DB_EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
+            "EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_DEVICE": "cpu",
+        }
+        config_data = {
+            "vector_db": {
+                "type": "chroma",
+                "collection_name": "test_cg_embeddings",
+            },
+            "embedding": {
+                "provider": "sentence-transformers",
+                "model_name": "all-MiniLM-L6-v2",
+                "dimension": 384,
+                "device": "cpu",
+            },
+        }
+    else:
+        # CI mode - use file storage (path will be set by conftest.py)
+        chroma_path = os.environ.get("CHROMA_PERSIST_PATH", "")
+        vector_db_config = VectorDBConfig(
+            type="chroma",
+            chroma_persist_path=chroma_path,
+            chroma_host=None,
+            chroma_port=None,
+            collection_name="test_cg_embeddings",
+            embedding_dimension=384,
+        )
+        env_vars = {
+            "CHROMA_PERSIST_PATH": chroma_path,
+            "CHROMA_HOST": "",
+            "CHROMA_PORT": "",
+            "VECTOR_DB_TYPE": "chroma",
+            "VECTOR_DB_EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_PROVIDER": "sentence-transformers",
+            "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
+            "EMBEDDING_DIMENSION": "384",
+            "EMBEDDING_DEVICE": "cpu",
+        }
+        config_data = {
+            "vector_db": {
+                "type": "chroma",
+                "chroma_persist_path": chroma_path,
+                "collection_name": "test_cg_embeddings",
+            },
+            "embedding": {
+                "provider": "sentence-transformers",
+                "model_name": "all-MiniLM-L6-v2",
+                "dimension": 384,
+                "device": "cpu",
+            },
+        }
 
     # Add shared provider environment variables if provided
     if shared_provider is not None:
         env_vars.update(_get_shared_provider_env_vars(shared_provider))
-
-    # Create user config file
-    config_data = {
-        "vector_db": {
-            "type": "chroma",
-            "collection_name": "test_cg_embeddings",
-        },
-        "embedding": {
-            "provider": "sentence-transformers",
-            "model_name": "all-MiniLM-L6-v2",
-            "dimension": 384,
-            "device": "cpu",
-        },
-    }
 
     # Update config for shared provider if provided
     config_data = _update_config_for_shared_provider(config_data, shared_provider)
@@ -325,7 +389,7 @@ def cleanup_temp_dirs(temp_dirs: list[Path]) -> None:
 
 
 def get_qdrant_with_shared_provider() -> tuple[ConfigBuilderResult, Any]:
-    """Get Qdrant memory config with a shared sentence-transformers provider.
+    """Get Qdrant config with a shared sentence-transformers provider (memory or file based on testing mode).
 
     Returns:
         Tuple of (ConfigBuilderResult, shared_provider) for convenience
@@ -336,7 +400,7 @@ def get_qdrant_with_shared_provider() -> tuple[ConfigBuilderResult, Any]:
 
 
 def get_chroma_with_shared_provider() -> tuple[ConfigBuilderResult, Any]:
-    """Get ChromaDB memory config with a shared sentence-transformers provider.
+    """Get ChromaDB config with a shared sentence-transformers provider (memory or file based on testing mode).
 
     Returns:
         Tuple of (ConfigBuilderResult, shared_provider) for convenience

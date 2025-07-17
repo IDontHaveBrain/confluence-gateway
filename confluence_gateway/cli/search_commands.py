@@ -54,7 +54,7 @@ def _convert_to_search_result_items(pages: list[Any], client: Any) -> list[Any]:
     return items
 
 
-@app.command("text", help="Search using text query (standard, advanced, or hybrid).")
+@app.command("text", help="Search using text query.")
 @handle_cli_errors
 def text_search(
     query: str = typer.Argument(..., help="Text to search for (min 2 chars)."),
@@ -79,9 +79,6 @@ def text_search(
     expand: list[str] | None = typer.Option(
         None, "--expand", help="Fields to expand (repeatable)."
     ),
-    use_hybrid: bool = typer.Option(
-        False, "--hybrid", help="Enable hybrid search (keyword + semantic + RRF)."
-    ),
     sort_by: list[str] | None = typer.Option(
         None,
         "--sort-by",
@@ -104,42 +101,83 @@ def text_search(
 
     search_service: SearchService = _get_search_service()
 
-    enhanced_result: EnhancedSearchResult
+    print_status("Performing Text Search...", "info")
+    enhanced_result = cast(
+        EnhancedSearchResult,
+        search_service.search_by_text(
+            text=query,
+            content_type=content_type,
+            space_key=space_key,
+            include_archived=include_archived,
+            limit=limit,
+            start=start,
+            expand=expand,
+            min_relevance=min_relevance,
+            top_n=top_n,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            return_enhanced_result=True,
+        ),
+    )
 
-    if use_hybrid:
-        print_status("Performing Hybrid Search...", "info")
-        enhanced_result = cast(
-            EnhancedSearchResult,
-            search_service.search_hybrid(
-                text=query,
-                content_type=content_type,
-                space_key=space_key,
-                include_archived=include_archived,
-                limit=limit,
-                start=start,
-                expand=expand,
-                return_enhanced_result=True,
-            ),
-        )
-    else:
-        print_status("Performing Text Search...", "info")
-        enhanced_result = cast(
-            EnhancedSearchResult,
-            search_service.search_by_text(
-                text=query,
-                content_type=content_type,
-                space_key=space_key,
-                include_archived=include_archived,
-                limit=limit,
-                start=start,
-                expand=expand,
-                min_relevance=min_relevance,
-                top_n=top_n,
-                sort_by=sort_by,
-                sort_direction=sort_direction,
-                return_enhanced_result=True,
-            ),
-        )
+    search_items = _convert_to_search_result_items(
+        enhanced_result.results.results, search_service.client
+    )
+
+    print_search_results(
+        results=search_items,
+        total=enhanced_result.statistics.total_results,
+        start=enhanced_result.results.start,
+        limit=enhanced_result.results.limit,
+        took_ms=enhanced_result.statistics.execution_time_ms,
+    )
+
+
+@app.command("hybrid", help="Search using hybrid (keyword + semantic + RRF).")
+@handle_cli_errors
+def hybrid_search(
+    query: str = typer.Argument(..., help="Text to search for (min 2 chars)."),
+    space_key: str | None = typer.Option(
+        None, "--space", "-s", help="Filter by space key."
+    ),
+    content_type: str | None = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Filter by content type (page, blogpost, attachment, comment).",
+    ),
+    include_archived: bool = typer.Option(
+        False, "--archived", help="Include archived content."
+    ),
+    limit: int | None = typer.Option(
+        None, "--limit", "-l", help="Maximum number of results."
+    ),
+    start: int | None = typer.Option(
+        0, "--start", help="Starting position for pagination."
+    ),
+    expand: list[str] | None = typer.Option(
+        None, "--expand", help="Fields to expand (repeatable)."
+    ),
+) -> None:
+    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.services.search import EnhancedSearchResult, SearchService
+
+    search_service: SearchService = _get_search_service()
+
+    print_status("Performing Hybrid Search...", "info")
+    enhanced_result = cast(
+        EnhancedSearchResult,
+        search_service.search_hybrid(
+            text=query,
+            content_type=content_type,
+            space_key=space_key,
+            include_archived=include_archived,
+            limit=limit,
+            start=start,
+            expand=expand,
+            return_enhanced_result=True,
+        ),
+    )
 
     search_items = _convert_to_search_result_items(
         enhanced_result.results.results, search_service.client

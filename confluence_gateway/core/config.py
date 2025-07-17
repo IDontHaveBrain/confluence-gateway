@@ -97,6 +97,43 @@ def is_ci_running() -> bool:
     return False
 
 
+def get_testing_mode() -> str:
+    """Determine the testing mode based on environment.
+
+    Returns:
+        'ci' for CI environment testing (use file storage with caching)
+        'local' for local testing (use memory mode)
+        'production' for non-testing environments
+    """
+    if is_pytest_running():
+        if is_ci_running():
+            return "ci"
+        else:
+            return "local"
+    return "production"
+
+
+def should_use_memory_mode() -> bool:
+    """Determine if memory mode should be used for vector databases.
+
+    Returns:
+        True if memory mode should be used (local testing)
+        False if file storage should be used (CI testing or production)
+    """
+    testing_mode = get_testing_mode()
+
+    # Always use memory mode for local testing
+    if testing_mode == "local":
+        return True
+
+    # Use file storage for CI testing (with caching benefits)
+    if testing_mode == "ci":
+        return False
+
+    # Production mode - follow explicit configuration
+    return False
+
+
 DEFAULT_EMBEDDING_PROVIDER_TYPE: Literal["sentence-transformers", "litellm", "none"] = (
     "sentence-transformers"
 )
@@ -597,8 +634,10 @@ class VectorDBConfig(BaseModel):
                     "Either QDRANT_URL or QDRANT_LOCAL_PATH must be set if VECTOR_DB_TYPE is 'qdrant'."
                 )
 
-        # Block in-memory mode when not running under pytest
-        if not is_pytest_running():
+        # Block in-memory mode when not running under pytest or in production
+        testing_mode = get_testing_mode()
+
+        if testing_mode == "production":
             if self.type == "qdrant" and self.qdrant_url == ":memory:":
                 raise ValueError(
                     "In-memory mode (:memory:) is only allowed during testing. "
@@ -610,6 +649,18 @@ class VectorDBConfig(BaseModel):
                 raise ValueError(
                     "In-memory mode (empty persist_path) is only allowed during testing. "
                     "Please set CHROMA_PERSIST_PATH for production use."
+                )
+
+        # Log the testing mode for debugging
+        if testing_mode != "production":
+            logger.info(f"Testing mode detected: {testing_mode}")
+            if testing_mode == "ci":
+                logger.info(
+                    "CI environment detected - using file storage for vector databases with caching benefits"
+                )
+            elif testing_mode == "local":
+                logger.info(
+                    "Local testing environment detected - using memory mode for vector databases"
                 )
 
         return self

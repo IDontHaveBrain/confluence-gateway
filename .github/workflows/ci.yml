@@ -7,11 +7,7 @@ on:
     branches: [ main, master, develop, 'refactor/*' ]
 
 env:
-  # Force vector database memory mode for tests to prevent file conflicts
-  QDRANT_URL: ":memory:"
-  CHROMA_PERSIST_PATH: ""
-  CHROMA_HOST: ""
-  CHROMA_PORT: ""
+  # Vector database configuration for CI environment
   VECTOR_DB_TYPE: "qdrant"
   VECTOR_DB_EMBEDDING_DIMENSION: "384"
 
@@ -81,13 +77,11 @@ jobs:
       CONFLUENCE_USERNAME: ${{ secrets.CONFLUENCE_USERNAME }}
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
-      # Force vector database memory mode for reliable testing
-      QDRANT_URL: ":memory:"
-      CHROMA_PERSIST_PATH: ""
-      CHROMA_HOST: ""
-      CHROMA_PORT: ""
+      # Vector database file storage configuration
       VECTOR_DB_TYPE: "qdrant"
       VECTOR_DB_EMBEDDING_DIMENSION: "384"
+      QDRANT_LOCAL_PATH: "${{ github.workspace }}/.cache/qdrant"
+      CHROMA_PERSIST_PATH: "${{ github.workspace }}/.cache/chromadb"
     
     steps:
     - name: Checkout code
@@ -116,14 +110,80 @@ jobs:
           ${{ runner.os }}-uv-${{ matrix.python-version }}-
           ${{ runner.os }}-uv-
 
+    - name: Generate content manifest
+      id: content_manifest
+      run: |
+        # Create content manifest for cache key generation
+        (
+          echo "Tests content:"
+          find tests/ -name '*.py' -type f -exec sha256sum {} \; | sort
+          echo "Config files:"
+          find . -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.toml' | grep -E '(config|conf|setup)' | head -20 | xargs -I {} sh -c 'echo "{}:" && sha256sum "{}"' 2>/dev/null || true
+          echo "Core source:"
+          find confluence_gateway/ -name '*.py' -type f | head -10 | xargs -I {} sh -c 'echo "{}:" && sha256sum "{}"'
+        ) > content_manifest.txt
+        
+        # Generate cache key from manifest
+        CONTENT_HASH=$(sha256sum content_manifest.txt | cut -d' ' -f1)
+        echo "content_hash=${CONTENT_HASH}" >> $GITHUB_OUTPUT
+        
+        # Generate config fingerprint
+        CONFIG_FINGERPRINT=$(echo "${{ matrix.python-version }}-${{ env.VECTOR_DB_TYPE }}-${{ env.VECTOR_DB_EMBEDDING_DIMENSION }}" | sha256sum | cut -d' ' -f1)
+        echo "config_fingerprint=${CONFIG_FINGERPRINT}" >> $GITHUB_OUTPUT
+        
+        # Combined cache key
+        CACHE_KEY="v2-vector-db-${{ runner.os }}-py${{ matrix.python-version }}-${CONFIG_FINGERPRINT:0:8}-${CONTENT_HASH:0:8}"
+        echo "cache_key=${CACHE_KEY}" >> $GITHUB_OUTPUT
+
+    - name: Setup vector database cache directories
+      run: |
+        mkdir -p "${{ github.workspace }}/.cache/qdrant"
+        mkdir -p "${{ github.workspace }}/.cache/chromadb"
+        chmod 755 "${{ github.workspace }}/.cache/qdrant"
+        chmod 755 "${{ github.workspace }}/.cache/chromadb"
+
+    - name: Cache vector database storage
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ github.workspace }}/.cache/qdrant
+          ${{ github.workspace }}/.cache/chromadb
+        key: ${{ steps.content_manifest.outputs.cache_key }}
+        restore-keys: |
+          v2-vector-db-${{ runner.os }}-py${{ matrix.python-version }}-${{ steps.content_manifest.outputs.config_fingerprint }}-
+          v2-vector-db-${{ runner.os }}-py${{ matrix.python-version }}-
+          v2-vector-db-${{ runner.os }}-
+
     - name: Install dependencies
       run: |
         uv sync --dev
 
-    - name: Configure test environment
+    - name: Validate cache and setup test environment
       run: |
-        # Create test configuration to force memory mode
-        echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
+        # Check cache restoration status
+        if [ -f "${{ github.workspace }}/.cache/qdrant/.cache_metadata" ]; then
+          echo "✅ Vector database cache restored successfully"
+          cat "${{ github.workspace }}/.cache/qdrant/.cache_metadata"
+        else
+          echo "🔄 Starting with empty vector database cache"
+        fi
+        
+        # Configure test environment for file storage
+        echo '{
+          "vector_db": {
+            "type": "qdrant",
+            "qdrant_local_path": "'"${{ github.workspace }}/.cache/qdrant"'",
+            "qdrant_url": null,
+            "embedding_dimension": 384
+          }
+        }' > ~/.confluence_gateway_config.json
+        
+        # Display final configuration
+        echo "📋 Test configuration:"
+        cat ~/.confluence_gateway_config.json
+        
+        # Set directory permissions
+        chmod -R 755 "${{ github.workspace }}/.cache/"
 
     - name: Verify CLI installation
       run: |
@@ -133,6 +193,28 @@ jobs:
       run: |
         uv run pytest tests/ -v --tb=short
       continue-on-error: false
+
+    - name: Update cache metadata
+      if: always()
+      run: |
+        # Create cache metadata for future validation
+        (
+          echo "Cache created: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Python version: ${{ matrix.python-version }}"
+          echo "Content hash: ${{ steps.content_manifest.outputs.content_hash }}"
+          echo "Config fingerprint: ${{ steps.content_manifest.outputs.config_fingerprint }}"
+          echo "Cache key: ${{ steps.content_manifest.outputs.cache_key }}"
+        ) > "${{ github.workspace }}/.cache/qdrant/.cache_metadata"
+        
+        # Log cache status
+        echo "📊 Cache statistics:"
+        du -sh "${{ github.workspace }}/.cache/qdrant" 2>/dev/null || echo "Qdrant cache: empty"
+        du -sh "${{ github.workspace }}/.cache/chromadb" 2>/dev/null || echo "ChromaDB cache: empty"
+        
+        # List cache contents for debugging
+        echo "📂 Cache contents:"
+        ls -la "${{ github.workspace }}/.cache/qdrant/" 2>/dev/null || echo "Qdrant cache empty"
+        ls -la "${{ github.workspace }}/.cache/chromadb/" 2>/dev/null || echo "ChromaDB cache empty"
 
   test-integration:
     name: Integration Test (Full Pipeline)
@@ -145,10 +227,9 @@ jobs:
       CONFLUENCE_USERNAME: ${{ secrets.CONFLUENCE_USERNAME }}
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      # Keep memory mode for integration tests to avoid conflicts
       QDRANT_URL: ":memory:"
       CHROMA_PERSIST_PATH: ""
-      CHROMA_HOST: ""
-      CHROMA_PORT: ""
       VECTOR_DB_TYPE: "qdrant"
       VECTOR_DB_EMBEDDING_DIMENSION: "384"
     
@@ -172,6 +253,7 @@ jobs:
 
     - name: Configure test environment
       run: |
+        # Keep memory mode for integration tests to avoid conflicts
         echo '{"vector_db": {"qdrant_url": ":memory:", "qdrant_local_path": null}}' > ~/.confluence_gateway_config.json
 
     - name: Full integration test
