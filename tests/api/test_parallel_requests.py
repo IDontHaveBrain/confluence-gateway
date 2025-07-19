@@ -13,7 +13,6 @@ Usage:
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -397,10 +396,21 @@ async def test_parallel_health_checks(async_api_client):
         )
 
     # Verify that essential fields are present in all responses
-    essential_fields = ["status", "version", "confluence_connection"]
+    essential_fields = ["status", "version", "services", "summary"]
     for i, data in enumerate(response_data):
         for field in essential_fields:
             assert field in data, f"Response {i} missing essential field: {field}"
+        # Check that services section has expected structure
+        assert "services" in data, f"Response {i} missing services section"
+        services = data["services"]
+        assert isinstance(services, dict), f"Response {i} services should be a dict"
+        # Check that summary section has expected structure
+        assert "summary" in data, f"Response {i} missing summary section"
+        summary = data["summary"]
+        assert "healthy_count" in summary, (
+            f"Response {i} missing healthy_count in summary"
+        )
+        assert "total_count" in summary, f"Response {i} missing total_count in summary"
 
 
 @pytest.mark.asyncio

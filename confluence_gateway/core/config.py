@@ -2,11 +2,10 @@ import json
 import logging
 import os
 import platform
-import re
-from datetime import datetime
-from enum import Enum
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, get_args
+from typing import Any, Literal, TypedDict, get_args
 
 from pydantic import (
     BaseModel,
@@ -20,9 +19,80 @@ from pydantic import (
 logger = logging.getLogger(__name__)
 
 
-# Development mode configuration
-def is_dev_mode() -> bool:
-    """Check if development mode is enabled via CONFLUENCE_GATEWAY_DEV_MODE environment variable."""
+# Environment Detection - Consolidated Implementation
+
+
+@dataclass
+class EnvironmentContext:
+    """Unified environment detection context."""
+
+    is_pytest: bool
+    is_ci: bool
+    testing_mode: Literal["ci", "local", "production"]
+    use_memory_mode: bool
+    ci_platform: str | None = None
+
+
+@dataclass
+class DevelopmentContext:
+    """Development mode detection and logging context."""
+
+    enabled: bool
+    log_skip: Callable[[str], None]
+    log_stub: Callable[[str], None]
+
+
+def get_environment_context() -> EnvironmentContext:
+    """Single source of truth for all environment detection."""
+    import sys
+
+    # Unified pytest detection
+    is_pytest = (
+        bool(os.environ.get("PYTEST_VERSION"))
+        or "PYTEST_CURRENT_TEST" in os.environ
+        or "pytest" in sys.modules
+    )
+
+    # Unified CI detection with platform identification
+    ci_indicators = {
+        "GITHUB_ACTIONS": "GitHub Actions",
+        "TRAVIS": "Travis CI",
+        "JENKINS_URL": "Jenkins",
+        "CIRCLECI": "CircleCI",
+        "GITLAB_CI": "GitLab CI",
+        "CI": "Generic CI",
+        "CONTINUOUS_INTEGRATION": "Generic CI",
+    }
+
+    ci_platform = None
+    is_ci = False
+    for env_var, platform_name in ci_indicators.items():
+        if env_var in os.environ:
+            is_ci = True
+            ci_platform = platform_name
+            break
+
+    # Unified testing mode determination with proper Literal typing
+    testing_mode: Literal["ci", "local", "production"]
+    if is_pytest:
+        testing_mode = "ci" if is_ci else "local"
+    else:
+        testing_mode = "production"
+
+    # Unified memory mode decision
+    use_memory_mode = testing_mode == "local"
+
+    return EnvironmentContext(
+        is_pytest=is_pytest,
+        is_ci=is_ci,
+        testing_mode=testing_mode,
+        use_memory_mode=use_memory_mode,
+        ci_platform=ci_platform,
+    )
+
+
+def get_development_context() -> DevelopmentContext:
+    """Unified development mode detection with integrated logging."""
     dev_mode = os.getenv("CONFLUENCE_GATEWAY_DEV_MODE", "").lower() in [
         "true",
         "1",
@@ -30,173 +100,21 @@ def is_dev_mode() -> bool:
         "yes",
         "y",
     ]
+
     if dev_mode:
         logger.info(
             "🚀 Development mode ENABLED - heavy services will be skipped for faster startup"
         )
-    return dev_mode
 
-
-def dev_mode_log_skip(service_name: str) -> None:
-    """Log that a service is being skipped in development mode."""
-    logger.info(
-        f"⚡ DEV MODE: Skipping {service_name} initialization for faster development iteration"
-    )
-
-
-def dev_mode_log_stub(service_name: str) -> None:
-    """Log that a service is using a stub implementation in development mode."""
-    logger.info(f"🔧 DEV MODE: Using stub implementation for {service_name}")
-
-
-def is_pytest_running() -> bool:
-    """Check if code is running under pytest using multiple detection methods."""
-    import sys
-
-    # Method 1: PYTEST_VERSION (pytest >= 8.2.0) - Most reliable
-    if os.environ.get("PYTEST_VERSION"):
-        return True
-
-    # Method 2: PYTEST_CURRENT_TEST (available during test execution)
-    if "PYTEST_CURRENT_TEST" in os.environ:
-        return True
-
-    # Method 3: sys.modules fallback for older versions
-    if "pytest" in sys.modules:
-        return True
-
-    return False
-
-
-def is_ci_running() -> bool:
-    """Check if code is running in a CI environment using common CI environment variables."""
-    # Common CI environment variables
-    ci_indicators = [
-        "CI",  # Generic CI indicator
-        "CONTINUOUS_INTEGRATION",  # Generic alternative
-        "GITHUB_ACTIONS",  # GitHub Actions
-        "TRAVIS",  # Travis CI
-        "JENKINS_URL",  # Jenkins
-        "BUILDKITE",  # Buildkite
-        "CIRCLECI",  # CircleCI
-        "GITLAB_CI",  # GitLab CI
-        "AZURE_PIPELINES",  # Azure Pipelines
-        "APPVEYOR",  # AppVeyor
-        "DRONE",  # Drone CI
-        "SEMAPHORE",  # Semaphore CI
-        "BITBUCKET_BUILD_NUMBER",  # Bitbucket Pipelines
-        "CODEBUILD_BUILD_ID",  # AWS CodeBuild
-        "BUILD_ID",  # Generic build ID (Jenkins, etc.)
-        "TF_BUILD",  # Azure DevOps Server/TFS
-    ]
-
-    for indicator in ci_indicators:
-        if indicator in os.environ:
-            return True
-
-    return False
-
-
-def get_testing_mode() -> str:
-    """Determine the testing mode based on environment.
-
-    Returns:
-        'ci' for CI environment testing (use file storage with caching)
-        'local' for local testing (use memory mode)
-        'production' for non-testing environments
-    """
-    if is_pytest_running():
-        if is_ci_running():
-            return "ci"
-        else:
-            return "local"
-    return "production"
-
-
-def should_use_memory_mode() -> bool:
-    """Determine if memory mode should be used for vector databases.
-
-    Returns:
-        True if memory mode should be used (local testing)
-        False if file storage should be used (CI testing or production)
-    """
-    testing_mode = get_testing_mode()
-
-    # Always use memory mode for local testing
-    if testing_mode == "local":
-        return True
-
-    # Use file storage for CI testing (with caching benefits)
-    if testing_mode == "ci":
-        return False
-
-    # Production mode - follow explicit configuration
-    return False
-
-
-DEFAULT_EMBEDDING_PROVIDER_TYPE: Literal["sentence-transformers", "litellm", "none"] = (
-    "sentence-transformers"
-)
-DEFAULT_EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-DEFAULT_EMBEDDING_DIMENSION = 384
-DEFAULT_EMBEDDING_DEVICE: Literal["cpu", "cuda"] | None = None
-
-
-class ModelMetadata(BaseModel):
-    """Metadata for tracking embedding model information."""
-
-    provider: str
-    model_name: str
-    dimension: int
-    device: str | None = None
-    created_at: datetime
-    collection_name: str
-    configuration_hash: str
-
-    @classmethod
-    def from_embedding_config(
-        cls, embedding_config: "EmbeddingConfig", collection_name: str
-    ) -> "ModelMetadata":
-        """Create ModelMetadata from EmbeddingConfig."""
-        config_dict = {
-            "provider": embedding_config.provider,
-            "model_name": embedding_config.model_name,
-            "dimension": embedding_config.dimension,
-            "device": embedding_config.device,
-        }
-        # Create a hash of the configuration for change detection
-        config_hash = str(hash(str(sorted(config_dict.items()))))
-
-        return cls(
-            provider=embedding_config.provider,
-            model_name=embedding_config.model_name or "",
-            dimension=embedding_config.dimension or 0,
-            device=embedding_config.device,
-            created_at=datetime.now(),
-            collection_name=collection_name,
-            configuration_hash=config_hash,
+    def log_skip(service_name: str) -> None:
+        logger.info(
+            f"⚡ DEV MODE: Skipping {service_name} initialization for faster development iteration"
         )
 
+    def log_stub(service_name: str) -> None:
+        logger.info(f"🔧 DEV MODE: Using stub implementation for {service_name}")
 
-class ModelChangeType(str, Enum):
-    """Enum for different types of model changes."""
-
-    COMPATIBLE = "compatible"  # Same provider, model, dimension
-    DIMENSION_CHANGE = "dimension_change"  # Different dimension (requires migration)
-    MODEL_CHANGE = "model_change"  # Different model (may require migration)
-    PROVIDER_CHANGE = "provider_change"  # Different provider (requires migration)
-    INCOMPATIBLE = "incompatible"  # Major changes requiring full reindexing
-
-
-class ModelChangeInfo(BaseModel):
-    """Information about detected model changes."""
-
-    change_type: ModelChangeType
-    current_metadata: ModelMetadata | None = None
-    new_config: dict[str, Any]
-    migration_required: bool
-    warning_message: str
-    migration_guidance: str
+    return DevelopmentContext(enabled=dev_mode, log_skip=log_skip, log_stub=log_stub)
 
 
 class ConfluenceConfig(BaseModel):
@@ -259,41 +177,6 @@ class EmbeddingConfig(BaseModel):
 VectorDBType = Literal["chroma", "qdrant", "none"]
 
 
-def sanitize_model_name_for_collection(model_name: str) -> str:
-    """
-    Sanitize model name for use in collection names.
-    Replace special characters with underscores and convert to lowercase.
-    """
-    if not model_name:
-        return "unknown"
-
-    # Replace special characters with underscores
-    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", model_name)
-    # Remove multiple consecutive underscores
-    sanitized = re.sub(r"_+", "_", sanitized)
-    # Remove leading/trailing underscores
-    sanitized = sanitized.strip("_")
-    # Convert to lowercase
-    sanitized = sanitized.lower()
-
-    # If empty after sanitization, use "unknown"
-    return sanitized if sanitized else "unknown"
-
-
-def generate_model_specific_collection_name(
-    base_name: str, model_name: str | None, dimension: int | None
-) -> str:
-    """
-    Generate a model-specific collection name.
-    Format: {base_name}_{sanitized_model_name}_{dimension}d
-    """
-    if not model_name or dimension is None:
-        return base_name
-
-    sanitized_model = sanitize_model_name_for_collection(model_name)
-    return f"{base_name}_{sanitized_model}_{dimension}d"
-
-
 class IndexingConfig(BaseModel):
     include_spaces: list[str] | None = None
     exclude_spaces: list[str] | None = None
@@ -336,201 +219,6 @@ def get_user_config_path() -> Path:
 
 def get_default_config_path() -> Path:
     return Path(__file__).parent.parent / "confluence_gateway_config.json"
-
-
-def get_model_metadata_path() -> Path:
-    """Get the path to the model metadata file."""
-    return Path.home() / ".confluence_gateway_model_metadata.json"
-
-
-def save_model_metadata(metadata: ModelMetadata) -> None:
-    """Save model metadata to persistent storage."""
-    metadata_path = get_model_metadata_path()
-
-    # Load existing metadata if it exists
-    existing_metadata = {}
-    if metadata_path.exists():
-        try:
-            with metadata_path.open(encoding="utf-8") as f:
-                existing_metadata = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Could not read existing model metadata: {e}")
-            existing_metadata = {}
-
-    # Store metadata by collection name
-    existing_metadata[metadata.collection_name] = metadata.model_dump()
-    existing_metadata[metadata.collection_name]["created_at"] = (
-        metadata.created_at.isoformat()
-    )
-
-    # Save updated metadata
-    try:
-        with metadata_path.open("w", encoding="utf-8") as f:
-            json.dump(existing_metadata, f, indent=2)
-        logger.info(f"Saved model metadata for collection '{metadata.collection_name}'")
-    except OSError as e:
-        logger.error(f"Failed to save model metadata: {e}")
-
-
-def load_model_metadata(collection_name: str) -> ModelMetadata | None:
-    """Load model metadata for a specific collection."""
-    metadata_path = get_model_metadata_path()
-
-    if not metadata_path.exists():
-        return None
-
-    try:
-        with metadata_path.open(encoding="utf-8") as f:
-            all_metadata = json.load(f)
-
-        if collection_name not in all_metadata:
-            return None
-
-        metadata_dict = all_metadata[collection_name]
-        # Parse the ISO datetime string
-        metadata_dict["created_at"] = datetime.fromisoformat(
-            metadata_dict["created_at"]
-        )
-
-        return ModelMetadata(**metadata_dict)
-    except (json.JSONDecodeError, OSError, ValueError) as e:
-        logger.warning(
-            f"Could not load model metadata for collection '{collection_name}': {e}"
-        )
-        return None
-
-
-def list_all_model_metadata() -> dict[str, ModelMetadata]:
-    """Load all model metadata."""
-    metadata_path = get_model_metadata_path()
-
-    if not metadata_path.exists():
-        return {}
-
-    try:
-        with metadata_path.open(encoding="utf-8") as f:
-            all_metadata = json.load(f)
-
-        result = {}
-        for collection_name, metadata_dict in all_metadata.items():
-            try:
-                # Parse the ISO datetime string
-                metadata_dict["created_at"] = datetime.fromisoformat(
-                    metadata_dict["created_at"]
-                )
-                result[collection_name] = ModelMetadata(**metadata_dict)
-            except (ValueError, TypeError) as e:
-                logger.warning(
-                    f"Could not parse metadata for collection '{collection_name}': {e}"
-                )
-                continue
-
-        return result
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Could not load model metadata: {e}")
-        return {}
-
-
-def detect_model_changes(
-    embedding_config: EmbeddingConfig, vector_db_config: "VectorDBConfig"
-) -> "ModelChangeInfo | None":
-    """Detect changes in embedding model configuration."""
-    if embedding_config.provider == "none" or vector_db_config.type == "none":
-        return None
-
-    collection_name = vector_db_config.get_effective_collection_name()
-    current_metadata = load_model_metadata(collection_name)
-
-    if current_metadata is None:
-        # No existing metadata, this is a new setup
-        return None
-
-    # Create new metadata from current config
-    new_metadata = ModelMetadata.from_embedding_config(
-        embedding_config, collection_name
-    )
-
-    # Compare configurations
-    change_type = ModelChangeType.COMPATIBLE
-    migration_required = False
-    warning_message = ""
-    migration_guidance = ""
-
-    if current_metadata.configuration_hash == new_metadata.configuration_hash:
-        # No changes detected
-        return None
-
-    # Detect specific changes
-    changes = []
-
-    if current_metadata.provider != new_metadata.provider:
-        change_type = ModelChangeType.PROVIDER_CHANGE
-        migration_required = True
-        changes.append(
-            f"provider: {current_metadata.provider} → {new_metadata.provider}"
-        )
-
-    if current_metadata.model_name != new_metadata.model_name:
-        if change_type == ModelChangeType.COMPATIBLE:
-            change_type = ModelChangeType.MODEL_CHANGE
-        migration_required = True
-        changes.append(
-            f"model: {current_metadata.model_name} → {new_metadata.model_name}"
-        )
-
-    if current_metadata.dimension != new_metadata.dimension:
-        change_type = ModelChangeType.DIMENSION_CHANGE
-        migration_required = True
-        changes.append(
-            f"dimension: {current_metadata.dimension} → {new_metadata.dimension}"
-        )
-
-    if current_metadata.device != new_metadata.device:
-        changes.append(f"device: {current_metadata.device} → {new_metadata.device}")
-
-    # Build warning message
-    if changes:
-        warning_message = (
-            f"Embedding model configuration has changed: {', '.join(changes)}"
-        )
-
-        if migration_required:
-            if change_type == ModelChangeType.DIMENSION_CHANGE:
-                migration_guidance = (
-                    f"The embedding dimension has changed from {current_metadata.dimension} "
-                    f"to {new_metadata.dimension}. This requires reindexing all content.\n"
-                    "Run: confluence-gateway index trigger --full-reindex"
-                )
-            elif change_type == ModelChangeType.PROVIDER_CHANGE:
-                migration_guidance = (
-                    f"The embedding provider has changed from {current_metadata.provider} "
-                    f"to {new_metadata.provider}. This requires reindexing all content.\n"
-                    "Run: confluence-gateway index trigger --full-reindex"
-                )
-            elif change_type == ModelChangeType.MODEL_CHANGE:
-                migration_guidance = (
-                    f"The embedding model has changed from {current_metadata.model_name} "
-                    f"to {new_metadata.model_name}. This may require reindexing for optimal results.\n"
-                    "Consider running: confluence-gateway index trigger --full-reindex"
-                )
-        else:
-            migration_guidance = "No migration required. Changes are compatible."
-
-    new_config = {
-        "provider": new_metadata.provider,
-        "model_name": new_metadata.model_name,
-        "dimension": new_metadata.dimension,
-        "device": new_metadata.device,
-    }
-
-    return ModelChangeInfo(
-        change_type=change_type,
-        current_metadata=current_metadata,
-        new_config=new_config,
-        migration_required=migration_required,
-        warning_message=warning_message,
-        migration_guidance=migration_guidance,
-    )
 
 
 def _load_config_from_file(path: Path) -> dict[str, Any]:
@@ -576,49 +264,18 @@ class VectorDBConfig(BaseModel):
     qdrant_grpc_port: int = 6334
     qdrant_prefer_grpc: bool = False
 
-    # Internal fields for model-specific naming
-    _embedding_model_name: str | None = None
-    _embedding_dimension: int | None = None
-
-    def get_effective_collection_name(
-        self, model_name: str | None = None, dimension: int | None = None
-    ) -> str:
-        """
-        Get the effective collection name based on configuration.
-
-        If collection_name is explicitly set, use it as-is (user override).
-        If collection_name is None/empty, auto-generate with cg_ prefix and model info.
-        """
-        # If collection_name is explicitly set, use it as-is (backward compatibility)
+    def get_effective_collection_name(self) -> str:
+        """Get the effective collection name: explicit override OR auto-generated."""
+        # If collection_name is explicitly set, use it (user override)
         if self.collection_name:
             return self.collection_name
 
-        # Auto-generate model-specific collection name with "cg" prefix
-        # Use provided parameters first, then internal fields, then config fields
-        effective_model = (
-            model_name
-            or self._embedding_model_name
-            or getattr(self, "embedding_model_name", None)
-        )
-        effective_dimension = (
-            dimension or self._embedding_dimension or self.embedding_dimension
-        )
+        # Auto-generate with model info if available
+        if hasattr(self, "embedding_dimension") and self.embedding_dimension:
+            return f"cg_{self.embedding_dimension}d"
 
-        if effective_model and effective_dimension:
-            return generate_model_specific_collection_name(
-                "cg", effective_model, effective_dimension
-            )
-
-        # Fallback to base "cg" name if model info not available
+        # Simple fallback
         return "cg"
-
-    def set_embedding_info(self, model_name: str | None, dimension: int | None) -> None:
-        """
-        Set embedding model information for collection naming.
-        This method is called during configuration loading.
-        """
-        self._embedding_model_name = model_name
-        self._embedding_dimension = dimension
 
     @model_validator(mode="after")
     def check_conditional_requirements(self) -> "VectorDBConfig":
@@ -635,7 +292,7 @@ class VectorDBConfig(BaseModel):
                 )
 
         # Block in-memory mode when not running under pytest or in production
-        testing_mode = get_testing_mode()
+        testing_mode = get_environment_context().testing_mode
 
         if testing_mode == "production":
             if self.type == "qdrant" and self.qdrant_url == ":memory:":
@@ -711,205 +368,215 @@ def _load_raw_env_vars(prefix: str, case_sensitive: bool = False) -> dict[str, A
     return env_vars
 
 
-def _try_convert_to_int(config: dict[str, Any], key: str, error_message: str) -> None:
-    if key in config and isinstance(config[key], str):
-        try:
-            config[key] = int(config[key])
-        except ValueError:
-            logger.warning(error_message)
-            del config[key]
+# Unified Environment Variable Loading System
 
 
-def _load_raw_search_env() -> dict[str, Any]:
-    validations = {
-        "default_limit": int,
-        "max_limit": int,
-        "default_expand": "comma_list",
-        "hybrid_search_enabled": bool,
-        "hybrid_keyword_fetch_limit": int,
-        "hybrid_semantic_fetch_limit": int,
-        "hybrid_rrf_k": int,
+class EnvConfigSection(TypedDict, total=False):
+    """Type definition for environment configuration sections."""
+
+    prefix: str
+    validations: dict[str, Any]
+    manual_mappings: list[tuple[str, str]]
+    special_handling: dict[str, tuple[str, type]]
+    post_process: str
+
+
+class EnvironmentVariableLoader:
+    """Unified environment variable loader replacing 7 separate functions."""
+
+    # Configuration schema for all sections
+    ENV_LOADING_CONFIG: dict[str, EnvConfigSection] = {
+        "search": {
+            "prefix": "SEARCH_",
+            "validations": {
+                "default_limit": int,
+                "max_limit": int,
+                "default_expand": "comma_list",
+                "hybrid_search_enabled": bool,
+                "hybrid_keyword_fetch_limit": int,
+                "hybrid_semantic_fetch_limit": int,
+                "hybrid_rrf_k": int,
+            },
+        },
+        "confluence": {"prefix": "CONFLUENCE_", "validations": {"timeout": int}},
+        "vector_db": {
+            "prefix": "VECTOR_DB_",
+            "validations": {
+                "type": get_args(VectorDBType),
+                "embedding_dimension": int,
+                "chunk_size": int,
+                "chunk_overlap": int,
+            },
+            "manual_mappings": [
+                ("CHROMA_PERSIST_PATH", "chroma_persist_path"),
+                ("CHROMA_HOST", "chroma_host"),
+                ("QDRANT_URL", "qdrant_url"),
+                ("QDRANT_LOCAL_PATH", "qdrant_local_path"),
+                ("QDRANT_API_KEY", "qdrant_api_key"),
+            ],
+            "special_handling": {
+                "CHROMA_PORT": ("chroma_port", int),
+                "QDRANT_GRPC_PORT": ("qdrant_grpc_port", int),
+                "QDRANT_PREFER_GRPC": ("qdrant_prefer_grpc", bool),
+            },
+        },
+        "embedding": {
+            "prefix": "EMBEDDING_",
+            "validations": {
+                "provider": get_args(
+                    Literal["sentence-transformers", "litellm", "none"]
+                ),
+                "dimension": int,
+                "device": get_args(Literal["cpu", "cuda"]) + (None,),
+            },
+            "manual_mappings": [
+                ("LITELLM_API_KEY", "litellm_api_key"),
+                ("LITELLM_API_BASE", "litellm_api_base"),
+            ],
+        },
+        "indexing": {
+            "prefix": "INDEXING_",
+            "validations": {
+                "include_spaces": "comma_list",
+                "exclude_spaces": "comma_list",
+                "html_parser": get_args(Literal["markitdown", "unstructured"]),
+                "include_attachments": bool,
+                "max_attachment_size_mb": int,
+                "allowed_attachment_extensions": "comma_list",
+                "attachment_parser": get_args(Literal["markitdown", "unstructured"]),
+            },
+            "post_process": "_process_indexing_extensions",
+        },
+        "generation": {
+            "prefix": "GENERATION_",
+            "validations": {
+                "enable": bool,
+                "provider": get_args(Literal["litellm"]),
+                "max_context_tokens": int,
+                "max_output_tokens": int,
+                "temperature": float,
+                "generation_timeout": int,
+            },
+            "manual_mappings": [
+                ("GENERATION_MODEL_NAME", "model_name"),
+                ("GENERATION_LITELLM_API_KEY", "litellm_api_key"),
+                ("GENERATION_LITELLM_API_BASE", "litellm_api_base"),
+                ("GENERATION_PROMPT_TEMPLATE", "prompt_template"),
+            ],
+        },
     }
 
-    return _load_env_with_validation("SEARCH_", validations)
+    @classmethod
+    def load_section(cls, section_name: str) -> dict[str, Any]:
+        """Load environment variables for a specific section."""
+        config: EnvConfigSection = cls.ENV_LOADING_CONFIG[section_name]
+        prefix = config["prefix"]
+        validations = config["validations"]
 
+        # Load with validation
+        raw_config = cls._load_with_validation(prefix, validations)
 
-def _load_raw_confluence_env() -> dict[str, Any]:
-    validations = {
-        "timeout": int,
-    }
-    return _load_env_with_validation("CONFLUENCE_", validations)
+        # Apply manual mappings if present
+        if "manual_mappings" in config:
+            for env_var, config_key in config["manual_mappings"]:
+                if value := os.getenv(env_var):
+                    raw_config[config_key] = value
 
+        # Apply special handling if present
+        if "special_handling" in config:
+            for env_var, (config_key, type_converter) in config[
+                "special_handling"
+            ].items():
+                if value := os.getenv(env_var):
+                    try:
+                        if type_converter is int:
+                            raw_config[config_key] = int(value)
+                        elif type_converter is bool:
+                            raw_config[config_key] = value.lower() in [
+                                "true",
+                                "1",
+                                "t",
+                                "yes",
+                                "y",
+                            ]
+                        else:
+                            raw_config[config_key] = value
+                    except ValueError:
+                        raw_config[config_key] = value
 
-def _load_raw_vector_db_env() -> dict[str, Any]:
-    validations = {
-        "type": get_args(VectorDBType),
-        "embedding_dimension": int,
-        "chunk_size": int,
-        "chunk_overlap": int,
-    }
+        # Apply post-processing if present
+        if "post_process" in config:
+            method_name = config["post_process"]
+            raw_config = getattr(cls, method_name)(raw_config)
 
-    raw_config = _load_env_with_validation("VECTOR_DB_", validations)
-
-    for env_var, config_key in [
-        ("CHROMA_PERSIST_PATH", "chroma_persist_path"),
-        ("CHROMA_HOST", "chroma_host"),
-    ]:
-        if value := os.getenv(env_var):
-            raw_config[config_key] = value
-
-    if port_str := os.getenv("CHROMA_PORT"):
-        try:
-            raw_config["chroma_port"] = int(port_str)
-        except ValueError:
-            raw_config["chroma_port"] = port_str
-
-    for env_var, config_key in [
-        ("QDRANT_URL", "qdrant_url"),
-        ("QDRANT_LOCAL_PATH", "qdrant_local_path"),
-        ("QDRANT_API_KEY", "qdrant_api_key"),
-    ]:
-        if value := os.getenv(env_var):
-            raw_config[config_key] = value
-
-    if grpc_port_str := os.getenv("QDRANT_GRPC_PORT"):
-        try:
-            raw_config["qdrant_grpc_port"] = int(grpc_port_str)
-        except ValueError:
-            raw_config["qdrant_grpc_port"] = grpc_port_str
-
-    if prefer_grpc_str := os.getenv("QDRANT_PREFER_GRPC"):
-        raw_config["qdrant_prefer_grpc"] = prefer_grpc_str.lower() in [
-            "true",
-            "1",
-            "t",
-            "yes",
-            "y",
-        ]
-
-    return raw_config
-
-
-def _load_env_with_validation(
-    prefix: str, validations: dict[str, Any] = None
-) -> dict[str, Any]:
-    raw_config = _load_raw_env_vars(prefix)
-
-    if not validations:
         return raw_config
 
-    keys_to_process = list(raw_config.keys())
+    @classmethod
+    def _load_with_validation(
+        cls, prefix: str, validations: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Core validation logic consolidated from _load_env_with_validation."""
+        raw_config = _load_raw_env_vars(prefix)
 
-    for key in keys_to_process:
-        if key not in validations:
-            continue
+        for key in list(raw_config.keys()):
+            if key not in validations:
+                continue
 
-        validator = validations[key]
-        value = raw_config[key]
+            validator = validations[key]
+            value = raw_config[key]
 
-        if isinstance(validator, type):
-            try:
-                if validator is int:
-                    raw_config[key] = int(value)
-                elif validator is float:
-                    raw_config[key] = float(value)
-                elif validator is bool and isinstance(value, str):
-                    raw_config[key] = value.lower() in ["true", "1", "t", "yes", "y"]
-            except ValueError:
-                logger.warning(
-                    f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
-                    f"Expected {validator.__name__}. Using default or ignoring."
-                )
-                del raw_config[key]
+            if isinstance(validator, type):
+                try:
+                    if validator is int:
+                        raw_config[key] = int(value)
+                    elif validator is float:
+                        raw_config[key] = float(value)
+                    elif validator is bool and isinstance(value, str):
+                        raw_config[key] = value.lower() in [
+                            "true",
+                            "1",
+                            "t",
+                            "yes",
+                            "y",
+                        ]
+                except ValueError:
+                    logger.warning(
+                        f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
+                        f"Expected {validator.__name__}. Using default or ignoring."
+                    )
+                    del raw_config[key]
 
-        elif isinstance(validator, tuple) and all(
-            isinstance(t, type) for t in validator
+            elif isinstance(validator, tuple):
+                if isinstance(value, str) and value.lower() not in [
+                    str(v).lower() for v in validator
+                ]:
+                    logger.warning(
+                        f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
+                        f"Expected one of: {', '.join(map(str, validator))}. Using default or ignoring."
+                    )
+                    del raw_config[key]
+                elif isinstance(value, str):
+                    for literal_val in validator:
+                        if str(literal_val).lower() == value.lower():
+                            raw_config[key] = literal_val
+                            break
+
+            elif validator == "comma_list" and isinstance(value, str):
+                raw_config[key] = [s.strip() for s in value.split(",") if s.strip()]
+
+        return raw_config
+
+    @classmethod
+    def _process_indexing_extensions(cls, raw_config: dict[str, Any]) -> dict[str, Any]:
+        """Post-process indexing allowed_attachment_extensions."""
+        if "allowed_attachment_extensions" in raw_config and isinstance(
+            raw_config["allowed_attachment_extensions"], list
         ):
-            if isinstance(value, str) and value.lower() not in [
-                str(v).lower() for v in validator
-            ]:
-                logger.warning(
-                    f"Invalid value '{value}' for environment variable {prefix}{key.upper()}. "
-                    f"Expected one of: {', '.join(map(str, validator))}. Using default or ignoring."
-                )
-                del raw_config[key]
-            elif isinstance(value, str):
-                for literal_val in validator:
-                    if str(literal_val).lower() == value.lower():
-                        raw_config[key] = literal_val
-                        break
-
-        elif validator == "comma_list" and isinstance(value, str):
-            raw_config[key] = [s.strip() for s in value.split(",") if s.strip()]
-
-    return raw_config
-
-
-def _load_raw_embedding_env() -> dict[str, Any]:
-    validations = {
-        "provider": get_args(Literal["sentence-transformers", "litellm", "none"]),
-        "dimension": int,
-        "device": get_args(Literal["cpu", "cuda"]) + (None,),
-    }
-
-    raw_config = _load_env_with_validation("EMBEDDING_", validations)
-
-    for env_var, config_key in [
-        ("LITELLM_API_KEY", "litellm_api_key"),
-        ("LITELLM_API_BASE", "litellm_api_base"),
-    ]:
-        if value := os.getenv(env_var):
-            raw_config[config_key] = value
-
-    return raw_config
-
-
-def _load_raw_indexing_env() -> dict[str, Any]:
-    validations = {
-        "include_spaces": "comma_list",
-        "exclude_spaces": "comma_list",
-        "html_parser": get_args(Literal["markitdown", "unstructured"]),
-        "include_attachments": bool,
-        "max_attachment_size_mb": int,
-        "allowed_attachment_extensions": "comma_list",
-        "attachment_parser": get_args(Literal["markitdown", "unstructured"]),
-    }
-
-    raw_config = _load_env_with_validation("INDEXING_", validations)
-
-    if "allowed_attachment_extensions" in raw_config and isinstance(
-        raw_config["allowed_attachment_extensions"], list
-    ):
-        raw_config["allowed_attachment_extensions"] = [
-            ext.lower().lstrip(".")
-            for ext in raw_config["allowed_attachment_extensions"]
-        ]
-
-    return raw_config
-
-
-def _load_raw_generation_env() -> dict[str, Any]:
-    validations = {
-        "enable": bool,
-        "provider": get_args(Literal["litellm"]),
-        "max_context_tokens": int,
-        "max_output_tokens": int,
-        "temperature": float,
-        "generation_timeout": int,
-    }
-
-    raw_config = _load_env_with_validation("GENERATION_", validations)
-
-    for env_var, config_key in [
-        ("GENERATION_MODEL_NAME", "model_name"),
-        ("GENERATION_LITELLM_API_KEY", "litellm_api_key"),
-        ("GENERATION_LITELLM_API_BASE", "litellm_api_base"),
-        ("GENERATION_PROMPT_TEMPLATE", "prompt_template"),
-    ]:
-        if value := os.getenv(env_var):
-            raw_config[config_key] = value
-
-    return raw_config
+            raw_config["allowed_attachment_extensions"] = [
+                ext.lower().lstrip(".")
+                for ext in raw_config["allowed_attachment_extensions"]
+            ]
+        return raw_config
 
 
 def load_configurations() -> tuple[
@@ -919,7 +586,6 @@ def load_configurations() -> tuple[
     EmbeddingConfig | None,
     IndexingConfig,
     GenerationConfig | None,
-    ModelChangeInfo | None,
 ]:
     # Load default config first
     default_config_path = get_default_config_path()
@@ -932,13 +598,13 @@ def load_configurations() -> tuple[
     logger.info(f"User config path resolved to: {user_config_path}")
     user_config = _load_config_from_file(user_config_path)
 
-    # Load environment variables
-    env_confluence_raw = _load_raw_confluence_env()
-    env_search_raw = _load_raw_search_env()
-    env_vector_db_raw = _load_raw_vector_db_env()
-    env_embedding_raw = _load_raw_embedding_env()
-    env_indexing_raw = _load_raw_indexing_env()
-    env_generation_raw = _load_raw_generation_env()
+    # Load environment variables using unified loader
+    env_confluence_raw = EnvironmentVariableLoader.load_section("confluence")
+    env_search_raw = EnvironmentVariableLoader.load_section("search")
+    env_vector_db_raw = EnvironmentVariableLoader.load_section("vector_db")
+    env_embedding_raw = EnvironmentVariableLoader.load_section("embedding")
+    env_indexing_raw = EnvironmentVariableLoader.load_section("indexing")
+    env_generation_raw = EnvironmentVariableLoader.load_section("generation")
 
     # Priority: user home config > env vars > default config
     # For each section, start with default, override with env vars, then override with user config
@@ -1091,10 +757,7 @@ def load_configurations() -> tuple[
             if config_instance.type != "none":
                 # Set embedding info for collection naming
                 if loaded_embedding_config:
-                    config_instance.set_embedding_info(
-                        loaded_embedding_config.model_name,
-                        loaded_embedding_config.dimension,
-                    )
+                    # Removed set_embedding_info call - using simplified naming logic
                     effective_name = config_instance.get_effective_collection_name()
                     if config_instance.collection_name:
                         logger.info(f"Using explicit collection name: {effective_name}")
@@ -1148,35 +811,7 @@ def load_configurations() -> tuple[
     else:
         logger.info("No Generation configuration found. RAG features disabled.")
 
-    # Detect model changes if both embedding and vector db configs are loaded
-    model_change_info = None
-    if loaded_embedding_config and loaded_vector_db_config:
-        model_change_info = detect_model_changes(
-            loaded_embedding_config, loaded_vector_db_config
-        )
-
-        if model_change_info:
-            logger.warning(f"🔄 {model_change_info.warning_message}")
-            if model_change_info.migration_required:
-                logger.warning(
-                    f"⚠️  MIGRATION REQUIRED: {model_change_info.migration_guidance}"
-                )
-            else:
-                logger.info(f"ℹ️  {model_change_info.migration_guidance}")
-
-        # Save current model metadata for future change detection
-        # Only save if this is not a test environment
-        if not is_pytest_running():
-            try:
-                effective_collection_name = (
-                    loaded_vector_db_config.get_effective_collection_name()
-                )
-                new_metadata = ModelMetadata.from_embedding_config(
-                    loaded_embedding_config, effective_collection_name
-                )
-                save_model_metadata(new_metadata)
-            except Exception as e:
-                logger.warning(f"Could not save model metadata: {e}")
+    # Model change detection removed - now handled by simplified ModelInfo system
 
     return (
         loaded_confluence_config,
@@ -1185,7 +820,6 @@ def load_configurations() -> tuple[
         loaded_embedding_config,
         loaded_indexing_config,
         loaded_generation_config,
-        model_change_info,
     )
 
 
@@ -1197,14 +831,13 @@ _cached_vector_db_config: VectorDBConfig | None = None
 _cached_embedding_config: EmbeddingConfig | None = None
 _cached_indexing_config: IndexingConfig | None = None
 _cached_generation_config: GenerationConfig | None = None
-_cached_model_change_info: ModelChangeInfo | None = None
 
 
 def _ensure_configs_loaded() -> None:
     """Ensure all configurations are loaded into cache."""
     global _configs_loaded, _cached_confluence_config, _cached_search_config
     global _cached_vector_db_config, _cached_embedding_config, _cached_indexing_config
-    global _cached_generation_config, _cached_model_change_info
+    global _cached_generation_config
 
     if not _configs_loaded:
         logger.debug("Loading all configurations into cache")
@@ -1215,7 +848,6 @@ def _ensure_configs_loaded() -> None:
             embedding_cfg,
             indexing_cfg,
             generation_cfg,
-            model_change_cfg,
         ) = load_configurations()
 
         _cached_confluence_config = confluence_cfg
@@ -1224,7 +856,6 @@ def _ensure_configs_loaded() -> None:
         _cached_embedding_config = embedding_cfg
         _cached_indexing_config = indexing_cfg
         _cached_generation_config = generation_cfg
-        _cached_model_change_info = model_change_cfg
         _configs_loaded = True
 
 
@@ -1266,91 +897,6 @@ def get_generation_config() -> GenerationConfig | None:
     return _cached_generation_config
 
 
-def get_model_change_info() -> ModelChangeInfo | None:
-    """Get Model change information, loading lazily if needed."""
-    _ensure_configs_loaded()
-    return _cached_model_change_info
-
-
-def clear_config_cache() -> None:
-    """Clear the configuration cache to force reload on next access."""
-    global _configs_loaded, _cached_confluence_config, _cached_search_config
-    global _cached_vector_db_config, _cached_embedding_config, _cached_indexing_config
-    global _cached_generation_config, _cached_model_change_info
-
-    _configs_loaded = False
-    _cached_confluence_config = None
-    _cached_search_config = None
-    _cached_vector_db_config = None
-    _cached_embedding_config = None
-    _cached_indexing_config = None
-    _cached_generation_config = None
-    _cached_model_change_info = None
-
-
-def synchronize_auto_detected_dimension(auto_detected_dimension: int) -> None:
-    """
-    Synchronize vector DB configuration with auto-detected embedding dimension.
-
-    This function should be called by embedding services after they auto-detect
-    the embedding dimension at runtime. It will update the cached vector DB
-    configuration to use the auto-detected dimension and validate compatibility.
-
-    Args:
-        auto_detected_dimension: The dimension value that was auto-detected
-
-    Raises:
-        ValueError: If dimension validation fails
-    """
-    global _cached_vector_db_config, _cached_embedding_config
-
-    # Ensure configs are loaded first
-    _ensure_configs_loaded()
-
-    if _cached_embedding_config is None:
-        logger.warning(
-            "Cannot synchronize auto-detected dimension: no embedding config loaded"
-        )
-        return
-
-    if _cached_vector_db_config is None:
-        logger.debug("No vector DB config to synchronize with auto-detected dimension")
-        return
-
-    # Update the cached embedding config with auto-detected dimension
-    _cached_embedding_config.dimension = auto_detected_dimension
-    logger.info(
-        f"Updated cached embedding dimension with auto-detected value: {auto_detected_dimension}"
-    )
-
-    # Check if vector DB config needs dimension synchronization
-    vdb_embedding_dim = _cached_vector_db_config.embedding_dimension
-
-    if vdb_embedding_dim is None:
-        # Vector DB also needs the auto-detected dimension
-        _cached_vector_db_config.embedding_dimension = auto_detected_dimension
-        logger.info(
-            f"Synchronized vector DB embedding_dimension with auto-detected value: {auto_detected_dimension}"
-        )
-    elif vdb_embedding_dim != auto_detected_dimension:
-        # Vector DB has explicit dimension that differs from auto-detected
-        logger.warning(
-            f"Dimension mismatch after auto-detection: VectorDB expects {vdb_embedding_dim} "
-            f"but embedding model auto-detected {auto_detected_dimension}. "
-            "This may cause compatibility issues."
-        )
-        raise ValueError(
-            f"Incompatible dimensions: VectorDB configured for {vdb_embedding_dim} "
-            f"but embedding model auto-detected {auto_detected_dimension}"
-        )
-    else:
-        # Dimensions match - validation successful
-        logger.info(
-            f"Dimension validation successful: auto-detected dimension {auto_detected_dimension} "
-            "matches vector DB configuration"
-        )
-
-
 # Backward compatibility: module-level __getattr__ for lazy loading of old global config variables
 def __getattr__(name: str) -> Any:
     """Module-level __getattr__ for lazy loading of global config variables."""
@@ -1366,7 +912,5 @@ def __getattr__(name: str) -> Any:
         return get_indexing_config()
     elif name == "generation_config":
         return get_generation_config()
-    elif name == "model_change_info":
-        return get_model_change_info()
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

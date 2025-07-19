@@ -4,10 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.config import (
-    dev_mode_log_skip,
-    dev_mode_log_stub,
-    is_ci_running,
-    is_dev_mode,
+    get_development_context,
+    get_environment_context,
 )
 from confluence_gateway.core.exceptions import EmbeddingProviderError
 
@@ -123,11 +121,13 @@ class SentenceTransformerProvider(EmbeddingProvider):
         self.model: Any | None = None
         self.device: str | None = None
         self.cache_dir: Any | None = None
-        self.dev_mode = is_dev_mode()
+        self.dev_context = get_development_context()
+        self.env_context = get_environment_context()
+        self.dev_mode = self.dev_context.enabled
         self._auto_detected_dimension: int | None = None
 
         if self.dev_mode:
-            dev_mode_log_stub("SentenceTransformerProvider")
+            self.dev_context.log_stub("SentenceTransformerProvider")
             logger.info(
                 f"SentenceTransformerProvider initialized in DEV MODE - stub implementation only. "
                 f"Model='{self.config.model_name}', Dimension='{self.config.dimension}'"
@@ -141,7 +141,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
     def _determine_device(self) -> str:
         # Check if we're in CI environment first to avoid expensive CUDA detection
-        if not self.config.device and is_ci_running():
+        if not self.config.device and self.env_context.is_ci:
             logger.info(
                 "CI environment detected and no explicit device configured. "
                 "Forcing CPU device to skip expensive CUDA detection for faster CI execution."
@@ -174,7 +174,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
             logger.info("CUDA requested and available. Using CUDA.")
             # Log CI info if explicit device is being used in CI
-            if is_ci_running():
+            if self.env_context.is_ci:
                 logger.info(
                     "CI environment detected with explicit CUDA device configuration. "
                     "Proceeding with CUDA detection as requested."
@@ -184,7 +184,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
         if self.config.device == "cpu":
             logger.info("CPU explicitly requested. Using CPU.")
-            if is_ci_running():
+            if self.env_context.is_ci:
                 logger.info(
                     "CI environment detected with explicit CPU device configuration."
                 )
@@ -266,7 +266,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
             return  # Model already loaded
 
         if self.dev_mode:
-            dev_mode_log_skip(
+            self.dev_context.log_skip(
                 f"sentence-transformer model '{self.config.model_name}' loading"
             )
             return  # Skip model loading in dev mode

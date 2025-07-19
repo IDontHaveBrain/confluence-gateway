@@ -1,11 +1,8 @@
-import functools
 import logging
-import re
 import time
-from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, TypeVar, Union, cast
+from typing import Any, Union, cast
 
 from pydantic import BaseModel, Field
 
@@ -17,21 +14,24 @@ from confluence_gateway.adapters.confluence.models import (
 )
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
 from confluence_gateway.adapters.vector_db.models import VectorSearchResultItem
-from confluence_gateway.core.config import search_config
+from confluence_gateway.core.config import get_development_context, search_config
 from confluence_gateway.core.exceptions import (
-    ConfluenceAPIError,
-    EmbeddingCompatibilityError,
-    SearchParameterError,
     SemanticSearchError,
 )
-from confluence_gateway.services.embedding import EmbeddingError, EmbeddingService
-from confluence_gateway.services.indexing import IndexingService
-from confluence_gateway.services.ranking import reciprocal_rank_fusion
+from confluence_gateway.services.common.initialization_logger import (
+    InitializationLogger,
+)
+from confluence_gateway.services.common.semantic_search_core import SemanticSearchCore
+from confluence_gateway.services.common.validation_utils import ValidationUtils
+from confluence_gateway.services.embedding import EmbeddingService
+from confluence_gateway.services.indexing_service import IndexingService
+from confluence_gateway.services.search_modules.search_validator import SearchValidator
+from confluence_gateway.services.search_modules.strategies.hybrid_search import (
+    HybridSearchStrategy,
+)
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
-R = TypeVar("R")
 SearchResult_T = Union[
     SearchResult, "EnhancedSearchResult", list[VectorSearchResultItem]
 ]
@@ -70,64 +70,75 @@ class EnhancedSearchResult(BaseModel):
         return self.results
 
 
-def validate_search_params(func: Callable[..., T]) -> Callable[..., T]:
-    @functools.wraps(func)
-    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-        limit = kwargs.get("limit")
-        original_start = kwargs.get("start")
-
-        if limit is not None:
-            if limit <= 0 or limit > search_config.max_limit:
-                raise SearchParameterError(
-                    f"Limit must be between 1 and {search_config.max_limit}"
-                )
-            actual_limit = limit
-        else:
-            actual_limit = search_config.default_limit
-
-        if original_start is not None and original_start < 0:
-            raise SearchParameterError("Start position cannot be negative")
-        actual_start = original_start if original_start is not None else 0
-
-        kwargs["limit"] = actual_limit
-        kwargs["start"] = actual_start
-
-        return func(self, *args, **kwargs)
-
-    return wrapper
-
-
 class SearchService:
     def __init__(
         self,
-        client: ConfluenceClient,
+        client: ConfluenceClient | None,
         indexing_service: IndexingService | None = None,
         embedding_service: EmbeddingService | None = None,
         vector_db_adapter: VectorDBAdapter | None = None,
+        search_validator: SearchValidator | None = None,
     ):
         self.client = client
         self.indexing_service = indexing_service
         self.embedding_service = embedding_service
         self.vector_db_adapter = vector_db_adapter
+        self.search_validator = search_validator or SearchValidator()
 
-        if self.indexing_service:
-            logger.info("SearchService initialized with IndexingService.")
-        else:
-            logger.warning("SearchService initialized WITHOUT IndexingService.")
+        # Development mode support
+        self.dev_context = get_development_context()
+        self.dev_mode = self.dev_context.enabled
 
-        if self.embedding_service:
-            logger.info("SearchService initialized with EmbeddingService.")
-        else:
-            logger.warning(
-                "SearchService initialized WITHOUT EmbeddingService. Semantic search might be disabled."
+        if self.dev_mode:
+            self.dev_context.log_stub("SearchService (semantic search)")
+            logger.info(
+                "SearchService initialized in DEV MODE - stub implementation for semantic/hybrid search."
             )
 
-        if self.vector_db_adapter:
-            logger.info("SearchService initialized with VectorDBAdapter.")
-        else:
-            logger.warning(
-                "SearchService initialized WITHOUT VectorDBAdapter. Semantic search might be disabled."
+        # Initialize hybrid search strategy if required components are available
+        if self.embedding_service and self.vector_db_adapter and self.client:
+            self.hybrid_search_strategy: HybridSearchStrategy | None = (
+                HybridSearchStrategy(
+                    client=self.client,
+                    embedding_service=self.embedding_service,
+                    vector_db_adapter=self.vector_db_adapter,
+                    search_validator=self.search_validator,
+                )
             )
+        else:
+            self.hybrid_search_strategy = None
+
+        # Log component availability using standardized patterns
+        InitializationLogger.log_component_availability(
+            "SearchService",
+            "HybridSearchStrategy",
+            self.hybrid_search_strategy is not None,
+            logger,
+            impact_message="Hybrid search will be disabled.",
+        )
+
+        InitializationLogger.log_component_availability(
+            "SearchService",
+            "IndexingService",
+            self.indexing_service is not None,
+            logger,
+        )
+
+        InitializationLogger.log_component_availability(
+            "SearchService",
+            "EmbeddingService",
+            self.embedding_service is not None,
+            logger,
+            impact_message="Semantic search might be disabled.",
+        )
+
+        InitializationLogger.log_component_availability(
+            "SearchService",
+            "VectorDBAdapter",
+            self.vector_db_adapter is not None,
+            logger,
+            impact_message="Semantic search might be disabled.",
+        )
 
     def _prepare_sort_criteria(
         self,
@@ -162,16 +173,8 @@ class SearchService:
         return sort_criteria
 
     def _sanitize_keywords(self, keywords: str | list[str]) -> str:
-        if isinstance(keywords, str):
-            return self._sanitize_text(keywords)
+        return self.search_validator.sanitize_keywords(keywords)
 
-        if not keywords:
-            raise SearchParameterError("Search keywords cannot be empty")
-
-        sanitized_keywords = [self._sanitize_text(kw) for kw in keywords]
-        return " ".join(sanitized_keywords)
-
-    @validate_search_params
     def search_by_text(
         self,
         text: str | list[str],
@@ -189,7 +192,14 @@ class SearchService:
         sort_direction: list[SortDirection | str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
-        sanitized_text = self._sanitize_keywords(text)
+        # Validate and normalize search parameters
+        validated_params = self.search_validator.validate_and_normalize_search_params(
+            limit=limit, start=start
+        )
+        limit = validated_params["limit"]
+        start = validated_params["start"]
+
+        sanitized_text = self.search_validator.sanitize_keywords(text)
 
         actual_expand = expand
         if actual_expand is None and search_config.default_expand:
@@ -210,6 +220,50 @@ class SearchService:
         page_number = ((start or 0) // (limit or 1)) + 1 if (limit or 0) > 0 else 1
 
         start_time = time.time()
+
+        if self.client is None:
+            # Return mock search results for development mode using proper data structures
+            from confluence_gateway.adapters.confluence.models import SearchResult
+
+            mock_page = ConfluencePage(
+                id="mock-page-1",
+                title=f"Mock Search Result for: {sanitized_text}",
+                type="page",
+                space={"key": "MOCK", "name": "Mock Space"},
+                content={
+                    "body": {
+                        "view": {
+                            "value": f"This is a mock search result for query: {sanitized_text}"
+                        }
+                    }
+                },
+                url="/mock/page/1",
+                _links={"base": "https://mock.atlassian.net", "webui": "/mock/page/1"},
+            )
+
+            mock_search_result = SearchResult(
+                results=[mock_page], total_size=1, limit=limit or 25, start=start or 0
+            )
+
+            if return_enhanced_result:
+                statistics = SearchStatistics(
+                    total_results=1,
+                    filtered_results=1,
+                    total_pages=1,
+                    current_page=page_number,
+                    execution_time_ms=5.0,
+                    timestamp=datetime.now(),
+                )
+
+                return EnhancedSearchResult(
+                    results=mock_search_result,
+                    statistics=statistics,
+                    query=sanitized_text,
+                    filters_applied=filters,
+                    sort_criteria=sort_criteria,
+                )
+            else:
+                return cast(SearchResult_T, mock_search_result)
 
         search_result = self.client.search(
             query=sanitized_text,
@@ -246,24 +300,6 @@ class SearchService:
             )
         else:
             return cast(SearchResult_T, search_result)
-
-    def _sanitize_text(self, text: str) -> str:
-        if not text:
-            raise SearchParameterError("Search text cannot be empty")
-
-        sanitized = re.sub(r"\s+", " ", text.strip())
-
-        if not sanitized:
-            raise SearchParameterError("Search text cannot be empty")
-
-        if len(sanitized) < 2:
-            raise SearchParameterError("Search text must be at least 2 characters long")
-
-        sanitized = re.sub(
-            r"[^\w\s\-.,;:!?\'\"()/+*=%&#@$^~]", "", sanitized, flags=re.UNICODE
-        )
-
-        return sanitized
 
     def _process_search_result(
         self,
@@ -393,85 +429,60 @@ class SearchService:
         top_k: int = 10,
         filters: dict[str, Any] | None = None,
     ) -> tuple[list[VectorSearchResultItem], float]:
-        if not self.embedding_service:
-            logger.error(
-                "Semantic search attempted but EmbeddingService is not available."
+        if self.dev_mode:
+            logger.info(
+                f"DEV MODE: Generating stub semantic search results for query: '{query[:50]}...'"
             )
-            raise SemanticSearchError(
-                "Semantic search is not configured: EmbeddingService is missing."
-            )
-        if not self.vector_db_adapter:
-            logger.error(
-                "Semantic search attempted but VectorDBAdapter is not available."
-            )
-            raise SemanticSearchError(
-                "Semantic search is not configured: VectorDBAdapter is missing."
-            )
+            # Return empty results list and mock timing
+            return [], 50.0
 
-        if not query or query.isspace():
-            raise SearchParameterError("Semantic search query cannot be empty.")
-        if top_k <= 0:
-            raise SearchParameterError("top_k must be a positive integer.")
+        # Validate required dependencies for semantic search
+        dependencies = {
+            "EmbeddingService": self.embedding_service,
+            "VectorDBAdapter": self.vector_db_adapter,
+        }
 
-        sanitized_query = query.strip()
+        for service_name, service in dependencies.items():
+            if not ValidationUtils.validate_service_dependency(
+                service,
+                service_name,
+                logger,
+                required=True,
+                operation_name="semantic search",
+            ):
+                raise SemanticSearchError(
+                    f"Semantic search is not configured: {service_name} is missing."
+                )
+
+        # Validate semantic search parameters using centralized validator
+        validated_params = self.search_validator.validate_semantic_search_parameters(
+            query=query, top_k=top_k
+        )
+        sanitized_query = validated_params["query"]
+        top_k = validated_params["top_k"]
         logger.info(
             f"Performing semantic search for query: '{sanitized_query}', top_k={top_k}, filters={filters}"
         )
 
-        # Validate embedding compatibility before proceeding
-        try:
-            self.embedding_service.validate_compatibility_with_vector_db(
-                self.vector_db_adapter, operation_type="search"
-            )
-        except EmbeddingCompatibilityError as e:
-            logger.error(
-                f"Embedding compatibility validation failed for semantic search: {e}"
-            )
-            raise SemanticSearchError(
-                f"Cannot perform semantic search due to embedding model incompatibility: {e}"
-            ) from e
-
         start_time = time.time()
 
-        try:
-            logger.debug(f"Generating embedding for query: '{sanitized_query}'")
-            query_embedding = self.embedding_service.embed_text(sanitized_query)
-            if not query_embedding:
-                logger.error(
-                    f"Embedding service returned an empty embedding for query: '{sanitized_query}'"
-                )
-                raise SemanticSearchError("Failed to generate a valid query embedding.")
-            logger.debug("Query embedding generated successfully.")
+        # Use SemanticSearchCore to perform the complete semantic search operation
+        # Assert that services are not None since we validated them above
+        assert self.embedding_service is not None, (
+            "EmbeddingService should not be None after validation"
+        )
+        assert self.vector_db_adapter is not None, (
+            "VectorDBAdapter should not be None after validation"
+        )
 
-        except EmbeddingError as e:
-            logger.error(
-                f"Embedding failed for query '{sanitized_query}': {e}", exc_info=True
-            )
-            raise SemanticSearchError(
-                f"Failed to generate embedding for the query: {e}"
-            ) from e
-        except Exception as e:
-            logger.error(f"Unexpected error during query embedding: {e}", exc_info=True)
-            raise SemanticSearchError(
-                f"An unexpected error occurred during query embedding: {e}"
-            ) from e
-
-        try:
-            logger.debug(
-                f"Searching vector database with top_k={top_k} and filters={filters}"
-            )
-            results: list[VectorSearchResultItem] = self.vector_db_adapter.search(
-                query_embedding=query_embedding,
-                top_k=top_k,
-                filters=filters,
-            )
-            logger.debug(f"Vector database search returned {len(results)} results.")
-
-        except Exception as e:
-            logger.error(f"Vector database search failed: {e}", exc_info=True)
-            raise SemanticSearchError(
-                f"Semantic search failed during vector database query: {e}"
-            ) from e
+        results = SemanticSearchCore.perform_complete_semantic_search(
+            query=sanitized_query,
+            embedding_service=self.embedding_service,
+            vector_db_adapter=self.vector_db_adapter,
+            top_k=top_k,
+            filters=filters,
+            logger_instance=logger,
+        )
 
         took_ms = (time.time() - start_time) * 1000
         logger.info(
@@ -480,7 +491,6 @@ class SearchService:
 
         return results, took_ms
 
-    @validate_search_params
     def search_by_cql(
         self,
         cql: str,
@@ -494,51 +504,14 @@ class SearchService:
         sort_direction: list[SortDirection | str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
-        if not cql or not cql.strip():
-            raise SearchParameterError("CQL query cannot be empty")
-
-        equality_operators = ["=", "!=", "~", "^=", "$=", "*="]
-        comparison_operators = ["<", ">", "<=", ">="]
-        logical_operators = ["AND", "OR", "NOT"]
-
-        field_operator_value_pattern = re.compile(
-            r"\b[\w.-]+\s*("
-            + "|".join(map(re.escape, equality_operators + comparison_operators))
-            + r')\s*("([^"]|\\")*"|\'([^\']|\\\')*\'|\S+)',
-            re.IGNORECASE,
+        # Validate and normalize search parameters
+        validated_params = self.search_validator.validate_and_normalize_search_params(
+            limit=limit, start=start
         )
+        limit = validated_params["limit"]
+        start = validated_params["start"]
 
-        logical_pattern = re.compile(
-            r"\b("
-            + "|".join(map(re.escape, logical_operators))
-            + r")\b\s+"
-            + r"("
-            + r"\(|"
-            + r"\b[\w.-]+\b\s*("
-            + "|".join(map(re.escape, equality_operators + comparison_operators))
-            + r")"
-            + r")",
-            re.IGNORECASE,
-        )
-
-        order_by_pattern = re.compile(
-            r"\bORDER\s+BY\s+[\w.-]+(\s+(ASC|DESC))?", re.IGNORECASE
-        )
-
-        has_field_operator_value = bool(field_operator_value_pattern.search(cql))
-        has_logical_structure = bool(logical_pattern.search(cql))
-        has_order_by = bool(order_by_pattern.search(cql))
-        has_parentheses = "(" in cql and ")" in cql
-
-        if not (
-            has_field_operator_value
-            or has_logical_structure
-            or has_order_by
-            or has_parentheses
-        ):
-            raise SearchParameterError(
-                "Invalid CQL query format. CQL must contain field-operator-value patterns, logical operators with conditions, ORDER BY clauses, or parentheses."
-            )
+        cql = self.search_validator.validate_cql_query(cql)
 
         actual_expand = expand
         if actual_expand is None and search_config.default_expand:
@@ -554,6 +527,54 @@ class SearchService:
         page_number = ((start or 0) // (limit or 1)) + 1 if (limit or 0) > 0 else 1
 
         start_time = time.time()
+
+        if self.client is None:
+            # Return mock CQL search results for development mode using proper data structures
+            from confluence_gateway.adapters.confluence.models import SearchResult
+
+            mock_page = ConfluencePage(
+                id="mock-cql-page-1",
+                title=f"Mock CQL Search Result for: {cql}",
+                type="page",
+                space={"key": "MOCK", "name": "Mock Space"},
+                content={
+                    "body": {
+                        "view": {
+                            "value": f"This is a mock CQL search result for query: {cql}"
+                        }
+                    }
+                },
+                url="/mock/cql/page/1",
+                _links={
+                    "base": "https://mock.atlassian.net",
+                    "webui": "/mock/cql/page/1",
+                },
+            )
+
+            mock_search_result = SearchResult(
+                results=[mock_page], total_size=1, limit=limit or 25, start=start or 0
+            )
+
+            if return_enhanced_result:
+                statistics = SearchStatistics(
+                    total_results=1,
+                    filtered_results=1,
+                    total_pages=1,
+                    current_page=page_number,
+                    execution_time_ms=5.0,
+                    timestamp=datetime.now(),
+                )
+
+                return EnhancedSearchResult(
+                    results=mock_search_result,
+                    statistics=statistics,
+                    query=cql,
+                    filters_applied=filters,
+                    sort_criteria=sort_criteria,
+                )
+            else:
+                return cast(SearchResult_T, mock_search_result)
+
         search_result = self.client.search_by_cql(
             cql=cql,
             limit=limit,
@@ -584,7 +605,6 @@ class SearchService:
         else:
             return cast(SearchResult_T, search_result)
 
-    @validate_search_params
     def search_hybrid(
         self,
         text: str | list[str],
@@ -596,196 +616,87 @@ class SearchService:
         expand: list[str] | None = None,
         return_enhanced_result: bool = True,
     ) -> SearchResult_T:
-        if not search_config.hybrid_search_enabled:
-            raise SemanticSearchError("Hybrid search is disabled in the configuration.")
+        """Execute hybrid search combining keyword and semantic search using strategy pattern.
 
-        if not self.embedding_service or not self.vector_db_adapter:
-            raise SemanticSearchError(
-                "Hybrid search requires EmbeddingService and VectorDBAdapter to be configured."
-            )
+        Args:
+            text: Search query text or list of keywords
+            content_type: Optional content type filter
+            space_key: Optional space key filter
+            include_archived: Whether to include archived content
+            limit: Maximum number of results to return
+            start: Start position for pagination
+            expand: List of fields to expand in results
+            return_enhanced_result: Whether to return enhanced result with statistics
 
-        sanitized_text = self._sanitize_keywords(text)
-        actual_expand = expand if expand is not None else search_config.default_expand
+        Returns:
+            SearchResult or EnhancedSearchResult based on return_enhanced_result flag
 
-        # Validate embedding compatibility before proceeding with semantic part
-        try:
-            self.embedding_service.validate_compatibility_with_vector_db(
-                self.vector_db_adapter, operation_type="search"
-            )
-        except EmbeddingCompatibilityError as e:
-            logger.error(
-                f"Embedding compatibility validation failed for hybrid search: {e}"
-            )
-            raise SemanticSearchError(
-                f"Cannot perform hybrid search due to embedding model incompatibility: {e}"
-            ) from e
+        Raises:
+            SemanticSearchError: If hybrid search is disabled or services unavailable
+            SearchParameterError: If search parameters are invalid
+        """
+        # Validate and normalize search parameters
+        validated_params = self.search_validator.validate_and_normalize_search_params(
+            limit=limit, start=start
+        )
+        limit = validated_params["limit"]
+        start = validated_params["start"]
 
         start_time = time.time()
 
-        search_result_kw: SearchResult | None = None
-        keyword_ranks: dict[str, int] = {}
-        try:
-            logger.info(
-                f"Hybrid Search: Fetching keyword results (limit={search_config.hybrid_keyword_fetch_limit})..."
-            )
-            search_result_kw = self.client.search(
-                query=sanitized_text,
-                content_type=content_type,
-                space_key=space_key,
-                include_archived=include_archived,
-                limit=search_config.hybrid_keyword_fetch_limit,
-                start=0,
-                expand=actual_expand,
-                get_all_results=False,
-            )
-            keyword_ranks = {
-                doc.id: rank
-                for rank, doc in enumerate(
-                    search_result_kw.results if search_result_kw else [], 1
+        # Sanitize and prepare query
+        sanitized_text = self._sanitize_keywords(text)
+
+        # Validate hybrid search strategy availability
+        if not ValidationUtils.validate_service_dependency(
+            self.hybrid_search_strategy,
+            "HybridSearchStrategy",
+            logger,
+            required=True,
+            operation_name="hybrid search",
+        ):
+            # Check if we're in dev mode - if so, provide fallback to text search
+            dev_context = get_development_context()
+            if dev_context.enabled:
+                # Fallback to text search in dev mode when hybrid search is not available
+                return self.search_by_text(
+                    text=sanitized_text,
+                    content_type=content_type,
+                    space_key=space_key,
+                    include_archived=include_archived,
+                    limit=limit,
+                    start=start,
+                    expand=expand,
+                    return_enhanced_result=return_enhanced_result,
                 )
-            }
-            logger.info(f"Hybrid Search: Fetched {len(keyword_ranks)} keyword results.")
-        except Exception as e:
-            logger.error(f"Hybrid Search: Keyword search failed: {e}", exc_info=True)
-            raise
-
-        semantic_ranks: dict[str, int] = {}
-        semantic_results_list: list[tuple[str, float]] = []
-        try:
-            logger.info(
-                f"Hybrid Search: Fetching semantic results (limit={search_config.hybrid_semantic_fetch_limit})..."
-            )
-            semantic_filters = {}
-            if space_key:
-                semantic_filters["space_key"] = space_key
-            if content_type:
-                doc_type_key = "document_type"
-                semantic_filters[doc_type_key] = (
-                    str(content_type.value)
-                    if isinstance(content_type, ContentType)
-                    else content_type
-                )
-
-            semantic_results_raw, _ = self.search_semantic(
-                query=sanitized_text,
-                top_k=search_config.hybrid_semantic_fetch_limit,
-                filters=semantic_filters if semantic_filters else None,
-            )
-
-            semantic_page_scores: dict[str, float] = {}
-            for item in semantic_results_raw:
-                original_content_id = item.metadata.get("original_content_id")
-                if original_content_id:
-                    current_score = semantic_page_scores.get(original_content_id, -1.0)
-                    semantic_page_scores[original_content_id] = max(
-                        current_score, item.score
-                    )
-
-            sorted_semantic_pages = sorted(
-                semantic_page_scores.items(), key=lambda item: item[1], reverse=True
-            )
-            semantic_ranks = {
-                page_id: rank
-                for rank, (page_id, _) in enumerate(sorted_semantic_pages, 1)
-            }
-            semantic_results_list = list(sorted_semantic_pages)
-            logger.info(
-                f"Hybrid Search: Processed {len(semantic_ranks)} unique semantic results."
-            )
-
-        except SemanticSearchError as e:
-            logger.error(f"Hybrid Search: Semantic search failed: {e}", exc_info=True)
-            raise
-        except Exception as e:
-            logger.error(
-                f"Hybrid Search: Unexpected error during semantic search part: {e}",
-                exc_info=True,
-            )
-            raise
-
-        rrf_results: list[tuple[str, float]] = []
-        try:
-            logger.info("Hybrid Search: Performing Reciprocal Rank Fusion...")
-            keyword_result_ids_list = (
-                [doc.id for doc in search_result_kw.results] if search_result_kw else []
-            )
-
-            rrf_results = reciprocal_rank_fusion(
-                keyword_result_ids=keyword_result_ids_list,
-                semantic_results=semantic_results_list,
-                k=search_config.hybrid_rrf_k,
-            )
-            logger.info(
-                f"Hybrid Search: RRF completed, {len(rrf_results)} total ranked results."
-            )
-
-        except ValueError as e:
-            logger.error(
-                f"Hybrid Search: RRF input validation failed: {e}", exc_info=True
-            )
-            raise SearchParameterError(f"RRF failed: {e}") from e
-        except Exception as e:
-            logger.error(f"Hybrid Search: RRF failed: {e}", exc_info=True)
-            raise RuntimeError(f"Hybrid search failed during RRF: {e}") from e
-
-        total_hybrid_results = len(rrf_results)
-        final_start = start or 0
-        final_limit = limit or search_config.default_limit
-        paginated_rrf_results = rrf_results[final_start : final_start + final_limit]
-        final_doc_ids = [doc_id for doc_id, score in paginated_rrf_results]
-
-        logger.info(
-            f"Hybrid Search: Applied pagination (start={final_start}, limit={final_limit}), {len(final_doc_ids)} final IDs."
-        )
-
-        final_page_objects: list[ConfluencePage] = []
-        fetched_docs_cache: dict[str, ConfluencePage] = {
-            doc.id: doc
-            for doc in (search_result_kw.results if search_result_kw else [])
-        }
-
-        for doc_id in final_doc_ids:
-            if doc_id in fetched_docs_cache:
-                final_page_objects.append(fetched_docs_cache[doc_id])
             else:
-                try:
-                    logger.debug(
-                        f"Hybrid Search: Fetching details for missing ID {doc_id}..."
-                    )
-                    page = self.client.get_page(doc_id, expand=actual_expand)
-                    final_page_objects.append(page)
-                    fetched_docs_cache[doc_id] = page
-                except ConfluenceAPIError as e:
-                    if e.status_code == 404:
-                        logger.warning(
-                            f"Hybrid Search: Document ID {doc_id} (from RRF) not found in Confluence. Skipping."
-                        )
-                    else:
-                        logger.error(
-                            f"Hybrid Search: Failed to fetch details for document ID {doc_id}: {e}",
-                            exc_info=True,
-                        )
-                except Exception as e:
-                    logger.error(
-                        f"Hybrid Search: Unexpected error fetching details for document ID {doc_id}: {e}",
-                        exc_info=True,
-                    )
+                raise SemanticSearchError(
+                    "Hybrid search is not available. EmbeddingService and VectorDBAdapter are required."
+                )
 
-        logger.info(
-            f"Hybrid Search: Successfully prepared {len(final_page_objects)} final document objects."
+        # Delegate to hybrid search strategy
+        # Assert that hybrid_search_strategy is not None since we validated it above
+        assert self.hybrid_search_strategy is not None, (
+            "HybridSearchStrategy should not be None after validation"
         )
 
-        final_search_result_obj = SearchResult(
-            results=final_page_objects,
-            total_size=total_hybrid_results,
-            start=final_start,
-            limit=final_limit,
+        final_search_result_obj = self.hybrid_search_strategy.search_hybrid(
+            text=sanitized_text,
+            content_type=content_type,
+            space_key=space_key,
+            include_archived=include_archived,
+            limit=limit,
+            start=start,
+            expand=expand,
         )
 
         execution_time_ms = (time.time() - start_time) * 1000
 
         if return_enhanced_result:
+            final_start = start or 0
+            final_limit = limit or search_config.default_limit
             page_number = (final_start // final_limit) + 1 if final_limit > 0 else 1
+
             filters_applied = {
                 "content_type": content_type,
                 "space_key": space_key,
@@ -805,4 +716,4 @@ class SearchService:
                 current_page=page_number,
             )
         else:
-            return final_search_result_obj
+            return cast(SearchResult_T, final_search_result_obj)

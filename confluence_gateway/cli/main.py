@@ -44,7 +44,9 @@ app.add_typer(
 )
 app.add_typer(spaces_commands.app, name="spaces", help="Manage Confluence spaces.")
 app.add_typer(
-    model_commands.app, name="models", help="Manage embedding models and configuration."
+    model_commands.app,
+    name="models",
+    help="Check embedding model configuration and compatibility.",
 )
 
 if __name__ == "__main__":

@@ -3,9 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.core.config import (
-    dev_mode_log_skip,
-    dev_mode_log_stub,
-    is_dev_mode,
+    get_development_context,
 )
 from confluence_gateway.core.exceptions import EmbeddingProviderError
 
@@ -57,11 +55,12 @@ def _get_litellm() -> Any:
 class LiteLLMProvider(EmbeddingProvider):
     def __init__(self, config: "EmbeddingConfig") -> None:
         super().__init__(config)
-        self.dev_mode = is_dev_mode()
+        self.dev_context = get_development_context()
+        self.dev_mode = self.dev_context.enabled
         self._auto_detected_dimension: int | None = None
 
         if self.dev_mode:
-            dev_mode_log_stub("LiteLLMProvider")
+            self.dev_context.log_stub("LiteLLMProvider")
             logger.info(
                 f"LiteLLMProvider initialized in DEV MODE - stub implementation only. "
                 f"Model='{self.config.model_name}', Dimension='{self.config.dimension}'"
@@ -145,7 +144,7 @@ class LiteLLMProvider(EmbeddingProvider):
 
     def initialize(self) -> None:
         if self.dev_mode:
-            dev_mode_log_skip(
+            self.dev_context.log_skip(
                 f"LiteLLM provider initialization and test call for model '{self.config.model_name}'"
             )
             logger.info("LiteLLM provider initialized in DEV MODE - no test calls made")

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from confluence_gateway.core.config import ModelMetadata, VectorDBConfig
+from confluence_gateway.core.config import VectorDBConfig
 
 from .models import Document, VectorSearchResultItem
 
@@ -56,16 +56,6 @@ class VectorDBAdapter(ABC):
     @abstractmethod
     def get_collection_info(self) -> dict[str, Any]:
         """Get information about the collection including size, configuration, etc."""
-        pass
-
-    @abstractmethod
-    def store_model_metadata(self, metadata: ModelMetadata) -> None:
-        """Store model metadata in the vector database."""
-        pass
-
-    @abstractmethod
-    def get_model_metadata(self) -> ModelMetadata | None:
-        """Retrieve model metadata from the vector database."""
         pass
 
     @abstractmethod

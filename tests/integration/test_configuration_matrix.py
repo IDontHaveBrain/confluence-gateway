@@ -8,56 +8,19 @@ Tests basic success cases for essential provider combinations:
 Focus: Basic success cases only, no error scenarios or complex validation.
 """
 
-import json
-import os
-import subprocess
-import time
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
 from tests.fixtures.config_builders import (
-    apply_env_vars,
-    cleanup_temp_dirs,
     get_chroma_memory_config,
     get_no_vector_db_config,
     get_qdrant_memory_config,
-    restore_env_vars,
 )
-from tests.fixtures.shared_embedding import (
-    inject_shared_model_into_provider,
-    log_embedding_operation,
-)
-
-
-def parse_cli_json_output(output: str) -> dict[str, Any]:
-    """Parse JSON from CLI output that may contain info messages before JSON."""
-    lines = output.strip().split("\n")
-
-    # Find the first line that starts with '{' and collect all subsequent lines
-    json_started = False
-    json_lines = []
-
-    for line in lines:
-        stripped_line = line.strip()
-
-        # Start collecting JSON when we find the opening brace
-        if not json_started and stripped_line.startswith("{"):
-            json_started = True
-            json_lines.append(line)
-        elif json_started:
-            # Continue collecting lines that are part of the JSON
-            json_lines.append(line)
-
-    if json_lines:
-        # Join all JSON lines and parse
-        json_text = "\n".join(json_lines)
-        return json.loads(json_text)
-
-    # If no JSON found, try parsing the entire output as fallback
-    return json.loads(output.strip())
-
+from tests.utils.cli_helpers import CLITestRunner, run_spaces_list
+from tests.utils.environment_helpers import EnvironmentManager
+from tests.utils.mock_helpers import SentenceTransformerContext
+from tests.utils.performance_helpers import performance_tracked
 
 # Essential configuration combinations only
 ESSENTIAL_CONFIGURATIONS = [
@@ -75,6 +38,7 @@ class TestEssentialConfigurationMatrix:
     optimization for sentence-transformers configurations.
     """
 
+    @performance_tracked("config_initialization")
     def test_configuration_initialization(
         self,
         vector_db: str,
@@ -93,75 +57,28 @@ class TestEssentialConfigurationMatrix:
         # Get the appropriate config builder
         config_result = self._build_configuration(vector_db, embedding, storage)
 
-        # Apply environment variables
-        previous_env = apply_env_vars(config_result.env_vars)
-
-        # Track performance for sentence-transformers configurations
-        start_time = time.time()
-
-        try:
-            # For sentence-transformers configurations, use shared model optimization
+        with EnvironmentManager.from_config(config_result):
+            optimization_status = "standard"
             if (
                 embedding == "sentence-transformers"
                 and shared_sentence_transformer_model is not None
             ):
-                print(
-                    f"Testing {vector_db}/{embedding}/{storage} with shared model optimization"
-                )
+                optimization_status = "shared model optimization"
 
-                # Use mock to inject shared model during CLI subprocess execution
-                # This simulates the optimization without requiring complex inter-process communication
-                with patch(
-                    "sentence_transformers.SentenceTransformer",
-                    return_value=shared_sentence_transformer_model,
-                ):
-                    # Test that the CLI can initialize without errors
-                    result = subprocess.run(
-                        ["uv", "run", "confluence-gateway", "--help"],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-            else:
-                print(
-                    f"Testing {vector_db}/{embedding}/{storage} with standard configuration"
-                )
+            print(
+                f"Testing {vector_db}/{embedding}/{storage} with {optimization_status}"
+            )
+
+            # Use shared model context if available
+            with SentenceTransformerContext(shared_sentence_transformer_model):
                 # Test that the CLI can initialize without errors
-                result = subprocess.run(
-                    ["uv", "run", "confluence-gateway", "--help"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
+                CLITestRunner.run_command(["--help"], timeout=30)
 
-            # CLI should start successfully with valid configuration
-            assert result.returncode == 0, (
-                f"CLI failed to initialize with config {vector_db}/{embedding}/{storage}: {result.stderr}"
-            )
+                # Test that version command works (verifies basic initialization)
+                result = CLITestRunner.run_command(["--version"], timeout=30)
+                assert "confluence-gateway" in result.stdout.lower()
 
-            # Test that version command works (verifies basic initialization)
-            result = subprocess.run(
-                ["uv", "run", "confluence-gateway", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            assert result.returncode == 0, f"Version command failed: {result.stderr}"
-            assert "confluence-gateway" in result.stdout.lower()
-
-            # Log performance metrics for analysis
-            test_duration = time.time() - start_time
-            log_embedding_operation(
-                f"config_init_{vector_db}_{embedding}", test_duration
-            )
-            print(f"Configuration test completed in {test_duration:.3f}s")
-
-        finally:
-            # Restore environment
-            restore_env_vars(previous_env)
-            cleanup_temp_dirs(config_result.temp_dirs)
-
+    @performance_tracked("basic_functionality")
     def test_basic_functionality(
         self,
         vector_db: str,
@@ -179,86 +96,27 @@ class TestEssentialConfigurationMatrix:
         """
         # Get the appropriate config builder
         config_result = self._build_configuration(vector_db, embedding, storage)
+        expected_features = self._get_expected_features(vector_db, embedding, storage)
 
-        # Apply environment variables
-        previous_env = apply_env_vars(config_result.env_vars)
-
-        start_time = time.time()
-
-        try:
-            expected_features = self._get_expected_features(
-                vector_db, embedding, storage
-            )
-
-            # Use shared model optimization for sentence-transformers
-            context_manager = (
-                patch(
-                    "sentence_transformers.SentenceTransformer",
-                    return_value=shared_sentence_transformer_model,
-                )
-                if embedding == "sentence-transformers"
-                and shared_sentence_transformer_model is not None
-                else patch("os.environ", os.environ)
-            )  # No-op patch
-
-            with context_manager:
+        with EnvironmentManager.from_config(config_result):
+            # Use shared model context if available
+            with SentenceTransformerContext(shared_sentence_transformer_model):
                 # Test text search help (should always work)
                 if expected_features["text_search"]:
-                    result = subprocess.run(
-                        [
-                            "uv",
-                            "run",
-                            "confluence-gateway",
-                            "search",
-                            "text",
-                            "--help",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    assert result.returncode == 0, (
-                        f"Text search help failed: {result.stderr}"
-                    )
+                    CLITestRunner.run_command(["search", "text", "--help"], timeout=30)
 
                 # Test semantic search help if available
                 if expected_features["semantic_search"]:
-                    result = subprocess.run(
-                        [
-                            "uv",
-                            "run",
-                            "confluence-gateway",
-                            "search",
-                            "semantic",
-                            "--help",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    assert result.returncode == 0, (
-                        f"Semantic search help failed: {result.stderr}"
+                    CLITestRunner.run_command(
+                        ["search", "semantic", "--help"], timeout=30
                     )
 
-            # Log performance
-            test_duration = time.time() - start_time
-            log_embedding_operation(
-                f"functionality_test_{vector_db}_{embedding}", test_duration
+            optimization_status = (
+                "optimized" if shared_sentence_transformer_model else "standard"
             )
+            print(f"Functionality test ({optimization_status}) completed")
 
-            if embedding == "sentence-transformers":
-                optimization_status = (
-                    "optimized" if shared_sentence_transformer_model else "standard"
-                )
-                print(
-                    f"Functionality test ({optimization_status}) completed in {test_duration:.3f}s"
-                )
-
-        finally:
-            # Restore environment
-            restore_env_vars(previous_env)
-            cleanup_temp_dirs(config_result.temp_dirs)
-
+    @performance_tracked("basic_workflow")
     def test_basic_workflow(
         self,
         vector_db: str,
@@ -277,71 +135,16 @@ class TestEssentialConfigurationMatrix:
         # Get the appropriate config builder
         config_result = self._build_configuration(vector_db, embedding, storage)
 
-        # Apply environment variables
-        previous_env = apply_env_vars(config_result.env_vars)
-
-        start_time = time.time()
-
-        try:
-            # Use shared model optimization for sentence-transformers
-            context_manager = (
-                patch(
-                    "sentence_transformers.SentenceTransformer",
-                    return_value=shared_sentence_transformer_model,
-                )
-                if embedding == "sentence-transformers"
-                and shared_sentence_transformer_model is not None
-                else patch("os.environ", os.environ)
-            )  # No-op patch
-
-            with context_manager:
+        with EnvironmentManager.from_config(config_result):
+            # Use shared model context if available
+            with SentenceTransformerContext(shared_sentence_transformer_model):
                 # Test spaces list command (basic Confluence connectivity)
-                spaces_result = subprocess.run(
-                    [
-                        "uv",
-                        "run",
-                        "confluence-gateway",
-                        "spaces",
-                        "list",
-                        "--json",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-
-                # Only verify if Confluence credentials are available
-                if spaces_result.returncode == 0:
-                    spaces_data = parse_cli_json_output(spaces_result.stdout)
+                try:
+                    spaces_data = run_spaces_list(timeout=60)
                     assert "results" in spaces_data
-                else:
+                except AssertionError:
                     # If no Confluence connection, at least verify CLI doesn't crash
-                    help_result = subprocess.run(
-                        [
-                            "uv",
-                            "run",
-                            "confluence-gateway",
-                            "search",
-                            "--help",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    assert help_result.returncode == 0, (
-                        f"Search help failed: {help_result.stderr}"
-                    )
-
-            # Log workflow performance
-            test_duration = time.time() - start_time
-            log_embedding_operation(
-                f"workflow_test_{vector_db}_{embedding}", test_duration
-            )
-
-        finally:
-            # Restore environment
-            restore_env_vars(previous_env)
-            cleanup_temp_dirs(config_result.temp_dirs)
+                    CLITestRunner.run_command(["search", "--help"], timeout=30)
 
     def _get_expected_features(
         self, vector_db: str, embedding: str, storage: str
@@ -381,150 +184,48 @@ class TestEssentialConfigurationMatrix:
 class TestProviderCompatibility:
     """Test basic provider compatibility with shared embedding optimization."""
 
+    @performance_tracked("qdrant_sentence_transformers_compatibility")
     def test_qdrant_sentence_transformers_compatibility(
         self, shared_sentence_transformer_model
     ) -> None:
         """Test Qdrant + SentenceTransformers basic compatibility with shared model optimization."""
-        config_result = get_qdrant_memory_config()
-
-        # Apply environment variables
-        previous_env = apply_env_vars(config_result.env_vars)
-
-        start_time = time.time()
-
-        try:
-            # Use shared model optimization
-            context_manager = (
-                patch(
-                    "sentence_transformers.SentenceTransformer",
-                    return_value=shared_sentence_transformer_model,
-                )
-                if shared_sentence_transformer_model is not None
-                else patch("os.environ", os.environ)
-            )  # No-op patch
-
-            with context_manager:
+        with EnvironmentManager.qdrant_memory():
+            # Use shared model context if available
+            with SentenceTransformerContext(shared_sentence_transformer_model):
                 # Test basic CLI initialization
-                result = subprocess.run(
-                    ["uv", "run", "confluence-gateway", "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-
-                assert result.returncode == 0, (
-                    f"Qdrant + SentenceTransformers initialization failed: {result.stderr}"
-                )
-
-            # Log performance metrics
-            test_duration = time.time() - start_time
-            log_embedding_operation(
-                "qdrant_sentence_transformers_compatibility", test_duration
-            )
+                CLITestRunner.run_command(["--version"], timeout=60)
 
             optimization_status = (
                 "optimized" if shared_sentence_transformer_model else "standard"
             )
             print(
-                f"Qdrant + SentenceTransformers compatibility test ({optimization_status}) completed in {test_duration:.3f}s"
+                f"Qdrant + SentenceTransformers compatibility test ({optimization_status}) completed"
             )
 
-        finally:
-            # Restore environment
-            restore_env_vars(previous_env)
-            cleanup_temp_dirs(config_result.temp_dirs)
-
+    @performance_tracked("chroma_sentence_transformers_compatibility")
     def test_chroma_sentence_transformers_compatibility(
         self, shared_sentence_transformer_model
     ) -> None:
         """Test ChromaDB + SentenceTransformers basic compatibility with shared model optimization."""
-        config_result = get_chroma_memory_config()
-
-        # Apply environment variables
-        previous_env = apply_env_vars(config_result.env_vars)
-
-        start_time = time.time()
-
-        try:
-            # Use shared model optimization
-            context_manager = (
-                patch(
-                    "sentence_transformers.SentenceTransformer",
-                    return_value=shared_sentence_transformer_model,
-                )
-                if shared_sentence_transformer_model is not None
-                else patch("os.environ", os.environ)
-            )  # No-op patch
-
-            with context_manager:
+        with EnvironmentManager.chroma_memory():
+            # Use shared model context if available
+            with SentenceTransformerContext(shared_sentence_transformer_model):
                 # Test basic CLI initialization
-                result = subprocess.run(
-                    ["uv", "run", "confluence-gateway", "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-
-                assert result.returncode == 0, (
-                    f"ChromaDB + SentenceTransformers initialization failed: {result.stderr}"
-                )
-
-            # Log performance metrics
-            test_duration = time.time() - start_time
-            log_embedding_operation(
-                "chroma_sentence_transformers_compatibility", test_duration
-            )
+                CLITestRunner.run_command(["--version"], timeout=60)
 
             optimization_status = (
                 "optimized" if shared_sentence_transformer_model else "standard"
             )
             print(
-                f"ChromaDB + SentenceTransformers compatibility test ({optimization_status}) completed in {test_duration:.3f}s"
+                f"ChromaDB + SentenceTransformers compatibility test ({optimization_status}) completed"
             )
 
-        finally:
-            # Restore environment
-            restore_env_vars(previous_env)
-            cleanup_temp_dirs(config_result.temp_dirs)
-
+    @performance_tracked("text_only_mode_functionality")
     def test_text_only_mode_functionality(self) -> None:
         """Test text-only mode basic functionality."""
-        config_result = get_no_vector_db_config()
-
-        # Apply environment variables
-        previous_env = apply_env_vars(config_result.env_vars)
-
-        try:
+        with EnvironmentManager.no_vector_db():
             # Test basic CLI initialization
-            result = subprocess.run(
-                ["uv", "run", "confluence-gateway", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            assert result.returncode == 0, (
-                f"Text-only mode initialization failed: {result.stderr}"
-            )
+            CLITestRunner.run_command(["--version"], timeout=60)
 
             # Test that text search help works
-            result = subprocess.run(
-                [
-                    "uv",
-                    "run",
-                    "confluence-gateway",
-                    "search",
-                    "text",
-                    "--help",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            assert result.returncode == 0, f"Text search help failed: {result.stderr}"
-
-        finally:
-            # Restore environment
-            restore_env_vars(previous_env)
-            cleanup_temp_dirs(config_result.temp_dirs)
+            CLITestRunner.run_command(["search", "text", "--help"], timeout=30)

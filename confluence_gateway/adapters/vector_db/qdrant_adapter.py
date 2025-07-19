@@ -9,11 +9,8 @@ from confluence_gateway.adapters.vector_db.models import (
     VectorSearchResultItem,
 )
 from confluence_gateway.core.config import (
-    ModelMetadata,
     VectorDBConfig,
-    dev_mode_log_skip,
-    dev_mode_log_stub,
-    is_dev_mode,
+    get_development_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,10 +67,11 @@ class QdrantAdapter(VectorDBAdapter):
     def __init__(self, config: VectorDBConfig) -> None:
         self.config = config
         self.client: Any | None = None  # QdrantClient will be loaded lazily
-        self.dev_mode = is_dev_mode()
+        self.dev_context = get_development_context()
+        self.dev_mode = self.dev_context.enabled
 
         if self.dev_mode:
-            dev_mode_log_stub("QdrantAdapter")
+            self.dev_context.log_stub("QdrantAdapter")
             logger.info(
                 "QdrantAdapter initialized in DEV MODE - stub implementation only"
             )
@@ -88,7 +86,7 @@ class QdrantAdapter(VectorDBAdapter):
             )
 
         if self.dev_mode:
-            dev_mode_log_skip("Qdrant client dependencies and connection")
+            self.dev_context.log_skip("Qdrant client dependencies and connection")
             logger.info(
                 "QdrantAdapter initialized in DEV MODE - dependencies validation skipped"
             )
@@ -539,7 +537,7 @@ class QdrantAdapter(VectorDBAdapter):
     def get_collection_metadata(self) -> dict[str, Any] | None:
         """Get metadata for the collection, including embedding model information."""
         if self.dev_mode:
-            dev_mode_log_stub("Qdrant get_collection_metadata")
+            self.dev_context.log_stub("Qdrant get_collection_metadata")
             return {"dev_mode": True}
 
         client = self._ensure_client()
@@ -579,7 +577,7 @@ class QdrantAdapter(VectorDBAdapter):
     def set_collection_metadata(self, metadata: dict[str, Any]) -> None:
         """Set metadata for the collection, including embedding model information."""
         if self.dev_mode:
-            dev_mode_log_stub("Qdrant set_collection_metadata")
+            self.dev_context.log_stub("Qdrant set_collection_metadata")
             return
 
         if not metadata:
@@ -631,7 +629,7 @@ class QdrantAdapter(VectorDBAdapter):
     def has_data(self) -> bool:
         """Check if the collection has any data."""
         if self.dev_mode:
-            dev_mode_log_stub("Qdrant has_data")
+            self.dev_context.log_stub("Qdrant has_data")
             return False
 
         try:
@@ -653,7 +651,7 @@ class QdrantAdapter(VectorDBAdapter):
     def get_collection_info(self) -> dict[str, Any]:
         """Get information about the collection including size, configuration, etc."""
         if self.dev_mode:
-            dev_mode_log_stub("Qdrant get_collection_info")
+            self.dev_context.log_stub("Qdrant get_collection_info")
             return {"dev_mode": True, "count": 0}
 
         client = self._ensure_client()
@@ -685,61 +683,10 @@ class QdrantAdapter(VectorDBAdapter):
             logger.debug(f"Failed to get collection info: {e}")
             return {"error": str(e)}
 
-    def store_model_metadata(self, metadata: ModelMetadata) -> None:
-        """Store model metadata in the vector database."""
-        if self.dev_mode:
-            dev_mode_log_stub("Qdrant store_model_metadata")
-            return
-
-        metadata_dict = {
-            "model_provider": metadata.provider,
-            "model_name": metadata.model_name,
-            "model_dimension": metadata.dimension,
-            "model_device": metadata.device,
-            "model_created_at": metadata.created_at.isoformat(),
-            "model_configuration_hash": metadata.configuration_hash,
-        }
-
-        # Store in the vector database's collection metadata
-        self.set_collection_metadata(metadata_dict)
-        logger.info(
-            f"Stored model metadata for provider: {metadata.provider}, model: {metadata.model_name}"
-        )
-
-    def get_model_metadata(self) -> ModelMetadata | None:
-        """Retrieve model metadata from the vector database."""
-        if self.dev_mode:
-            dev_mode_log_stub("Qdrant get_model_metadata")
-            return None
-
-        try:
-            metadata = self.get_collection_metadata()
-            if not metadata:
-                return None
-
-            # Check if this is model metadata
-            if "model_provider" not in metadata:
-                return None
-
-            from datetime import datetime
-
-            return ModelMetadata(
-                provider=metadata["model_provider"],
-                model_name=metadata["model_name"],
-                dimension=metadata["model_dimension"],
-                device=metadata.get("model_device"),
-                created_at=datetime.fromisoformat(metadata["model_created_at"]),
-                collection_name=self.config.collection_name,
-                configuration_hash=metadata["model_configuration_hash"],
-            )
-        except Exception as e:
-            logger.debug(f"Failed to retrieve model metadata: {e}")
-            return None
-
     def list_collections(self) -> list[dict[str, Any]]:
         """List all available collections and their basic information."""
         if self.dev_mode:
-            dev_mode_log_stub("Qdrant list_collections")
+            self.dev_context.log_stub("Qdrant list_collections")
             return []
 
         try:

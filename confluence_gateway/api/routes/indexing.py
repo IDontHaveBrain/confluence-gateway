@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 
 from confluence_gateway.api.dependencies import get_indexing_service
 from confluence_gateway.api.schemas.requests import IndexingTriggerRequest
@@ -8,7 +8,8 @@ from confluence_gateway.api.schemas.responses import (
     ErrorResponse,
     IndexingStatusResponse,
 )
-from confluence_gateway.services.indexing import IndexingService
+from confluence_gateway.core.exception_mapping import APIExceptionHandler
+from confluence_gateway.services.indexing_service import IndexingService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,6 +28,7 @@ router = APIRouter()
         },
     },
 )
+@APIExceptionHandler.handle_exceptions
 async def trigger_indexing(
     request: IndexingTriggerRequest,
     background_tasks: BackgroundTasks,
@@ -34,28 +36,18 @@ async def trigger_indexing(
 ) -> IndexingStatusResponse:
     if indexing_service is None:
         logger.error("Indexing trigger failed: IndexingService is not available.")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=ErrorResponse(
-                status="error",
-                code=503,
-                message="Indexing service is not configured or failed to initialize.",
-                details={"type": "service_unavailable"},
-            ).model_dump(),
+        from confluence_gateway.core.exceptions import ConfluenceGatewayError
+
+        raise ConfluenceGatewayError(
+            "Indexing service is not configured or failed to initialize."
         )
 
     current_status = indexing_service.status["status"]
     if current_status == "running":
         logger.warning("Indexing trigger failed: Process is already running.")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=ErrorResponse(
-                status="error",
-                code=409,
-                message="Indexing process is already running.",
-                details={"type": "indexing_in_progress"},
-            ).model_dump(),
-        )
+        from confluence_gateway.core.exceptions import ConfluenceGatewayError
+
+        raise ConfluenceGatewayError("Indexing process is already running.")
 
     if request.index_all:
         target_description = "All accessible spaces"
@@ -86,6 +78,7 @@ async def trigger_indexing(
         },
     },
 )
+@APIExceptionHandler.handle_exceptions
 async def get_indexing_status(
     indexing_service: IndexingService | None = Depends(get_indexing_service),
 ) -> IndexingStatusResponse:

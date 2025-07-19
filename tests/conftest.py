@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 # Import testing mode detection
-from confluence_gateway.core.config import get_testing_mode, should_use_memory_mode
+from confluence_gateway.core.config import get_environment_context
 
 # Import shared embedding optimization fixtures
 from tests.fixtures.shared_embedding import (
@@ -36,7 +36,7 @@ def _setup_test_storage_environment():
     """Configure test storage environment based on testing mode."""
     global _test_storage_dir
 
-    use_memory = should_use_memory_mode()
+    use_memory = get_environment_context().use_memory_mode
 
     if use_memory:
         # Local testing - use memory mode
@@ -87,6 +87,10 @@ def _setup_test_storage_environment():
     os.environ["EMBEDDING_DIMENSION"] = "384"
     os.environ["EMBEDDING_DEVICE"] = "cpu"
 
+    # Enable development mode for all tests to ensure stub implementations and avoid external API calls
+    # Note: The GenerationService also has fallback pytest environment detection for additional safety
+    os.environ["CONFLUENCE_GATEWAY_DEV_MODE"] = "true"
+
 
 # Set up test storage environment at import time
 _setup_test_storage_environment()
@@ -123,8 +127,8 @@ def setup_shared_sentence_transformer_optimization(
     }
 
     # Log testing mode for debugging
-    testing_mode = get_testing_mode()
-    storage_mode = "memory" if should_use_memory_mode() else "file"
+    testing_mode = get_environment_context().testing_mode
+    storage_mode = "memory" if get_environment_context().use_memory_mode else "file"
 
     if optimization_status["shared_model"]:
         logger.info(
@@ -168,8 +172,12 @@ def api_server(shared_sentence_transformer_model):
     # Get current environment and add our test-specific overrides
     env = os.environ.copy()
 
+    # Preserve dev mode setting if it exists
+    if "CONFLUENCE_GATEWAY_DEV_MODE" in os.environ:
+        env["CONFLUENCE_GATEWAY_DEV_MODE"] = os.environ["CONFLUENCE_GATEWAY_DEV_MODE"]
+
     # Apply test storage configuration based on testing mode
-    if should_use_memory_mode():
+    if get_environment_context().use_memory_mode:
         env.update(
             {
                 "QDRANT_URL": ":memory:",
@@ -188,19 +196,34 @@ def api_server(shared_sentence_transformer_model):
         )
 
     # Common test environment settings
-    env.update(
-        {
-            "VECTOR_DB_TYPE": env.get("VECTOR_DB_TYPE", "qdrant"),
-            "VECTOR_DB_EMBEDDING_DIMENSION": env.get(
-                "VECTOR_DB_EMBEDDING_DIMENSION", "384"
-            ),
-            # Force sentence-transformers provider for consistency with tests
-            "EMBEDDING_PROVIDER": "sentence-transformers",
-            "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
-            "EMBEDDING_DIMENSION": "384",
-            "EMBEDDING_DEVICE": "cpu",
-        }
-    )
+    # In dev mode, don't override embedding settings to avoid conflicts
+    if env.get("CONFLUENCE_GATEWAY_DEV_MODE", "").lower() not in [
+        "true",
+        "1",
+        "t",
+        "yes",
+        "y",
+    ]:
+        env.update(
+            {
+                "VECTOR_DB_TYPE": env.get("VECTOR_DB_TYPE", "qdrant"),
+                "VECTOR_DB_EMBEDDING_DIMENSION": env.get(
+                    "VECTOR_DB_EMBEDDING_DIMENSION", "384"
+                ),
+                # Force sentence-transformers provider for consistency with tests
+                "EMBEDDING_PROVIDER": "sentence-transformers",
+                "EMBEDDING_MODEL_NAME": "all-MiniLM-L6-v2",
+                "EMBEDDING_DIMENSION": "384",
+                "EMBEDDING_DEVICE": "cpu",
+            }
+        )
+    else:
+        # In dev mode, only set minimal required settings
+        env.update(
+            {
+                "VECTOR_DB_TYPE": env.get("VECTOR_DB_TYPE", "none"),
+            }
+        )
 
     # Start server with dynamic port and test environment variables
     process = subprocess.Popen(
@@ -234,7 +257,7 @@ def api_server(shared_sentence_transformer_model):
 
     # Additional startup time for model loading and initialization
     # Optimize delay based on whether shared model is available and testing mode
-    testing_mode = get_testing_mode()
+    testing_mode = get_environment_context().testing_mode
 
     if shared_sentence_transformer_model is not None:
         if testing_mode == "ci":
@@ -355,8 +378,8 @@ def optimized_embedding_context(
 
     # Log context availability for debugging
     available_layers = [k for k, v in context["available"].items() if v]
-    testing_mode = get_testing_mode()
-    storage_mode = "memory" if should_use_memory_mode() else "file"
+    testing_mode = get_environment_context().testing_mode
+    storage_mode = "memory" if get_environment_context().use_memory_mode else "file"
     print(
         f"Optimized embedding context ({testing_mode} mode, {storage_mode} storage) - available layers: {available_layers}"
     )

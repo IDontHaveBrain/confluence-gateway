@@ -2,67 +2,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from confluence_gateway.core.config import search_config
-
-
-class BaseSearchRequest(BaseModel):
-    limit: int | None = None
-    start: int | None = None
-    expand: list[str] | None = None
-
-    @field_validator("limit")
-    def validate_limit(cls, v: int | None) -> int | None:
-        if v is not None:
-            if v <= 0:
-                raise ValueError("Limit must be a positive integer")
-            if v > search_config.max_limit:
-                raise ValueError(f"Limit cannot exceed {search_config.max_limit}")
-        return v
-
-    @field_validator("start")
-    def validate_start(cls, v: int | None) -> int | None:
-        if v is not None and v < 0:
-            raise ValueError("Start position cannot be negative")
-        return v
-
-
-class TextSearchRequest(BaseSearchRequest):
-    query: str
-    space_key: str | None = None
-    content_type: str | None = None
-    include_archived: bool | None = False
-
-    @field_validator("query")
-    def validate_query(cls, v: str) -> str:
-        if not v or len(v.strip()) < 2:
-            raise ValueError("Query must be at least 2 characters long")
-        return v
-
-    @field_validator("content_type")
-    def validate_content_type(cls, v: str | None) -> str | None:
-        if v is not None:
-            valid_types = ["page", "blogpost", "attachment", "comment"]
-            if v.lower() not in valid_types:
-                raise ValueError(
-                    f"Invalid content type. Must be one of: {', '.join(valid_types)}"
-                )
-        return v
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "query": "confluence api",
-                    "space_key": "DEV",
-                    "content_type": "page",
-                    "include_archived": False,
-                    "limit": 20,
-                    "start": 0,
-                }
-            ]
-        }
-    }
-
 
 class IndexingTriggerRequest(BaseModel):
     space_keys: list[str] | None = Field(
@@ -91,8 +30,11 @@ class IndexingTriggerRequest(BaseModel):
     }
 
 
-class CQLSearchRequest(BaseSearchRequest):
+class CQLSearchRequest(BaseModel):
     cql: str
+    limit: int | None = Field(None, gt=0, le=1000)
+    start: int | None = Field(None, ge=0)
+    expand: list[str] | None = None
 
     @field_validator("cql")
     def validate_cql(cls, v: str) -> str:
@@ -116,11 +58,14 @@ class CQLSearchRequest(BaseSearchRequest):
     }
 
 
-class AdvancedSearchRequest(BaseSearchRequest):
+class AdvancedSearchRequest(BaseModel):
     query: str
     space_key: str | None = None
     content_type: str | None = None
     include_archived: bool | None = False
+    limit: int | None = Field(None, gt=0, le=1000)
+    start: int | None = Field(None, ge=0)
+    expand: list[str] | None = None
     get_all_results: bool | None = False
     max_results: int | None = None
     min_relevance: float | None = Field(None, ge=0.0, le=1.0)

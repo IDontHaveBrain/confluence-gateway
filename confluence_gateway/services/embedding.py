@@ -1,17 +1,20 @@
 import logging
-from datetime import datetime, timezone
 
 from confluence_gateway.adapters.embedding.base import EmbeddingProvider
 from confluence_gateway.adapters.vector_db.base_adapter import VectorDBAdapter
-from confluence_gateway.core.embedding_compatibility import (
-    EmbeddingCompatibilityChecker,
-    EmbeddingModelInfo,
-)
 from confluence_gateway.core.exceptions import (
     EmbeddingCompatibilityError,
     EmbeddingError,
     EmbeddingProviderError,
 )
+from confluence_gateway.core.model_info import (
+    ModelCompatibilityValidator,
+    ModelInfo,
+)
+from confluence_gateway.services.common.initialization_logger import (
+    InitializationLogger,
+)
+from confluence_gateway.services.common.validation_utils import ValidationUtils
 
 logger = logging.getLogger(__name__)
 
@@ -19,23 +22,27 @@ logger = logging.getLogger(__name__)
 class EmbeddingService:
     def __init__(self, provider: EmbeddingProvider | None):
         self.provider = provider
-        self.compatibility_checker = EmbeddingCompatibilityChecker()
-        self._cached_model_info: EmbeddingModelInfo | None = None
+        self._cached_model_info: ModelInfo | None = None
 
-        if self.provider:
-            logger.info(
-                f"EmbeddingService initialized with provider: {self.provider.__class__.__name__}"
-            )
-        else:
-            logger.warning(
-                "EmbeddingService initialized without a provider. Embedding operations will be disabled."
-            )
+        # Log provider availability using standardized logging
+        InitializationLogger.log_component_availability(
+            "EmbeddingService",
+            f"provider ({self.provider.__class__.__name__})"
+            if self.provider
+            else "provider",
+            self.provider is not None,
+            logger,
+            impact_message="Embedding operations will be disabled.",
+        )
 
     def embed_text(self, text: str) -> list[float]:
-        if not self.provider:
-            logger.error(
-                "Attempted to embed text, but no embedding provider is configured."
-            )
+        if not ValidationUtils.validate_service_dependency(
+            self.provider,
+            "embedding provider",
+            logger,
+            required=True,
+            operation_name="text embedding",
+        ):
             raise EmbeddingError("Embedding provider not configured.")
 
         if not text or not isinstance(text, str):
@@ -43,6 +50,9 @@ class EmbeddingService:
                 "Received empty or invalid text for embedding, returning empty list."
             )
             return []
+
+        # Provider guaranteed to be not None by validation above
+        assert self.provider is not None
 
         try:
             return self.provider.embed_text(text)
@@ -56,10 +66,13 @@ class EmbeddingService:
             ) from e
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        if not self.provider:
-            logger.error(
-                "Attempted to embed texts, but no embedding provider is configured."
-            )
+        if not ValidationUtils.validate_service_dependency(
+            self.provider,
+            "embedding provider",
+            logger,
+            required=True,
+            operation_name="batch text embedding",
+        ):
             raise EmbeddingError("Embedding provider not configured.")
 
         if not texts:
@@ -67,6 +80,9 @@ class EmbeddingService:
                 "Received empty list for batch embedding, returning empty list."
             )
             return []
+
+        # Provider guaranteed to be not None by validation above
+        assert self.provider is not None
 
         try:
             return self.provider.embed_texts(texts)
@@ -86,11 +102,16 @@ class EmbeddingService:
             ) from e
 
     def get_dimension(self) -> int | None:
-        if not self.provider:
-            logger.warning(
-                "Attempted to get embedding dimension, but no provider is configured."
-            )
+        if not ValidationUtils.validate_service_dependency(
+            self.provider,
+            "embedding provider",
+            logger,
+            operation_name="dimension retrieval",
+        ):
             return None
+
+        # Provider guaranteed to be not None by validation above
+        assert self.provider is not None
 
         try:
             return self.provider.get_dimension()
@@ -105,12 +126,12 @@ class EmbeddingService:
             )
             return None
 
-    def get_model_info(self) -> EmbeddingModelInfo | None:
+    def get_model_info(self) -> ModelInfo | None:
         """
         Get information about the current embedding model.
 
         Returns:
-            EmbeddingModelInfo if provider is available, None otherwise
+            ModelInfo if provider is available, None otherwise
         """
         if not self.provider:
             return None
@@ -118,12 +139,8 @@ class EmbeddingService:
         if self._cached_model_info is None:
             try:
                 provider_name = getattr(self.provider.config, "provider", "unknown")
-                timestamp = datetime.now(timezone.utc).isoformat()
-
-                self._cached_model_info = (
-                    self.compatibility_checker.create_model_info_from_provider(
-                        self.provider, provider_name, timestamp
-                    )
+                self._cached_model_info = ModelInfo.from_provider(
+                    self.provider, provider_name
                 )
             except Exception as e:
                 logger.error(f"Failed to create model info: {e}", exc_info=True)
@@ -145,19 +162,20 @@ class EmbeddingService:
             EmbeddingCompatibilityError: If models are incompatible
             EmbeddingError: If validation fails due to other errors
         """
-        if not self.provider:
-            logger.debug(
-                "No embedding provider configured, skipping compatibility validation"
-            )
+        if not ValidationUtils.validate_service_dependency(
+            self.provider,
+            "embedding provider",
+            logger,
+            operation_name="compatibility validation",
+        ):
+            logger.debug("Skipping compatibility validation")
             return
 
         try:
             # Check if the collection has existing data
             has_data = vector_db_adapter.has_data()
 
-            if not self.compatibility_checker.should_validate_compatibility(
-                operation_type, has_data
-            ):
+            if not has_data:
                 logger.debug(
                     f"Skipping compatibility validation: operation={operation_type}, has_data={has_data}"
                 )
@@ -179,11 +197,7 @@ class EmbeddingService:
             stored_model_info = None
 
             if collection_metadata:
-                stored_model_info = (
-                    self.compatibility_checker.extract_model_info_from_metadata(
-                        [collection_metadata]
-                    )
-                )
+                stored_model_info = ModelInfo.from_metadata_dict(collection_metadata)
 
             # If no stored model info in collection metadata, try to get from document metadata
             if not stored_model_info:
@@ -197,22 +211,22 @@ class EmbeddingService:
                         "embedding_provider",
                         "embedding_dimension",
                         "embedding_model_created_at",
+                        "embedding_model_version",
                     ],
                     limit=1,
                 )
-                stored_model_info = (
-                    self.compatibility_checker.extract_model_info_from_metadata(
-                        document_metadata
-                    )
+                validator = ModelCompatibilityValidator()
+                stored_model_info = validator.extract_model_info_from_metadata(
+                    document_metadata
                 )
 
             if stored_model_info:
-                # Validate compatibility
-                self.compatibility_checker.validate_model_compatibility(
-                    current_model_info,
-                    stored_model_info,
-                    strict_model_match=False,  # Allow different models with same dimensions
+                # Use the new ModelCompatibilityValidator
+                validator = ModelCompatibilityValidator()
+                validator.validate_compatibility(
+                    current_model_info, stored_model_info, operation_type
                 )
+
                 logger.info("Embedding model compatibility validation passed")
             else:
                 logger.info(
@@ -237,10 +251,13 @@ class EmbeddingService:
         Args:
             vector_db_adapter: The vector database adapter to store info in
         """
-        if not self.provider:
-            logger.debug(
-                "No embedding provider configured, skipping model info storage"
-            )
+        if not ValidationUtils.validate_service_dependency(
+            self.provider,
+            "embedding provider",
+            logger,
+            operation_name="model info storage",
+        ):
+            logger.debug("Skipping model info storage")
             return
 
         try:
@@ -253,7 +270,7 @@ class EmbeddingService:
             logger.info(
                 f"Storing embedding model info in collection metadata: {model_info.model_name}"
             )
-            vector_db_adapter.set_collection_metadata(model_info.to_dict())
+            vector_db_adapter.set_collection_metadata(model_info.to_metadata_dict())
 
         except Exception as e:
             logger.error(f"Failed to store embedding model info: {e}", exc_info=True)

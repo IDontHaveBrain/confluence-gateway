@@ -33,10 +33,15 @@ def trigger_indexing(
         help="Index all accessible spaces (ignores configuration filters).",
     ),
 ) -> None:
-    from confluence_gateway.cli.dependencies import _get_indexing_service
-    from confluence_gateway.services.indexing import IndexingService
+    from confluence_gateway.cli.dependencies import (
+        StubIndexingService,
+        _get_indexing_service,
+    )
+    from confluence_gateway.services.indexing_service import IndexingService
 
-    indexing_service: IndexingService | None = _get_indexing_service()
+    indexing_service: IndexingService | StubIndexingService | None = (
+        _get_indexing_service()
+    )
 
     if indexing_service is None:
         raise typer.Exit(code=1)
@@ -89,10 +94,15 @@ def trigger_indexing(
 @handle_cli_errors
 def get_status() -> None:
     from confluence_gateway.api.schemas.responses import IndexingStatusResponse
-    from confluence_gateway.cli.dependencies import _get_indexing_service
-    from confluence_gateway.services.indexing import IndexingService
+    from confluence_gateway.cli.dependencies import (
+        StubIndexingService,
+        _get_indexing_service,
+    )
+    from confluence_gateway.services.indexing_service import IndexingService
 
-    indexing_service: IndexingService | None = _get_indexing_service()
+    indexing_service: IndexingService | StubIndexingService | None = (
+        _get_indexing_service()
+    )
 
     if indexing_service is None:
         status_response = IndexingStatusResponse(

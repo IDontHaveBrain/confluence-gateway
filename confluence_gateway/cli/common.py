@@ -1,11 +1,12 @@
 import json
 import logging
-from functools import wraps
 from typing import Any
 
-import typer
-
-from confluence_gateway.core.exceptions import ConfluenceGatewayError
+from confluence_gateway.core.exception_mapping import CLIExceptionHandler
+from confluence_gateway.core.transformers import (
+    DataFormatConverter,
+    PaginationTransformer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,34 +30,18 @@ def print_status(message: str, status_type: str = "info") -> None:
 def print_search_results(
     results: list[Any], total: int, start: int, limit: int, took_ms: float
 ) -> None:
-    # Convert results to JSON-serializable format
+    # Use shared transformer to build consistent response format
+    pagination_data = PaginationTransformer.build_pagination_data(
+        total=total, start=start, limit=limit, current_count=len(results)
+    )
+
+    # Convert results to JSON-serializable format using shared utility
     results_data = []
     for item in results:
-        result_dict = {
-            "id": item.id,
-            "title": item.title,
-            "type": item.type,
-            "space_key": item.space_key,
-            "space_name": item.space_name,
-            "last_modified": item.last_modified.isoformat()
-            if item.last_modified
-            else None,
-            "url": item.url,
-        }
-        if hasattr(item, "content") and item.content:
-            result_dict["content"] = item.content
-        if hasattr(item, "excerpt") and item.excerpt:
-            result_dict["excerpt"] = item.excerpt
-        results_data.append(result_dict)
+        item_dict = DataFormatConverter.to_json_serializable(item)
+        results_data.append(item_dict)
 
-    result = {
-        "results": results_data,
-        "total": total,
-        "start": start,
-        "limit": limit,
-        "count": len(results),
-        "took_ms": took_ms,
-    }
+    result = {"results": results_data, "took_ms": took_ms, **pagination_data}
     print(json.dumps(result, indent=2))
 
 
@@ -100,19 +85,10 @@ def print_indexing_status(status: Any) -> None:
 
 
 def print_generated_answer(answer: str, sources: list[Any]) -> None:
-    # Convert sources to JSON-serializable format
-    sources_data = []
-    for source in sources:
-        source_dict = {
-            "id": source.id,
-            "score": source.score,
-            "title": source.title,
-            "space_key": source.space_key,
-            "url": source.url,
-        }
-        if hasattr(source, "content") and source.content:
-            source_dict["content"] = source.content
-        sources_data.append(source_dict)
+    # Convert sources to JSON-serializable format using shared utility
+    sources_data = [
+        DataFormatConverter.to_json_serializable(source) for source in sources
+    ]
 
     result = {
         "answer": answer,
@@ -123,21 +99,10 @@ def print_generated_answer(answer: str, sources: list[Any]) -> None:
 
 
 def handle_cli_errors(func: Any) -> Any:
-    @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return func(*args, **kwargs)
-        except ConfluenceGatewayError as e:
-            error_type = type(e).__name__
-            logger.error(f"CLI Error ({error_type}): {e}", exc_info=True)
-            print_status(f"Error ({error_type}): {str(e)}", "error")
-            raise typer.Exit(code=1)
-        except typer.Exit:
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected CLI Error: {e}", exc_info=True)
-            print_status(f"Unexpected Error: {str(e)}", "error")
-            print_status("Check logs for more details.", "dim")
-            raise typer.Exit(code=1)
+    """Legacy wrapper - redirects to shared exception handler."""
+    return CLIExceptionHandler.handle_exceptions(func)
 
-    return wrapper
+
+def handle_cli_errors_verbose(func: Any) -> Any:
+    """Legacy wrapper with verbose output - redirects to shared exception handler."""
+    return CLIExceptionHandler.handle_exceptions_verbose(func)

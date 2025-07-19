@@ -12,6 +12,8 @@ from confluence_gateway.core.exceptions import (
     ConfluenceConnectionError,
     ConfluenceGatewayError,
 )
+from confluence_gateway.core.transformers import SpaceTransformer
+from confluence_gateway.core.validation import ParameterValidator
 
 app = typer.Typer()
 
@@ -222,21 +224,17 @@ def list_spaces(
         confluence-gateway spaces list --sort type --reverse
         confluence-gateway spaces list --all
     """
-    from confluence_gateway.adapters.confluence.client import ConfluenceClient
     from confluence_gateway.cli.dependencies import _get_confluence_client
 
-    # Validate type parameter
-    if type and type.lower() not in ["personal", "global", "all"]:
-        print("Error: type must be 'personal', 'global', or 'all'")
-        raise typer.Exit(1)
-
-    # Validate sort parameter
-    if sort and sort.lower() not in ["name", "key", "type", "id"]:
-        print("Error: sort must be 'name', 'key', 'type', or 'id'")
-        raise typer.Exit(1)
+    # Validate parameters using shared validation
+    validated_params = ParameterValidator.validate_spaces_list_params(
+        space_type=type, sort=sort
+    )
+    type = validated_params["type"]
+    sort = validated_params["sort"]
 
     try:
-        client: ConfluenceClient = _get_confluence_client()
+        client = _get_confluence_client()
 
         # Prepare space_type parameter for API
         space_type = None if not type or type.lower() == "all" else type.lower()
@@ -392,18 +390,8 @@ def list_spaces(
             return
 
         # Convert spaces to JSON-serializable format
-        spaces_data = []
-        for space in spaces:
-            space_dict = {
-                "id": space.id,
-                "key": space.key,
-                "name": space.name or space.title,
-                "title": space.title,
-                "type": space.type.value if space.type else "unknown",
-            }
-            if hasattr(space, "description_text") and space.description_text:
-                space_dict["description"] = space.description_text
-            spaces_data.append(space_dict)
+        # Use shared transformer to extract spaces data
+        spaces_data = SpaceTransformer.extract_spaces_data(spaces)
 
         result = {
             "spaces": spaces_data,
@@ -435,11 +423,10 @@ def space_info(
     """
     Get detailed information about a specific Confluence space.
     """
-    from confluence_gateway.adapters.confluence.client import ConfluenceClient
     from confluence_gateway.cli.dependencies import _get_confluence_client
 
     try:
-        client: ConfluenceClient = _get_confluence_client()
+        client = _get_confluence_client()
 
         def fetch_space_info() -> Any:
             return client.get_space(space_key)

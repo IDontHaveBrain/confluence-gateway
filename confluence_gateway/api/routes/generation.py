@@ -1,8 +1,6 @@
 import logging
-from functools import wraps
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 
 from confluence_gateway.api.dependencies import get_generation_service
 from confluence_gateway.api.schemas.requests import GenerateAnswerRequest
@@ -11,70 +9,11 @@ from confluence_gateway.api.schemas.responses import (
     GenerateAnswerResponse,
     SourceDocument,
 )
-from confluence_gateway.core.exceptions import (
-    ConfluenceAuthenticationError,
-    ConfluenceConnectionError,
-    GenerationError,
-    SearchParameterError,
-    SemanticSearchError,
-)
+from confluence_gateway.core.exception_mapping import APIExceptionHandler
 from confluence_gateway.services.generation import GenerationService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def handle_generation_exceptions(func: Any) -> Any:
-    @wraps(func)
-    async def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return await func(*args, **kwargs)
-        except GenerationError as e:
-            error = ErrorResponse(
-                code=500,
-                message=f"Generation failed: {str(e)}",
-                details={"type": "generation_error"},
-            )
-            raise HTTPException(status_code=500, detail=error.model_dump())
-        except SemanticSearchError as e:
-            error = ErrorResponse(
-                code=500,
-                message=f"Context retrieval failed: {str(e)}",
-                details={"type": "semantic_search_error"},
-            )
-            raise HTTPException(status_code=500, detail=error.model_dump())
-        except SearchParameterError as e:
-            error = ErrorResponse(
-                code=400, message=str(e), details={"type": "search_parameter_error"}
-            )
-            raise HTTPException(status_code=400, detail=error.model_dump())
-        except ConfluenceAuthenticationError as e:
-            error = ErrorResponse(
-                code=401, message=str(e), details={"type": "authentication_error"}
-            )
-            raise HTTPException(status_code=401, detail=error.model_dump())
-        except ConfluenceConnectionError as e:
-            error = ErrorResponse(
-                code=503,
-                message=f"Confluence connection error during context retrieval: {str(e)}",
-                details={
-                    "type": "connection_error",
-                    "cause": str(getattr(e, "cause", "")),
-                },
-            )
-            raise HTTPException(status_code=503, detail=error.model_dump())
-        except HTTPException as e:
-            raise e
-        except Exception as e:
-            logger.error(f"Unexpected error during generation: {e}", exc_info=True)
-            error = ErrorResponse(
-                code=500,
-                message=f"Unexpected server error during generation: {str(e)}",
-                details={"type": "server_error"},
-            )
-            raise HTTPException(status_code=500, detail=error.model_dump())
-
-    return wrapper
 
 
 @router.post(
@@ -95,7 +34,7 @@ def handle_generation_exceptions(func: Any) -> Any:
         },
     },
 )
-@handle_generation_exceptions
+@APIExceptionHandler.handle_exceptions
 async def generate_answer(
     request: Request,
     gen_request: GenerateAnswerRequest,

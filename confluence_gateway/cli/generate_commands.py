@@ -1,7 +1,6 @@
 import asyncio
-import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 import typer
 
@@ -15,6 +14,7 @@ from confluence_gateway.core.exceptions import (
     SearchParameterError,
     SemanticSearchError,
 )
+from confluence_gateway.core.validation import ValidationUtils
 
 logger = logging.getLogger(__name__)
 
@@ -44,36 +44,36 @@ def generate_answer_command(
     ),
 ) -> None:
     from confluence_gateway.api.schemas.responses import SourceDocument
-    from confluence_gateway.cli.dependencies import _get_generation_service
+    from confluence_gateway.cli.dependencies import (
+        StubGenerationService,
+        _get_generation_service,
+    )
     from confluence_gateway.services.generation import GenerationService
 
-    generation_service: GenerationService = _get_generation_service()
+    generation_service: GenerationService | StubGenerationService = (
+        _get_generation_service()
+    )
 
     print_status("Generating answer using RAG...", "info")
 
     parsed_filters: dict[str, Any] | None = None
     if filters:
-        try:
-            parsed_filters = json.loads(filters)
-            if not isinstance(parsed_filters, dict):
-                raise SearchParameterError(
-                    "Filters must be a valid JSON object string."
-                )
-            print(f"Applying retrieval filters: {parsed_filters}")
-        except json.JSONDecodeError as e:
-            raise SearchParameterError(f"Invalid JSON in filters string: {e}")
+        parsed_filters = ValidationUtils.validate_json_string(filters, "filters")
+        print(f"Applying retrieval filters: {parsed_filters}")
 
     try:
         logger.info(
             f"Calling generation service for query: '{query[:50]}...', top_k={top_k_retrieval}, filters={parsed_filters}"
         )
-        answer, retrieved_results = asyncio.run(
+        result = asyncio.run(
             generation_service.generate_answer(
                 query=query,
                 top_k_retrieval=top_k_retrieval or 5,
                 filters=parsed_filters,
             )
         )
+        answer = result[0]
+        retrieved_results = cast(list[Any], result[1])
         logger.info("Generation service call completed.")
 
         source_docs = [

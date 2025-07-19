@@ -1,6 +1,3 @@
-import json
-import logging
-from datetime import datetime
 from typing import Any, cast
 
 import typer
@@ -11,9 +8,8 @@ from confluence_gateway.cli.common import (
     print_semantic_search_results,
     print_status,
 )
-from confluence_gateway.core.exceptions import SearchParameterError
-
-logger = logging.getLogger(__name__)
+from confluence_gateway.core.transformers import SearchResultTransformer
+from confluence_gateway.core.validation import ValidationUtils
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -24,33 +20,14 @@ app = typer.Typer(
 def _convert_to_search_result_items(pages: list[Any], client: Any) -> list[Any]:
     from confluence_gateway.api.schemas.responses import SearchResultItem
 
-    items = []
-    for page in pages:
-        extracted = client.extract_content_fields(page)
-        space_key = extracted.get("space_key", "")
-        page_id = extracted.get("id", "")
-        base_url = client.base_url
+    # Use shared transformer to get normalized data
+    items_data = SearchResultTransformer.build_search_result_items_from_pages(
+        pages, client
+    )
 
-        url = extracted.get("url")
-        if not url and base_url and space_key and page_id:
-            url = f"{base_url}/wiki/spaces/{space_key}/pages/{page_id}"
-        elif not url:
-            url = "URL not available"
+    # Convert to SearchResultItem objects
+    items = [SearchResultItem(**item_data) for item_data in items_data]
 
-        items.append(
-            SearchResultItem(
-                id=page_id,
-                title=extracted.get("title", "Title not available"),
-                type=extracted.get("type", "page"),
-                space_key=space_key,
-                space_name=extracted.get("space_name", "Space name not available"),
-                url=url,
-                excerpt=getattr(page, "excerpt", None),
-                last_modified=extracted.get("updated_at")
-                or extracted.get("created_at")
-                or datetime.now(),
-            )
-        )
     return items
 
 
@@ -96,10 +73,13 @@ def text_search(
         None, "--top-n", help="Return only the top N results after fetching."
     ),
 ) -> None:
-    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.cli.dependencies import (
+        StubSearchService,
+        _get_search_service,
+    )
     from confluence_gateway.services.search import EnhancedSearchResult, SearchService
 
-    search_service: SearchService = _get_search_service()
+    search_service: SearchService | StubSearchService = _get_search_service()
 
     print_status("Performing Text Search...", "info")
     enhanced_result = cast(
@@ -112,7 +92,7 @@ def text_search(
             limit=limit,
             start=start,
             expand=expand,
-            min_relevance=min_relevance,
+            min_relevance=min_relevance or 0.0,
             top_n=top_n,
             sort_by=sort_by,
             sort_direction=sort_direction,
@@ -159,10 +139,13 @@ def hybrid_search(
         None, "--expand", help="Fields to expand (repeatable)."
     ),
 ) -> None:
-    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.cli.dependencies import (
+        StubSearchService,
+        _get_search_service,
+    )
     from confluence_gateway.services.search import EnhancedSearchResult, SearchService
 
-    search_service: SearchService = _get_search_service()
+    search_service: SearchService | StubSearchService = _get_search_service()
 
     print_status("Performing Hybrid Search...", "info")
     enhanced_result = cast(
@@ -206,10 +189,13 @@ def cql_search(
         None, "--expand", help="Fields to expand (repeatable)."
     ),
 ) -> None:
-    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.cli.dependencies import (
+        StubSearchService,
+        _get_search_service,
+    )
     from confluence_gateway.services.search import EnhancedSearchResult, SearchService
 
-    search_service: SearchService = _get_search_service()
+    search_service: SearchService | StubSearchService = _get_search_service()
     print_status(f"Performing CQL Search: '{cql_query}'", "info")
 
     enhanced_result: EnhancedSearchResult = cast(
@@ -248,23 +234,19 @@ def semantic_search(
         help='JSON string for metadata filtering, e.g., \'{"space_key": "DEV"}\'.',
     ),
 ) -> None:
-    from confluence_gateway.cli.dependencies import _get_search_service
+    from confluence_gateway.cli.dependencies import (
+        StubSearchService,
+        _get_search_service,
+    )
     from confluence_gateway.services.search import SearchService
 
-    search_service: SearchService = _get_search_service()
+    search_service: SearchService | StubSearchService = _get_search_service()
     print_status("Performing Semantic Search...", "info")
 
     parsed_filters: dict[str, Any] | None = None
     if filters:
-        try:
-            parsed_filters = json.loads(filters)
-            if not isinstance(parsed_filters, dict):
-                raise SearchParameterError(
-                    "Filters must be a valid JSON object string."
-                )
-            print(f"Applying filters: {parsed_filters}")
-        except json.JSONDecodeError as e:
-            raise SearchParameterError(f"Invalid JSON in filters string: {e}")
+        parsed_filters = ValidationUtils.validate_json_string(filters, "filters")
+        print(f"Applying filters: {parsed_filters}")
 
     results, took_ms = search_service.search_semantic(
         query=query, top_k=top_k, filters=parsed_filters

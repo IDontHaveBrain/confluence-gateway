@@ -6,14 +6,8 @@ from typing import Any
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from confluence_gateway.adapters.confluence.client import ConfluenceClient
-from confluence_gateway.api.dependencies import get_confluence_client
+from confluence_gateway.api.dependencies import get_health_status
 from confluence_gateway.api.routes import api_router
-from confluence_gateway.core.exceptions import (
-    ConfluenceAPIError,
-    ConfluenceAuthenticationError,
-    ConfluenceConnectionError,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -48,35 +42,19 @@ app.add_middleware(
 
 @app.get("/health", tags=["health"])
 def health_check(
-    client: ConfluenceClient = Depends(get_confluence_client),
+    health_status: dict[str, Any] = Depends(get_health_status),
 ) -> dict[str, Any]:
-    health_info = {
-        "status": "ok",
-        "version": APP_VERSION,
-        "timestamp": datetime.datetime.now().isoformat(),
-    }
+    """
+    Comprehensive health check endpoint.
 
-    try:
-        client.test_connection()
-        health_info["confluence_connection"] = "ok"
-    except ConfluenceConnectionError as e:
-        health_info["status"] = "degraded"
-        health_info["confluence_connection"] = "error"
-        health_info["confluence_error"] = str(e)
-    except ConfluenceAuthenticationError as e:
-        health_info["status"] = "degraded"
-        health_info["confluence_connection"] = "authentication_error"
-        health_info["confluence_error"] = str(e)
-    except ConfluenceAPIError as e:
-        health_info["status"] = "degraded"
-        health_info["confluence_connection"] = "api_error"
-        health_info["confluence_error"] = f"{e.error_message} (Status: {e.status_code})"
-    except Exception as e:
-        health_info["status"] = "degraded"
-        health_info["confluence_connection"] = "unknown_error"
-        health_info["confluence_error"] = str(e)
+    Uses the ServiceContainer to check the health of all services
+    and provides detailed status information.
+    """
+    # Add version and timestamp to health status
+    health_status["version"] = APP_VERSION
+    health_status["timestamp"] = datetime.datetime.now().isoformat()
 
-    return health_info
+    return health_status
 
 
 app.include_router(api_router, prefix="/api")

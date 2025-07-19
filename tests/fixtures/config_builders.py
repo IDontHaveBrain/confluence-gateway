@@ -27,8 +27,7 @@ from confluence_gateway.core.config import (
     IndexingConfig,
     SearchConfig,
     VectorDBConfig,
-    get_testing_mode,
-    should_use_memory_mode,
+    get_environment_context,
 )
 
 
@@ -122,7 +121,8 @@ def get_qdrant_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
         ConfigBuilderResult with Qdrant configuration and optional shared provider
     """
     temp_dirs = []
-    use_memory = should_use_memory_mode()
+    env_context = get_environment_context()
+    use_memory = env_context.use_memory_mode
 
     # Build embedding config
     embedding_config = EmbeddingConfig(
@@ -224,7 +224,8 @@ def get_chroma_memory_config(shared_provider: Any = None) -> ConfigBuilderResult
         ConfigBuilderResult with ChromaDB configuration and optional shared provider
     """
     temp_dirs = []
-    use_memory = should_use_memory_mode()
+    env_context = get_environment_context()
+    use_memory = env_context.use_memory_mode
 
     # Build embedding config
     embedding_config = EmbeddingConfig(

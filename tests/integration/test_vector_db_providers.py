@@ -108,17 +108,3 @@ class TestVectorDBProviders:
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = original_value
-
-
-# Smoke test to verify test data is accessible
-def test_test_data_accessibility() -> None:
-    """Smoke test to verify test data is accessible and well-formed."""
-    # Verify test configurations are available
-    assert "qdrant_memory" in TEST_CONFIGURATIONS
-    assert "chroma_memory" in TEST_CONFIGURATIONS
-
-    # Verify configurations have expected structure
-    for config_name in ["qdrant_memory", "chroma_memory"]:
-        config = TEST_CONFIGURATIONS[config_name]
-        assert "vector_db" in config, f"{config_name} should have vector_db config"
-        assert "embedding" in config, f"{config_name} should have embedding config"
