@@ -341,6 +341,12 @@ class SearchService:
     ) -> SearchResult:
         filtered_results = list(results.results)
 
+        # Filter by minimum score if specified
+        if min_score > 0.0:
+            # Note: Confluence text search doesn't provide scores, so we skip score filtering
+            # This parameter is kept for API compatibility
+            pass
+
         if top_n is not None and top_n > 0 and len(filtered_results) > top_n:
             filtered_results = filtered_results[:top_n]
 

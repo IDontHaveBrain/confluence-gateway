@@ -131,6 +131,11 @@ uv sync --dev
 
 # Code quality (run before commits)
 uv run ruff check --fix && uv run ruff format && uv run mypy confluence_gateway/
+uv run vulture confluence_gateway/ vulture_whitelist.py --min-confidence 90
+
+# Or use pre-commit for automated quality checks
+uv run pre-commit install
+uv run pre-commit run --all-files
 
 # Run tests (requires Confluence auth)
 uv run pytest tests/ -v

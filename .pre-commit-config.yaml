@@ -24,3 +24,10 @@ repos:
         language: system
         types: [python]
         args: ["--install-types", "--non-interactive"]
+      
+      - id: vulture
+        name: vulture
+        entry: uv run vulture confluence_gateway/ vulture_whitelist.py --min-confidence 90
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -314,10 +314,6 @@ class GenerationService:
             )
             raise GenerationError(f"Could not parse answer from LLM response: {e}")
 
-        raise GenerationError(
-            "Generation process completed without returning an answer."
-        )
-
     async def _retrieve_context_with_error_handling(
         self, query: str, top_k_retrieval: int, filters: dict[str, Any] | None
     ) -> tuple[list[VectorSearchResultItem], float]:

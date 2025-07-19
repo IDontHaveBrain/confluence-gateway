@@ -46,6 +46,7 @@ dev = [
     "pytest-asyncio>=1.0.0",
     "ruff>=0.12.3",
     "types-requests>=2.32.4.20250611",
+    "vulture>=2.14",
 ]
 
 [tool.ruff]
@@ -133,3 +134,11 @@ python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
+
+[tool.vulture]
+exclude = ["tests/", "scripts/", ".venv/", "build/", "dist/"]
+ignore_decorators = ["@app.route", "@router.*", "@pytest.*", "@typer.*", "@click.*"]
+ignore_names = ["main", "app", "cli", "version_flag"]
+min_confidence = 80
+sort_by_size = true
+paths = ["confluence_gateway"]
